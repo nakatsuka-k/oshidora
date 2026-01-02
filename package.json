@@ -1,18 +1,14 @@
 {
   "name": "oshidora",
-  "version": "1.0.0",
-  "main": "src/index.ts",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
-  },
-  "dependencies": {
-    "hono": "^4.6.16"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241127.0",
-    "typescript": "~5.9.2",
-    "wrangler": "^3.90.0"
-  },
-  "private": true
+    "dev:api": "npm --prefix apps/api run dev",
+    "dev:mobile": "npm --prefix apps/mobile start",
+    "deploy:api": "npm --prefix apps/api run deploy",
+    "db:migrate:local": "npm --prefix apps/api run db:migrate:local",
+    "db:migrate:remote": "npm --prefix apps/api run db:migrate:remote"
+  }
 }

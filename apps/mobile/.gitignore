@@ -3,18 +3,11 @@
 # dependencies
 node_modules/
 
-# Bun
-bun.lock
-
 # Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
-
-# Cloudflare Wrangler
-.wrangler/
-.dev.vars
 
 # Native
 .kotlin/
@@ -46,6 +39,3 @@ yarn-error.*
 # generated native folders
 /ios
 /android
-
-# Logs
-*.log

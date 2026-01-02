@@ -1,0 +1,8 @@
+name = "oshidora-api"
+main = "src/index.ts"
+compatibility_date = "2026-01-02"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "oshidora-db"
+database_id = "00000000-0000-0000-0000-000000000000" # ローカル用のダミー。Cloudflareで作成後、実IDに置換する
