@@ -32,6 +32,8 @@ npm --prefix apps/mobile i
 npm run dev:mobile
 ```
 
+起動するとログイン（SMS 2段階認証）の画面フロー（AXCMS-L-001〜003）が表示されます。
+
 APIのURLは `EXPO_PUBLIC_API_BASE_URL` で上書きできます。
 
 - Web: デフォルト `http://localhost:8787`
