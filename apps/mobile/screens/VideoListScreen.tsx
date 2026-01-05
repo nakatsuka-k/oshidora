@@ -30,7 +30,8 @@ type VideosResponse = { items: Video[] }
 type CategoriesResponse = { items: Category[] }
 type CastResponse = { items: CastStaff[] }
 
-const FALLBACK_IMAGE = require('../assets/oshidora-logo.png')
+const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
+const FALLBACK_PERSON_IMAGE = require('../assets/oshidora-logo.png')
 
 export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoListScreenProps) {
   const mockCategories = useMemo<Category[]>(
@@ -107,7 +108,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
   }, [apiBaseUrl, mockCast, mockCategories, mockVideos])
 
   return (
-    <ScreenContainer>
+    <ScreenContainer footer={<TabBar active="video" onPress={onPressTab} />}>
       <View style={styles.root}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>動画一覧</Text>
@@ -132,7 +133,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
               {cast.map((p) => (
                 <Pressable key={p.id} style={styles.personCard} onPress={() => {}}>
-                  <Image source={FALLBACK_IMAGE} style={styles.personThumb} resizeMode="cover" />
+                  <Image source={FALLBACK_PERSON_IMAGE} style={styles.personThumb} resizeMode="cover" />
                   <Text style={styles.personName} numberOfLines={1} ellipsizeMode="tail">
                     {p.name}
                   </Text>
@@ -152,7 +153,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
             <View style={styles.videoGrid}>
               {videos.map((v) => (
                 <Pressable key={v.id} style={styles.videoCard} onPress={() => onOpenVideo(v.id)}>
-                  <Image source={FALLBACK_IMAGE} style={styles.videoThumb} resizeMode="cover" />
+                  <Image source={FALLBACK_VIDEO_IMAGE} style={styles.videoThumb} resizeMode="cover" />
                   <View style={styles.videoMeta}>
                     <Text style={styles.videoTitle} numberOfLines={2} ellipsizeMode="tail">
                       {v.title}
@@ -166,8 +167,6 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
             </View>
           </View>
         </ScrollView>
-
-        <TabBar active="video" onPress={onPressTab} />
       </View>
     </ScreenContainer>
   )
@@ -186,7 +185,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   scrollContent: {
-    paddingBottom: 96,
+    paddingBottom: 16,
   },
   section: {
     marginBottom: 16,

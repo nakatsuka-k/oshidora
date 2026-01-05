@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Path, Svg } from 'react-native-svg'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
 import { isValidEmail } from '../utils/validators'
 
@@ -19,6 +20,32 @@ export function SignupScreen({ initialEmail, onSendCode, onLogin, onBack }: Sign
 
   const canSend = useMemo(() => isValidEmail(email) && password.trim().length > 0 && !busy, [busy, email, password])
 
+  const EyeIcon = ({ open }: { open: boolean }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      {/* Simple eye / eye-off using strokes */}
+      <Path
+        d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"
+        stroke={THEME.accent}
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+        stroke={THEME.accent}
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+      {open ? null : (
+        <Path
+          d="M4 4l16 16"
+          stroke={THEME.accent}
+          strokeWidth={2}
+          strokeLinecap="round"
+        />
+      )}
+    </Svg>
+  )
+
   return (
     <ScreenContainer title="新規登録" onBack={onBack} scroll>
       <View style={styles.root}>
@@ -37,17 +64,25 @@ export function SignupScreen({ initialEmail, onSendCode, onLogin, onBack }: Sign
         </View>
 
         <View style={styles.field}>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="パスワード"
-            placeholderTextColor={THEME.textMuted}
-            secureTextEntry={!show}
-            autoCapitalize="none"
-            style={styles.input}
-          />
-          <View style={styles.toggleRow}>
-            <SecondaryButton label={show ? '非表示' : '表示'} onPress={() => setShow((v) => !v)} />
+          <View style={styles.passwordRow}>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="パスワード"
+              placeholderTextColor={THEME.textMuted}
+              secureTextEntry={!show}
+              autoCapitalize="none"
+              style={styles.passwordInput}
+            />
+            <Pressable
+              onPress={() => setShow((v) => !v)}
+              hitSlop={10}
+              style={styles.eyeButton}
+              accessibilityRole="button"
+              accessibilityLabel={show ? 'パスワードを非表示にする' : 'パスワードを表示する'}
+            >
+              <EyeIcon open={show} />
+            </Pressable>
           </View>
         </View>
 
@@ -113,9 +148,30 @@ const styles = StyleSheet.create({
     color: THEME.text,
     backgroundColor: THEME.card,
   },
-  toggleRow: {
-    marginTop: 8,
-    width: 160,
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  passwordInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 16,
+    color: THEME.text,
+    backgroundColor: THEME.card,
+  },
+  eyeButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   help: {
     color: THEME.textMuted,

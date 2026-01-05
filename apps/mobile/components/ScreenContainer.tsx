@@ -6,10 +6,11 @@ type ScreenContainerProps = {
   title?: string
   onBack?: () => void
   scroll?: boolean
+  footer?: ReactNode
   children: ReactNode
 }
 
-export function ScreenContainer({ title, onBack, scroll, children }: ScreenContainerProps) {
+export function ScreenContainer({ title, onBack, scroll, footer, children }: ScreenContainerProps) {
   const content = (
     <View style={styles.content}>
       {title ? (
@@ -31,19 +32,33 @@ export function ScreenContainer({ title, onBack, scroll, children }: ScreenConta
 
   if (scroll) {
     return (
-      <ScrollView style={styles.root} contentContainerStyle={styles.scrollContent}>
-        {content}
-      </ScrollView>
+      <View style={styles.root}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          {content}
+        </ScrollView>
+        {footer ? <View style={styles.footer}>{footer}</View> : null}
+      </View>
     )
   }
 
-  return <View style={styles.root}>{content}</View>
+  return (
+    <View style={styles.root}>
+      <View style={styles.main}>{content}</View>
+      {footer ? <View style={styles.footer}>{footer}</View> : null}
+    </View>
+  )
 }
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: THEME.bg,
+  },
+  main: {
+    flex: 1,
+  },
+  scroll: {
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
@@ -55,6 +70,9 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
+  },
+  footer: {
+    width: '100%',
   },
   headerBar: {
     flexDirection: 'row',

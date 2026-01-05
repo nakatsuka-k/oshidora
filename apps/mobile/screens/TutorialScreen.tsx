@@ -1,35 +1,63 @@
-import { useMemo, useRef, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import { PrimaryButton, ScreenContainer, THEME } from '../components'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { PagedCarousel, type PagedCarouselController, PrimaryButton, ScreenContainer, THEME } from '../components'
 
 type TutorialScreenProps = {
   onSkip: () => void
   onDone: () => void
+  initialIndex?: number
+  onIndexChange?: (index: number) => void
 }
 
 type Slide = {
   title: string
   desc: string
+  image: ReturnType<typeof require>
 }
 
-export function TutorialScreen({ onSkip, onDone }: TutorialScreenProps) {
-  const { width } = useWindowDimensions()
-  const scrollRef = useRef<ScrollView | null>(null)
-  const [index, setIndex] = useState(0)
+export function TutorialScreen({ onSkip, onDone, initialIndex = 0, onIndexChange }: TutorialScreenProps) {
+  const { height } = useWindowDimensions()
+  const carouselRef = useRef<PagedCarouselController | null>(null)
+  const [index, setIndex] = useState(initialIndex)
 
   const slides = useMemo<Slide[]>(
     () => [
-      { title: '推しドラを発見', desc: 'おすすめやランキングから好みの作品に出会える' },
-      { title: '作品を購入して視聴', desc: 'コインで購入し、いつでも楽しめる' },
-      { title: 'お気に入り＆通知', desc: '推しの新作や更新を見逃さない' },
+      {
+        title: '推しドラを発見',
+        desc: 'おすすめやランキングから好みの作品に出会える',
+        image: require('../assets/tutorial0.png'),
+      },
+      {
+        title: '作品を購入して視聴',
+        desc: 'コインで購入し、いつでも楽しめる',
+        image: require('../assets/tutorial1.png'),
+      },
+      {
+        title: 'お気に入り＆通知',
+        desc: '推しの新作や更新を見逃さない',
+        image: require('../assets/tutorial2.png'),
+      },
     ],
     []
   )
 
   const isLast = index === slides.length - 1
+  const canPrev = index > 0
+
+  const imageHeight = Math.max(240, Math.min(Math.round(height * 0.78), 720))
+
+  const setIndexSafe = (next: number) => {
+    setIndex(next)
+    onIndexChange?.(next)
+  }
+
+  useEffect(() => {
+    setIndex(initialIndex)
+    carouselRef.current?.scrollToIndex(initialIndex, false)
+  }, [initialIndex])
 
   return (
-    <ScreenContainer title="チュートリアル">
+    <ScreenContainer>
       <View style={styles.root}>
         <View style={styles.topRight}>
           <Pressable onPress={onSkip}>
@@ -37,47 +65,49 @@ export function TutorialScreen({ onSkip, onDone }: TutorialScreenProps) {
           </Pressable>
         </View>
 
-        <ScrollView
-          ref={(r) => {
-            scrollRef.current = r
-          }}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={(e) => {
-            const next = Math.round(e.nativeEvent.contentOffset.x / width)
-            setIndex(next)
-          }}
-          style={styles.scroll}
-        >
-          {slides.map((s, i) => (
-            <View key={s.title} style={[styles.slide, { width }]}>
-              <View style={styles.image} />
-              <Text style={styles.title}>{s.title}</Text>
-              <Text style={styles.desc}>{s.desc}</Text>
+        <PagedCarousel
+          controllerRef={carouselRef}
+          items={slides}
+          index={index}
+          onIndexChange={setIndexSafe}
+          dotsStyle={styles.dots}
+          renderItem={(s) => (
+            <View style={styles.slide}>
+              <Image source={s.image} style={[styles.image, { height: imageHeight }]} resizeMode="contain" />
             </View>
-          ))}
-        </ScrollView>
-
-        <View style={styles.dots}>
-          {slides.map((_, i) => (
-            <View key={i} style={[styles.dot, i === index ? styles.dotActive : null]} />
-          ))}
-        </View>
+          )}
+        />
 
         <View style={styles.bottom}>
-          <PrimaryButton
-            label={isLast ? 'はじめる' : '次へ'}
-            onPress={() => {
-              if (isLast) {
-                onDone()
-                return
-              }
-              const next = Math.min(index + 1, slides.length - 1)
-              scrollRef.current?.scrollTo({ x: next * width, animated: true })
-              setIndex(next)
-            }}
-          />
+          <View style={styles.bottomRow}>
+            <Pressable
+              onPress={() => {
+                const prev = Math.max(index - 1, 0)
+                carouselRef.current?.scrollToIndex(prev)
+                setIndexSafe(prev)
+              }}
+              disabled={!canPrev}
+              style={[styles.prevButton, !canPrev ? styles.prevButtonDisabled : null]}
+            >
+              <Text style={[styles.prevText, !canPrev ? styles.prevTextDisabled : null]}>戻る</Text>
+            </Pressable>
+
+            <View style={styles.bottomSpacer} />
+
+            <PrimaryButton
+              label={isLast ? 'はじめる' : '次へ'}
+              onPress={() => {
+                if (isLast) {
+                  onDone()
+                  return
+                }
+                const next = Math.min(index + 1, slides.length - 1)
+                carouselRef.current?.scrollToIndex(next)
+                setIndexSafe(next)
+              }}
+              fullWidth={false}
+            />
+          </View>
         </View>
       </View>
     </ScreenContainer>
@@ -97,53 +127,51 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  scroll: {
-    flex: 1,
-  },
   slide: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   image: {
-    width: 220,
-    height: 160,
-    borderRadius: 16,
+    width: '100%',
+    borderRadius: 0,
     backgroundColor: THEME.placeholder,
-    marginBottom: 24,
-  },
-  title: {
-    color: THEME.text,
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  desc: {
-    color: THEME.textMuted,
-    fontSize: 12,
-    textAlign: 'center',
-    paddingHorizontal: 16,
   },
   dots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: THEME.outline,
-  },
-  dotActive: {
-    backgroundColor: THEME.accent,
+    marginTop: 10,
   },
   bottom: {
     paddingTop: 8,
     paddingBottom: 8,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  bottomSpacer: {
+    width: 12,
+  },
+  prevButton: {
+    height: 44,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  prevButtonDisabled: {
+    opacity: 0.5,
+  },
+  prevText: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  prevTextDisabled: {
+    color: THEME.textMuted,
   },
 })

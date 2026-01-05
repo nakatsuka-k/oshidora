@@ -11,7 +11,7 @@ type TabbedPlaceholderScreenProps = {
 
 export function TabbedPlaceholderScreen({ title, activeTab, onPressTab }: TabbedPlaceholderScreenProps) {
   return (
-    <ScreenContainer>
+    <ScreenContainer footer={<TabBar active={activeTab} onPress={onPressTab} />}>
       <View style={styles.root}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>{title}</Text>
@@ -20,8 +20,6 @@ export function TabbedPlaceholderScreen({ title, activeTab, onPressTab }: Tabbed
         <View style={styles.body}>
           <Text style={styles.text}>未実装（モック）</Text>
         </View>
-
-        <TabBar active={activeTab} onPress={onPressTab} />
       </View>
     </ScreenContainer>
   )

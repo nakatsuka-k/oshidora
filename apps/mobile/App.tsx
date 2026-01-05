@@ -23,6 +23,7 @@ import {
 } from './components'
 
 import {
+  DeveloperMenuScreen,
   EmailVerifyScreen,
   RegisterCompleteScreen,
   SignupScreen,
@@ -63,10 +64,13 @@ type Screen =
   | 'phone'
   | 'otp'
   | 'top'
+  | 'dev'
   | 'profile'
   | 'workDetail'
 
 const WEB_DEFAULT_SCREEN: Screen = 'welcome'
+
+const TUTORIAL_SLIDE_COUNT = 3
 
 function screenToWebHash(screen: Screen): string {
   switch (screen) {
@@ -85,7 +89,7 @@ function screenToWebHash(screen: Screen): string {
     case 'login':
       return '#/login'
     case 'tutorial':
-      return '#/tutorial'
+      return '#/tutorial/1'
     case 'terms':
       return '#/terms'
     case 'signup':
@@ -112,9 +116,33 @@ function screenToWebHash(screen: Screen): string {
       return '#/work'
     case 'top':
       return '#/debug'
+    case 'dev':
+      return '#/dev'
     default:
       return '#/welcome'
   }
+}
+
+function tutorialIndexToWebHash(index: number): string {
+  const safe = Math.max(0, Math.min(index, Math.max(0, TUTORIAL_SLIDE_COUNT - 1)))
+  return `#/tutorial/${safe + 1}`
+}
+
+function parseTutorialIndexFromWebHash(hash: string): number | null {
+  const value = (hash || '').trim()
+  const path = value.startsWith('#') ? value.slice(1) : value
+  if (!path.startsWith('/tutorial')) return null
+
+  const parts = path.split('?')[0].split('/').filter(Boolean)
+  // parts: ['tutorial', '2']
+  if (parts.length >= 2) {
+    const raw = Number(parts[1])
+    if (Number.isFinite(raw)) {
+      const zeroBased = Math.floor(raw) - 1
+      return Math.max(0, Math.min(zeroBased, Math.max(0, TUTORIAL_SLIDE_COUNT - 1)))
+    }
+  }
+  return 0
 }
 
 function webHashToScreen(hash: string): Screen {
@@ -128,6 +156,7 @@ function webHashToScreen(hash: string): Screen {
     case '/login':
       return 'login'
     case '/tutorial':
+    case '/tutorial/':
       return 'tutorial'
     case '/terms':
       return 'terms'
@@ -165,8 +194,69 @@ function webHashToScreen(hash: string): Screen {
       return 'workDetail'
     case '/debug':
       return 'top'
+    case '/dev':
+      return 'dev'
     default:
+      if (path.startsWith('/tutorial/')) return 'tutorial'
       return WEB_DEFAULT_SCREEN
+  }
+}
+
+function screenToDocumentTitle(
+  screen: Screen,
+  opts?: { tutorialIndex?: number; tutorialCount?: number }
+): string {
+  const base = '推しドラ'
+  switch (screen) {
+    case 'welcome':
+      return base
+    case 'login':
+      return `${base} | ログイン`
+    case 'tutorial':
+      if (typeof opts?.tutorialIndex === 'number' && typeof opts?.tutorialCount === 'number') {
+        return `${base} | チュートリアル (${opts.tutorialIndex + 1}/${opts.tutorialCount})`
+      }
+      return `${base} | チュートリアル`
+    case 'terms':
+      return `${base} | 利用規約`
+    case 'signup':
+      return `${base} | 新規登録`
+    case 'emailVerify':
+      return `${base} | メール認証`
+    case 'sms2fa':
+      return `${base} | SMS認証`
+    case 'registerComplete':
+      return `${base} | 登録完了`
+    case 'phone':
+      return `${base} | SMS認証（電話番号）`
+    case 'otp':
+      return `${base} | 2段階認証`
+    case 'home':
+      return `${base} | トップ`
+    case 'videoList':
+      return `${base} | 動画一覧`
+    case 'cast':
+      return `${base} | キャスト`
+    case 'search':
+      return `${base} | 検索`
+    case 'mypage':
+      return `${base} | マイページ`
+    case 'ranking':
+      return `${base} | ランキング`
+    case 'favorites':
+      return `${base} | お気に入り`
+    case 'notice':
+      return `${base} | お知らせ`
+    case 'profile':
+      return `${base} | プロフィール`
+    case 'workDetail':
+      return `${base} | 作品詳細`
+    case 'dev':
+      return `${base} | Developer`
+    case 'top':
+      return `${base} | Debug`
+    default:
+      return base
   }
 }
 
@@ -208,18 +298,37 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('welcome')
   const [history, setHistory] = useState<Screen[]>([])
 
+  const [tutorialIndex, setTutorialIndex] = useState<number>(0)
+
   const [registerEmail, setRegisterEmail] = useState<string>('')
   const [registerPassword, setRegisterPassword] = useState<string>('')
 
   const goTo = useCallback((next: Screen) => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.location.hash = screenToWebHash(next)
+      window.location.hash = next === 'tutorial' ? tutorialIndexToWebHash(0) : screenToWebHash(next)
       return
     }
 
     setHistory((prev) => [...prev, screen])
     setScreen(next)
   }, [screen])
+
+  const replaceWebHash = useCallback((hash: string) => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return
+    // Avoid growing history for tutorial swipes.
+    try {
+      window.history.replaceState(null, '', hash)
+    } catch {
+      window.location.hash = hash
+    }
+  }, [])
+
+  const onTutorialIndexChange = useCallback((next: number) => {
+    setTutorialIndex(next)
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      replaceWebHash(tutorialIndexToWebHash(next))
+    }
+  }, [replaceWebHash])
 
   const goBack = useCallback(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -395,6 +504,10 @@ export default function App() {
 
     const syncFromHash = () => {
       const next = webHashToScreen(window.location.hash)
+      if (next === 'tutorial') {
+        const parsed = parseTutorialIndexFromWebHash(window.location.hash)
+        if (typeof parsed === 'number') setTutorialIndex(parsed)
+      }
       setHistory([])
       setScreen(next)
     }
@@ -410,6 +523,14 @@ export default function App() {
       window.removeEventListener('hashchange', syncFromHash)
     }
   }, [])
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return
+    document.title =
+      screen === 'tutorial'
+        ? screenToDocumentTitle(screen, { tutorialIndex, tutorialCount: TUTORIAL_SLIDE_COUNT })
+        : screenToDocumentTitle(screen)
+  }, [screen, tutorialIndex])
 
   const resetAuthErrors = useCallback(() => {
     setLoginFieldErrors({})
@@ -572,6 +693,8 @@ export default function App() {
 
       {screen === 'tutorial' ? (
         <TutorialScreen
+          initialIndex={tutorialIndex}
+          onIndexChange={onTutorialIndexChange}
           onSkip={() => {
             void setBoolean(TUTORIAL_SEEN_KEY, true)
             goTo('terms')
@@ -584,7 +707,7 @@ export default function App() {
       ) : null}
 
       {screen === 'terms' ? (
-        <TermsScreen onBack={goBack} onAgreeRegister={() => goTo('signup')} onLogin={() => goTo('login')} />
+        <TermsScreen onBack={goBack} onAgreeRegister={() => goTo('signup')} />
       ) : null}
 
       {screen === 'login' ? (
@@ -814,6 +937,8 @@ export default function App() {
               <SecondaryButton label="プロフィール(ワイヤー)" onPress={() => goTo('profile')} />
               <View style={styles.spacer} />
               <SecondaryButton label="作品詳細(ワイヤー)" onPress={() => goTo('workDetail')} />
+              <View style={styles.spacer} />
+              <SecondaryButton label="Developer" onPress={() => goTo('dev')} />
             </View>
           </View>
 
@@ -856,6 +981,15 @@ export default function App() {
             ListEmptyComponent={<Text style={styles.sub}>まだ登録がありません</Text>}
           />
         </ScreenContainer>
+      ) : null}
+
+      {screen === 'dev' ? (
+        <DeveloperMenuScreen
+          onBack={goBack}
+          onGo={(key) => {
+            goTo(key as Screen)
+          }}
+        />
       ) : null}
 
       {screen === 'profile' ? (

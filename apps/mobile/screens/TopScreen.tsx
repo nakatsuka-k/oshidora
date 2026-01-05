@@ -8,7 +8,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native'
-import { ScreenContainer, TabBar, THEME } from '../components'
+import { PagedCarousel, ScreenContainer, TabBar, THEME } from '../components'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -34,7 +34,7 @@ type TopData = {
   favorites: VideoItem[]
 }
 
-const FALLBACK_IMAGE = require('../assets/oshidora-logo.png')
+const FALLBACK_IMAGE = require('../assets/thumbnail-sample.png')
 
 export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, onOpenFavorites, onOpenNotice }: TopScreenProps) {
   const { width } = useWindowDimensions()
@@ -95,7 +95,7 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
   const favorites = data.favorites
 
   return (
-    <ScreenContainer>
+    <ScreenContainer footer={<TabBar active="home" onPress={onPressTab} />}>
       <View style={styles.root}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>トップ</Text>
@@ -104,18 +104,15 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* 1. ピックアップ */}
           <View style={styles.sectionTop}>
-            <ScrollView
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={(e) => {
-                const next = Math.round(e.nativeEvent.contentOffset.x / (width - 32))
-                setBannerIndex(next)
-              }}
-            >
-              {data.pickup.slice(0, 3).map((v) => (
+            <PagedCarousel
+              items={data.pickup.slice(0, 3)}
+              index={bannerIndex}
+              onIndexChange={setBannerIndex}
+              height={bannerHeight + 44}
+              containerStyle={styles.bannerCarousel}
+              dotsStyle={styles.bannerDots}
+              renderItem={(v) => (
                 <Pressable
-                  key={v.id}
                   onPress={() => onOpenVideo(v.id)}
                   style={[styles.bannerWrap, { width: width - 32, height: bannerHeight }]}
                 >
@@ -126,14 +123,8 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
                     </Text>
                   </View>
                 </Pressable>
-              ))}
-            </ScrollView>
-
-            <View style={styles.dots}>
-              {data.pickup.slice(0, 3).map((_, i) => (
-                <View key={i} style={[styles.dot, i === bannerIndex ? styles.dotActive : null]} />
-              ))}
-            </View>
+              )}
+            />
           </View>
 
           {/* 2. お知らせ */}
@@ -187,8 +178,6 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
             </View>
           ) : null}
         </ScrollView>
-
-        <TabBar active="home" onPress={onPressTab} />
       </View>
     </ScreenContainer>
   )
@@ -207,10 +196,17 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   scrollContent: {
-    paddingBottom: 96,
+    paddingBottom: 16,
   },
   sectionTop: {
     marginBottom: 16,
+  },
+  bannerCarousel: {
+    paddingHorizontal: 16,
+  },
+  bannerDots: {
+    marginTop: 10,
+    marginBottom: 0,
   },
   section: {
     marginBottom: 16,
@@ -240,21 +236,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     textAlign: 'center',
-  },
-  dots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 10,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: THEME.outline,
-  },
-  dotActive: {
-    backgroundColor: THEME.accent,
   },
   sectionTitle: {
     color: THEME.text,

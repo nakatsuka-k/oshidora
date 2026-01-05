@@ -10,7 +10,6 @@ export function RegisterCompleteScreen({ onGoVideos }: RegisterCompleteScreenPro
     <ScreenContainer title="登録完了">
       <View style={styles.root}>
         <View style={styles.center}>
-          <View style={styles.badge} />
           <Text style={styles.title}>登録が完了しました</Text>
           <Text style={styles.desc}>さっそく動画を見てみましょう</Text>
         </View>
