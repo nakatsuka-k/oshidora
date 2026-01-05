@@ -47,7 +47,7 @@ export function SignupScreen({ initialEmail, onSendCode, onLogin, onBack }: Sign
   )
 
   return (
-    <ScreenContainer title="新規登録" onBack={onBack} scroll>
+    <ScreenContainer title="新規登録" onBack={onBack} scroll maxWidth={520}>
       <View style={styles.root}>
         {error ? <Text style={styles.bannerError}>{error}</Text> : null}
 

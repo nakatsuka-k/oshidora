@@ -15,7 +15,8 @@ type DeveloperMenuScreenProps = {
 export function DeveloperMenuScreen({ onBack, onGo }: DeveloperMenuScreenProps) {
   const items: DevItem[] = [
     { key: 'welcome', title: 'Welcome（初期トップ）', subtitle: '#/welcome' },
-    { key: 'tutorial', title: 'チュートリアル', subtitle: '#/tutorial' },
+    { key: 'welcomeAuth', title: 'Welcome（ログイン/会員登録）', subtitle: '#/start' },
+    { key: 'tutorial', title: 'チュートリアル', subtitle: '#/tutorial/1' },
     { key: 'terms', title: '利用規約', subtitle: '#/terms' },
     { key: 'signup', title: '新規登録', subtitle: '#/signup' },
     { key: 'emailVerify', title: 'メール認証', subtitle: '#/email-verify' },

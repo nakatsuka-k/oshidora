@@ -7,7 +7,7 @@ type RegisterCompleteScreenProps = {
 
 export function RegisterCompleteScreen({ onGoVideos }: RegisterCompleteScreenProps) {
   return (
-    <ScreenContainer title="登録完了">
+    <ScreenContainer title="登録完了" maxWidth={520}>
       <View style={styles.root}>
         <View style={styles.center}>
           <Text style={styles.title}>登録が完了しました</Text>

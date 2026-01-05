@@ -29,7 +29,7 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
   const canVerify = useMemo(() => digitsOnly(code).length === 4 && !busy, [busy, code])
 
   return (
-    <ScreenContainer title="二段階認証" onBack={onBack} scroll>
+    <ScreenContainer title="二段階認証" onBack={onBack} scroll maxWidth={520}>
       <View style={styles.root}>
         <Text style={styles.desc}>セキュリティ向上のため、SMSによる認証を行います</Text>
         <Text style={styles.desc2}>登録した電話番号に4桁の認証コードを送信します</Text>

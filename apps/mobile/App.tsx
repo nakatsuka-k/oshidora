@@ -14,11 +14,13 @@ import {
 import {
   Chip,
   IconButton,
+  PaginationDots,
   PrimaryButton,
   RowItem,
   ScreenContainer,
   SecondaryButton,
   Section,
+  Slideshow,
   THEME,
 } from './components'
 
@@ -33,6 +35,7 @@ import {
   TutorialScreen,
   TopScreen,
   VideoListScreen,
+  WelcomeAuthChoiceScreen,
   WelcomeTopScreen,
 } from './screens'
 
@@ -47,6 +50,7 @@ type Oshi = {
 type Screen =
   | 'home'
   | 'welcome'
+  | 'welcomeAuth'
   | 'login'
   | 'tutorial'
   | 'terms'
@@ -86,6 +90,8 @@ function screenToWebHash(screen: Screen): string {
       return '#/mypage'
     case 'welcome':
       return '#/welcome'
+    case 'welcomeAuth':
+      return '#/start'
     case 'login':
       return '#/login'
     case 'tutorial':
@@ -153,6 +159,8 @@ function webHashToScreen(hash: string): Screen {
     case '/':
     case '/welcome':
       return 'welcome'
+    case '/start':
+      return 'welcomeAuth'
     case '/login':
       return 'login'
     case '/tutorial':
@@ -210,6 +218,8 @@ function screenToDocumentTitle(
   switch (screen) {
     case 'welcome':
       return base
+    case 'welcomeAuth':
+      return `${base} | はじめる`
     case 'login':
       return `${base} | ログイン`
     case 'tutorial':
@@ -377,6 +387,9 @@ export default function App() {
   const [error, setError] = useState<string>('')
 
   const [loggedIn, setLoggedIn] = useState<boolean>(false)
+
+  const [debugDotsIndex, setDebugDotsIndex] = useState<number>(0)
+  const [debugSlideIndex, setDebugSlideIndex] = useState<number>(0)
 
   const mockProfile = useMemo(
     () => ({
@@ -688,7 +701,15 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       {screen === 'welcome' ? (
-        <WelcomeTopScreen onLogin={() => goTo('login')} onRegister={() => void onStartRegister()} />
+        <WelcomeTopScreen onNext={() => goTo('welcomeAuth')} />
+      ) : null}
+
+      {screen === 'welcomeAuth' ? (
+        <WelcomeAuthChoiceScreen
+          onBack={goBack}
+          onLogin={() => goTo('login')}
+          onRegister={() => void onStartRegister()}
+        />
       ) : null}
 
       {screen === 'tutorial' ? (
@@ -711,7 +732,7 @@ export default function App() {
       ) : null}
 
       {screen === 'login' ? (
-        <ScreenContainer title="ログイン">
+        <ScreenContainer title="ログイン" maxWidth={520}>
           <View style={styles.authCenter}>
             <View style={styles.authContent}>
               {loginBannerError ? <Text style={styles.bannerError}>{loginBannerError}</Text> : null}
@@ -842,25 +863,25 @@ export default function App() {
       ) : null}
 
       {screen === 'ranking' ? (
-        <ScreenContainer title="ランキング一覧" onBack={goBack}>
+        <ScreenContainer title="ランキング一覧" onBack={goBack} maxWidth={520}>
           <Text style={styles.centerText}>ランキング一覧（モック）</Text>
         </ScreenContainer>
       ) : null}
 
       {screen === 'favorites' ? (
-        <ScreenContainer title="お気に入り一覧" onBack={goBack}>
+        <ScreenContainer title="お気に入り一覧" onBack={goBack} maxWidth={520}>
           <Text style={styles.centerText}>お気に入り一覧（モック）</Text>
         </ScreenContainer>
       ) : null}
 
       {screen === 'notice' ? (
-        <ScreenContainer title="お知らせ" onBack={goBack}>
+        <ScreenContainer title="お知らせ" onBack={goBack} maxWidth={520}>
           <Text style={styles.centerText}>お知らせ詳細（モック）</Text>
         </ScreenContainer>
       ) : null}
 
       {screen === 'phone' ? (
-        <ScreenContainer title="SMS認証" onBack={goBack}>
+        <ScreenContainer title="SMS認証" onBack={goBack} maxWidth={520}>
 
           {phoneBannerError ? <Text style={styles.bannerError}>{phoneBannerError}</Text> : null}
 
@@ -887,7 +908,7 @@ export default function App() {
       ) : null}
 
       {screen === 'otp' ? (
-        <ScreenContainer title="2段階認証" onBack={goBack}>
+        <ScreenContainer title="2段階認証" onBack={goBack} maxWidth={520}>
           <Text style={styles.centerText}>電話番号(SMS)に送信された認証コードを入力して下さい</Text>
 
           {otpBannerError ? <Text style={styles.bannerError}>{otpBannerError}</Text> : null}
@@ -923,7 +944,7 @@ export default function App() {
       ) : null}
 
       {screen === 'top' ? (
-        <ScreenContainer title="推しドラ">
+        <ScreenContainer title="推しドラ" maxWidth={520}>
           <View style={styles.header}>
             <Text style={styles.sub}>API: {apiBaseUrl}</Text>
             {health ? <Text style={styles.sub}>Health: {health}</Text> : null}
@@ -947,6 +968,27 @@ export default function App() {
             <View style={styles.spacer} />
             <SecondaryButton label="Reload" onPress={loadOshi} />
           </View>
+
+          <View style={styles.header}>
+            <Text style={styles.sub}>Components</Text>
+            <Text style={styles.sub}>PaginationDots: {debugDotsIndex + 1}/5</Text>
+          </View>
+          <PaginationDots count={5} index={debugDotsIndex} onChange={setDebugDotsIndex} />
+
+          <View style={styles.header}>
+            <Text style={styles.sub}>Slideshow: {debugSlideIndex + 1}/3</Text>
+          </View>
+          <Slideshow
+            images={[
+              require('./assets/tutorial0.png'),
+              require('./assets/tutorial1.png'),
+              require('./assets/tutorial2.png'),
+            ]}
+            height={220}
+            index={debugSlideIndex}
+            onIndexChange={setDebugSlideIndex}
+            resizeMode="cover"
+          />
 
           <View style={styles.row}>
             <TextInput
@@ -993,7 +1035,7 @@ export default function App() {
       ) : null}
 
       {screen === 'profile' ? (
-        <ScreenContainer title="プロフィール" onBack={goBack} scroll>
+        <ScreenContainer title="プロフィール" onBack={goBack} scroll maxWidth={520}>
 
           <View style={styles.heroImage}>
             <View style={styles.heroPlaceholder} />
@@ -1025,7 +1067,7 @@ export default function App() {
       ) : null}
 
       {screen === 'workDetail' ? (
-        <ScreenContainer title="作品一覧" onBack={goBack} scroll>
+        <ScreenContainer title="作品一覧" onBack={goBack} scroll maxWidth={520}>
 
           <View style={styles.heroImage}>
             <View style={styles.heroPlaceholder} />

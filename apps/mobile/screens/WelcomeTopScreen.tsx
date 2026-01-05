@@ -1,27 +1,18 @@
-import { Image, StyleSheet, View } from 'react-native'
-import { PrimaryButton, ScreenContainer, SecondaryButton } from '../components'
+import { Image, Pressable, StyleSheet, View } from 'react-native'
+import { ScreenContainer } from '../components'
 
 type WelcomeTopScreenProps = {
-  onLogin: () => void
-  onRegister: () => void
+  onNext: () => void
 }
 
-export function WelcomeTopScreen({ onLogin, onRegister }: WelcomeTopScreenProps) {
+export function WelcomeTopScreen({ onNext }: WelcomeTopScreenProps) {
   return (
-    <ScreenContainer>
-      <View style={styles.root}>
-        <View style={styles.container}>
-          <View style={styles.center}>
-            <Image source={require('../assets/oshidora-logo.png')} style={styles.logo} resizeMode="contain" />
-          </View>
-
-          <View style={styles.bottom}>
-            <PrimaryButton label="新規登録" onPress={onRegister} />
-            <View style={styles.spacer} />
-            <SecondaryButton label="ログイン" onPress={onLogin} />
-          </View>
+    <ScreenContainer maxWidth={520}>
+      <Pressable style={styles.root} onPress={onNext} accessibilityRole="button">
+        <View style={styles.center}>
+          <Image source={require('../assets/oshidora-logo.png')} style={styles.logo} resizeMode="contain" />
         </View>
-      </View>
+      </Pressable>
     </ScreenContainer>
   )
 }
@@ -29,12 +20,6 @@ export function WelcomeTopScreen({ onLogin, onRegister }: WelcomeTopScreenProps)
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  container: {
-    flex: 1,
-    width: '100%',
-    maxWidth: 520,
-    alignSelf: 'center',
   },
   center: {
     flex: 1,
@@ -45,12 +30,5 @@ const styles = StyleSheet.create({
     width: 220,
     height: 220,
     marginBottom: 28,
-  },
-  bottom: {
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  spacer: {
-    height: 12,
   },
 })

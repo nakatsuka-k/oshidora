@@ -1,4 +1,5 @@
 export { WelcomeTopScreen } from './WelcomeTopScreen'
+export { WelcomeAuthChoiceScreen } from './WelcomeAuthChoiceScreen'
 export { TutorialScreen } from './TutorialScreen'
 export { TermsScreen } from './TermsScreen'
 export { SignupScreen } from './SignupScreen'

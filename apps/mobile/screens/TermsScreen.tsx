@@ -78,6 +78,7 @@ export function TermsScreen({ onAgreeRegister, onBack }: TermsScreenProps) {
       title="利用規約"
       onBack={onBack}
       scroll
+      maxWidth={520}
       footer={
         <View style={styles.footer}>
           <View style={styles.footerInner}>

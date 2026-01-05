@@ -7,26 +7,29 @@ type ScreenContainerProps = {
   onBack?: () => void
   scroll?: boolean
   footer?: ReactNode
+  maxWidth?: number
   children: ReactNode
 }
 
-export function ScreenContainer({ title, onBack, scroll, footer, children }: ScreenContainerProps) {
+export function ScreenContainer({ title, onBack, scroll, footer, maxWidth, children }: ScreenContainerProps) {
   const content = (
-    <View style={styles.content}>
-      {title ? (
-        <View style={styles.headerBar}>
-          {onBack ? (
-            <Pressable onPress={onBack} style={styles.headerBack}>
-              <Text style={styles.headerBackText}>‹</Text>
-            </Pressable>
-          ) : (
+    <View style={styles.contentOuter}>
+      <View style={[styles.contentInner, maxWidth ? { maxWidth } : null]}>
+        {title ? (
+          <View style={styles.headerBar}>
+            {onBack ? (
+              <Pressable onPress={onBack} style={styles.headerBack}>
+                <Text style={styles.headerBackText}>‹</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.headerRightSpace} />
+            )}
+            <Text style={styles.headerTitle}>{title}</Text>
             <View style={styles.headerRightSpace} />
-          )}
-          <Text style={styles.headerTitle}>{title}</Text>
-          <View style={styles.headerRightSpace} />
-        </View>
-      ) : null}
-      <View style={styles.body}>{children}</View>
+          </View>
+        ) : null}
+        <View style={styles.body}>{children}</View>
+      </View>
     </View>
   )
 
@@ -64,9 +67,14 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 24,
   },
-  content: {
+  contentOuter: {
     flex: 1,
     padding: 16,
+  },
+  contentInner: {
+    flex: 1,
+    width: '100%',
+    alignSelf: 'center',
   },
   body: {
     flex: 1,
