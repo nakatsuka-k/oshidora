@@ -66,6 +66,110 @@ type Screen =
   | 'profile'
   | 'workDetail'
 
+const WEB_DEFAULT_SCREEN: Screen = 'welcome'
+
+function screenToWebHash(screen: Screen): string {
+  switch (screen) {
+    case 'home':
+      return '#/home'
+    case 'videoList':
+      return '#/videos'
+    case 'cast':
+      return '#/cast'
+    case 'search':
+      return '#/search'
+    case 'mypage':
+      return '#/mypage'
+    case 'welcome':
+      return '#/welcome'
+    case 'login':
+      return '#/login'
+    case 'tutorial':
+      return '#/tutorial'
+    case 'terms':
+      return '#/terms'
+    case 'signup':
+      return '#/signup'
+    case 'emailVerify':
+      return '#/email-verify'
+    case 'sms2fa':
+      return '#/sms-2fa'
+    case 'registerComplete':
+      return '#/register-complete'
+    case 'phone':
+      return '#/phone'
+    case 'otp':
+      return '#/otp'
+    case 'ranking':
+      return '#/ranking'
+    case 'favorites':
+      return '#/favorites'
+    case 'notice':
+      return '#/notice'
+    case 'profile':
+      return '#/profile'
+    case 'workDetail':
+      return '#/work'
+    case 'top':
+      return '#/debug'
+    default:
+      return '#/welcome'
+  }
+}
+
+function webHashToScreen(hash: string): Screen {
+  const value = (hash || '').trim()
+  const path = value.startsWith('#') ? value.slice(1) : value
+
+  switch (path) {
+    case '/':
+    case '/welcome':
+      return 'welcome'
+    case '/login':
+      return 'login'
+    case '/tutorial':
+      return 'tutorial'
+    case '/terms':
+      return 'terms'
+    case '/signup':
+      return 'signup'
+    case '/email-verify':
+      return 'emailVerify'
+    case '/sms-2fa':
+      return 'sms2fa'
+    case '/register-complete':
+      return 'registerComplete'
+    case '/phone':
+      return 'phone'
+    case '/otp':
+      return 'otp'
+    case '/home':
+      return 'home'
+    case '/videos':
+      return 'videoList'
+    case '/cast':
+      return 'cast'
+    case '/search':
+      return 'search'
+    case '/mypage':
+      return 'mypage'
+    case '/ranking':
+      return 'ranking'
+    case '/favorites':
+      return 'favorites'
+    case '/notice':
+      return 'notice'
+    case '/profile':
+      return 'profile'
+    case '/work':
+      return 'workDetail'
+    case '/debug':
+      return 'top'
+    default:
+      return WEB_DEFAULT_SCREEN
+  }
+}
+
 function isValidEmail(value: string) {
   const email = value.trim()
   if (!email) return false
@@ -108,11 +212,25 @@ export default function App() {
   const [registerPassword, setRegisterPassword] = useState<string>('')
 
   const goTo = useCallback((next: Screen) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.location.hash = screenToWebHash(next)
+      return
+    }
+
     setHistory((prev) => [...prev, screen])
     setScreen(next)
   }, [screen])
 
   const goBack = useCallback(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.history.length > 1) {
+        window.history.back()
+      } else {
+        window.location.hash = screenToWebHash(WEB_DEFAULT_SCREEN)
+      }
+      return
+    }
+
     setHistory((prev) => {
       if (prev.length === 0) return prev
       const nextHistory = prev.slice(0, -1)
@@ -123,12 +241,24 @@ export default function App() {
   }, [])
 
   const switchTab = useCallback((key: 'home' | 'video' | 'cast' | 'search' | 'mypage') => {
+    const next: Screen =
+      key === 'home'
+        ? 'home'
+        : key === 'video'
+          ? 'videoList'
+          : key === 'cast'
+            ? 'cast'
+            : key === 'search'
+              ? 'search'
+              : 'mypage'
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.location.hash = screenToWebHash(next)
+      return
+    }
+
     setHistory([])
-    if (key === 'home') setScreen('home')
-    if (key === 'video') setScreen('videoList')
-    if (key === 'cast') setScreen('cast')
-    if (key === 'search') setScreen('search')
-    if (key === 'mypage') setScreen('mypage')
+    setScreen(next)
   }, [])
 
   const [health, setHealth] = useState<string>('')
@@ -259,6 +389,27 @@ export default function App() {
       await loadOshi()
     })()
   }, [checkHealth, loadOshi])
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return
+
+    const syncFromHash = () => {
+      const next = webHashToScreen(window.location.hash)
+      setHistory([])
+      setScreen(next)
+    }
+
+    if (!window.location.hash) {
+      window.location.hash = screenToWebHash(WEB_DEFAULT_SCREEN)
+    } else {
+      syncFromHash()
+    }
+
+    window.addEventListener('hashchange', syncFromHash)
+    return () => {
+      window.removeEventListener('hashchange', syncFromHash)
+    }
+  }, [])
 
   const resetAuthErrors = useCallback(() => {
     setLoginFieldErrors({})

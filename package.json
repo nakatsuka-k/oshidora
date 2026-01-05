@@ -9,6 +9,7 @@
     "dev:mobile": "npm --prefix apps/mobile start",
     "deploy:api": "npm --prefix apps/api run deploy",
     "db:migrate:local": "npm --prefix apps/api run db:migrate:local",
-    "db:migrate:remote": "npm --prefix apps/api run db:migrate:remote"
+    "db:migrate:remote": "npm --prefix apps/api run db:migrate:remote",
+    "build:web": "npm -w apps/mobile run export:web"
   }
 }

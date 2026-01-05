@@ -30,7 +30,7 @@ type VideosResponse = { items: Video[] }
 type CategoriesResponse = { items: Category[] }
 type CastResponse = { items: CastStaff[] }
 
-const FALLBACK_IMAGE = require('../../img/oshidora-logo.png')
+const FALLBACK_IMAGE = require('../assets/oshidora-logo.png')
 
 export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoListScreenProps) {
   const mockCategories = useMemo<Category[]>(

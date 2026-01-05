@@ -34,7 +34,7 @@ type TopData = {
   favorites: VideoItem[]
 }
 
-const FALLBACK_IMAGE = require('../../img/oshidora-logo.png')
+const FALLBACK_IMAGE = require('../assets/oshidora-logo.png')
 
 export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, onOpenFavorites, onOpenNotice }: TopScreenProps) {
   const { width } = useWindowDimensions()

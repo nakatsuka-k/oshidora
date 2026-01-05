@@ -5,4 +5,4 @@ compatibility_date = "2026-01-02"
 [[d1_databases]]
 binding = "DB"
 database_name = "oshidora-db"
-database_id = "00000000-0000-0000-0000-000000000000" # ローカル用のダミー。Cloudflareで作成後、実IDに置換する
+database_id = "1f7de46f-7b0c-4150-ae76-6dd762a23f71"
