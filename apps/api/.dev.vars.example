@@ -1,0 +1,12 @@
+# Local dev vars for `wrangler dev`
+# Copy to `.dev.vars` (this file is gitignored) and fill values.
+
+# Cloudflare Stream
+CLOUDFLARE_ACCOUNT_ID=c6270d2ac0aefb2ca6ce6831cbc9ca30
+CLOUDFLARE_STREAM_API_TOKEN=REPLACE_WITH_YOUR_STREAM_API_TOKEN
+
+# Cloudflare Stream Signed URL (create a signing key in Cloudflare Dashboard)
+# Stream -> Settings -> Signed URLs
+CLOUDFLARE_STREAM_SIGNING_KEY_ID=REPLACE_WITH_SIGNING_KEY_ID
+# Use the private JWK returned by Cloudflare (data.result.jwk). JSON string or base64-encoded JSON are accepted.
+CLOUDFLARE_STREAM_SIGNING_KEY_JWK=REPLACE_WITH_SIGNING_KEY_JWK

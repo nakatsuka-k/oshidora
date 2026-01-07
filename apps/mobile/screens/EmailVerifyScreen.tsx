@@ -31,34 +31,36 @@ export function EmailVerifyScreen({ email, onResend, onVerify, onBack }: EmailVe
   return (
     <ScreenContainer title="メール認証" onBack={onBack} scroll maxWidth={520}>
       <View style={styles.root}>
-        <Text style={styles.desc}>入力したメールアドレスに認証コードを送信しました</Text>
-        <Text style={styles.email}>{email}</Text>
+        <View style={styles.top}>
+          <Text style={styles.desc}>入力したメールアドレスに認証コードを送信しました</Text>
+          <Text style={styles.email}>{email}</Text>
 
-        {error ? <Text style={styles.bannerError}>{error}</Text> : null}
+          {error ? <Text style={styles.bannerError}>{error}</Text> : null}
 
-        <PinInput length={6} value={code} onChange={setCode} error={!!error} />
+          <PinInput length={6} value={code} onChange={setCode} error={!!error} />
 
-        <View style={styles.resendRow}>
-          {cooldown > 0 ? (
-            <Text style={styles.resendDisabled}>認証コードを再送する（{cooldown}秒）</Text>
-          ) : (
-            <Pressable
-              onPress={async () => {
-                setError('')
-                setBusy(true)
-                try {
-                  await onResend()
-                  setCooldown(30)
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : String(e))
-                } finally {
-                  setBusy(false)
-                }
-              }}
-            >
-              <Text style={styles.resend}>認証コードを再送する</Text>
-            </Pressable>
-          )}
+          <View style={styles.resendRow}>
+            {cooldown > 0 ? (
+              <Text style={styles.resendDisabled}>認証コードを再送する（{cooldown}秒）</Text>
+            ) : (
+              <Pressable
+                onPress={async () => {
+                  setError('')
+                  setBusy(true)
+                  try {
+                    await onResend()
+                    setCooldown(30)
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                <Text style={styles.resend}>認証コードを再送する</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={styles.bottom}>
@@ -93,6 +95,10 @@ export function EmailVerifyScreen({ email, onResend, onVerify, onBack }: EmailVe
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    justifyContent: 'space-between',
+  },
+  top: {
+    paddingTop: 0,
   },
   desc: {
     color: THEME.textMuted,

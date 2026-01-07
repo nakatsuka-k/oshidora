@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'r
 import { PagedCarousel, type PagedCarouselController, PrimaryButton, ScreenContainer, THEME } from '../components'
 
 type TutorialScreenProps = {
+  onBack?: () => void
   onSkip: () => void
   onDone: () => void
   initialIndex?: number
@@ -15,7 +16,7 @@ type Slide = {
   image: ReturnType<typeof require>
 }
 
-export function TutorialScreen({ onSkip, onDone, initialIndex = 0, onIndexChange }: TutorialScreenProps) {
+export function TutorialScreen({ onBack, onSkip, onDone, initialIndex = 0, onIndexChange }: TutorialScreenProps) {
   const { height } = useWindowDimensions()
   const carouselRef = useRef<PagedCarouselController | null>(null)
   const [index, setIndex] = useState(initialIndex)
@@ -59,8 +60,26 @@ export function TutorialScreen({ onSkip, onDone, initialIndex = 0, onIndexChange
   return (
     <ScreenContainer maxWidth={520}>
       <View style={styles.root}>
-        <View style={styles.topRight}>
-          <Pressable onPress={onSkip}>
+        <View style={styles.topRow}>
+          <Pressable
+            onPress={() => {
+              if (canPrev) {
+                const prev = Math.max(index - 1, 0)
+                carouselRef.current?.scrollToIndex(prev)
+                setIndexSafe(prev)
+                return
+              }
+              onBack?.()
+            }}
+            style={styles.backButton}
+            accessibilityRole="button"
+          >
+            <Text style={styles.backText}>‹</Text>
+          </Pressable>
+
+          <View style={styles.topSpacer} />
+
+          <Pressable onPress={onSkip} accessibilityRole="button">
             <Text style={styles.skip}>スキップ</Text>
           </Pressable>
         </View>
@@ -118,9 +137,28 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  topRight: {
-    alignItems: 'flex-end',
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 8,
+  },
+  topSpacer: {
+    flex: 1,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    borderRadius: 20,
+    backgroundColor: THEME.card,
+  },
+  backText: {
+    color: THEME.text,
+    fontSize: 20,
+    lineHeight: 20,
   },
   skip: {
     color: THEME.accent,

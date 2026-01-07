@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import { CheckboxRow, PrimaryButton, ScreenContainer, TextLink, THEME } from '../components'
 
 type TermsScreenProps = {
   onAgreeRegister: () => void
   onBack: () => void
+  onOpenPrivacyPolicy: () => void
 }
 
-export function TermsScreen({ onAgreeRegister, onBack }: TermsScreenProps) {
+export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy }: TermsScreenProps) {
   const [checked, setChecked] = useState(false)
 
   const termsText =
@@ -88,7 +89,7 @@ export function TermsScreen({ onAgreeRegister, onBack }: TermsScreenProps) {
                 <Text> </Text>
                 <TextLink
                   label="プライバシーポリシー"
-                  onPress={() => Alert.alert('プライバシーポリシー', '（モック）')}
+                  onPress={onOpenPrivacyPolicy}
                 />
                 <Text> </Text>
                 に同意します
@@ -142,6 +143,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 16,
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
   },
   footerButtons: {
     marginTop: 12,

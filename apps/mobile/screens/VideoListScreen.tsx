@@ -1,12 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, TabBar, THEME } from '../components'
 
 type VideoListScreenProps = {
@@ -18,20 +11,20 @@ type VideoListScreenProps = {
 type Video = {
   id: string
   title: string
-  rating: number
-  ratingCount: number
+  ratingAvg: number
+  reviewCount: number
+  priceCoin?: number
   thumbnailUrl?: string
 }
 
 type Category = { id: string; name: string }
-type CastStaff = { id: string; name: string; role: string; thumbnailUrl?: string }
 
-type VideosResponse = { items: Video[] }
+type VideosResponse = { items: Video[]; nextCursor?: string | null }
 type CategoriesResponse = { items: Category[] }
-type CastResponse = { items: CastStaff[] }
 
 const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
-const FALLBACK_PERSON_IMAGE = require('../assets/oshidora-logo.png')
+
+const PAGE_SIZE = 20
 
 export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoListScreenProps) {
   const mockCategories = useMemo<Category[]>(
@@ -45,67 +38,133 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
     []
   )
 
-  const mockCast = useMemo<CastStaff[]>(
-    () => [
-      { id: 'a1', name: '松岡美沙', role: '出演者' },
-      { id: 'a2', name: '櫻井拓馬', role: '出演者' },
-      { id: 'a3', name: '監督太郎', role: '監督' },
-      { id: 'a4', name: 'Oshidora株式会社', role: '制作' },
-    ],
-    []
-  )
-
   const mockVideos = useMemo<Video[]>(
     () => [
-      { id: 'v1', title: 'ダウトコール 第01話', rating: 4.7, ratingCount: 128 },
-      { id: 'v2', title: 'ダウトコール 第02話', rating: 4.6, ratingCount: 94 },
-      { id: 'v3', title: 'ダウトコール 第03話', rating: 4.8, ratingCount: 156 },
-      { id: 'v4', title: 'ミステリーX 第01話', rating: 4.4, ratingCount: 61 },
-      { id: 'v5', title: 'ラブストーリーY 第01話', rating: 4.2, ratingCount: 43 },
+      { id: 'v1', title: 'ダウトコール 第01話', ratingAvg: 4.7, reviewCount: 128, priceCoin: 0 },
+      { id: 'v2', title: 'ダウトコール 第02話', ratingAvg: 4.6, reviewCount: 94, priceCoin: 30 },
+      { id: 'v3', title: 'ダウトコール 第03話', ratingAvg: 4.8, reviewCount: 156, priceCoin: 30 },
+      { id: 'v4', title: 'ミステリーX 第01話', ratingAvg: 4.4, reviewCount: 61, priceCoin: 0 },
+      { id: 'v5', title: 'ラブストーリーY 第01話', ratingAvg: 4.2, reviewCount: 43, priceCoin: 10 },
     ],
     []
   )
 
-  const [categories, setCategories] = useState<Category[]>(mockCategories)
-  const [cast, setCast] = useState<CastStaff[]>(mockCast)
-  const [videos, setVideos] = useState<Video[]>(mockVideos)
-  const [loadError, setLoadError] = useState<string>('')
+  const [categories, setCategories] = useState<Category[]>([])
+  const [categoriesError, setCategoriesError] = useState<string>('')
+
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all')
+
+  const [videos, setVideos] = useState<Video[]>([])
+  const [videosError, setVideosError] = useState<string>('')
+  const [busyInitial, setBusyInitial] = useState(false)
+  const [busyMore, setBusyMore] = useState(false)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+
+  const fetchCategories = useCallback(async () => {
+    setCategoriesError('')
+    try {
+      const res = await fetch(`${apiBaseUrl}/v1/categories`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = (await res.json()) as CategoriesResponse
+      const items = Array.isArray(json.items) ? json.items : []
+      setCategories(items)
+    } catch (e) {
+      setCategories(mockCategories)
+      setCategoriesError(e instanceof Error ? e.message : String(e))
+    }
+  }, [apiBaseUrl, mockCategories])
+
+  const buildVideosUrl = useCallback((opts: { categoryId: string; cursor?: string | null }) => {
+    const u = new URL(`${apiBaseUrl}/v1/videos`)
+    if (opts.categoryId && opts.categoryId !== 'all') u.searchParams.set('category_id', opts.categoryId)
+    u.searchParams.set('limit', String(PAGE_SIZE))
+    if (opts.cursor) u.searchParams.set('cursor', opts.cursor)
+    return u.toString()
+  }, [apiBaseUrl])
+
+  const fetchVideos = useCallback(async (mode: 'initial' | 'more') => {
+    if (mode === 'more' && (busyMore || busyInitial)) return
+    if (mode === 'more' && nextCursor === null && videos.length > 0) return
+
+    mode === 'initial' ? setBusyInitial(true) : setBusyMore(true)
+    if (mode === 'initial') setVideosError('')
+
+    try {
+      const url = buildVideosUrl({ categoryId: selectedCategoryId, cursor: mode === 'more' ? nextCursor : null })
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = (await res.json()) as VideosResponse
+      const items = Array.isArray(json.items) ? json.items : []
+
+      if (mode === 'initial') {
+        setVideos(items)
+      } else {
+        setVideos((prev) => [...prev, ...items])
+      }
+      setNextCursor(typeof json.nextCursor === 'string' ? json.nextCursor : null)
+    } catch (e) {
+      if (mode === 'initial') {
+        setVideos(mockVideos)
+        setNextCursor(null)
+        setVideosError(e instanceof Error ? e.message : String(e))
+      }
+    } finally {
+      mode === 'initial' ? setBusyInitial(false) : setBusyMore(false)
+    }
+  }, [buildVideosUrl, busyInitial, busyMore, mockVideos, nextCursor, selectedCategoryId, videos.length])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setLoadError('')
-      try {
-        const [catRes, castRes, vidsRes] = await Promise.all([
-          fetch(`${apiBaseUrl}/v1/categories`),
-          fetch(`${apiBaseUrl}/v1/cast`),
-          fetch(`${apiBaseUrl}/v1/videos`),
-        ])
-        if (!catRes.ok || !castRes.ok || !vidsRes.ok) {
-          throw new Error('データ取得に失敗しました')
-        }
-        const cats = (await catRes.json()) as CategoriesResponse
-        const c = (await castRes.json()) as CastResponse
-        const v = (await vidsRes.json()) as VideosResponse
-        if (!cancelled) {
-          setCategories(Array.isArray(cats.items) ? cats.items : mockCategories)
-          setCast(Array.isArray(c.items) ? c.items : mockCast)
-          setVideos(Array.isArray(v.items) ? v.items : mockVideos)
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setCategories(mockCategories)
-          setCast(mockCast)
-          setVideos(mockVideos)
-          setLoadError(e instanceof Error ? e.message : String(e))
-        }
-      }
-    })()
+    void fetchCategories()
+  }, [fetchCategories])
 
-    return () => {
-      cancelled = true
-    }
-  }, [apiBaseUrl, mockCast, mockCategories, mockVideos])
+  useEffect(() => {
+    setNextCursor(null)
+    void fetchVideos('initial')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategoryId])
+
+  useEffect(() => {
+    if (videos.length === 0) void fetchVideos('initial')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const categoryItems = useMemo(() => {
+    const base = [{ id: 'all', name: '全て' }, ...categories]
+    const seen = new Set<string>()
+    return base.filter((c) => {
+      if (seen.has(c.id)) return false
+      seen.add(c.id)
+      return true
+    })
+  }, [categories])
+
+  const renderVideo = useCallback((v: Video) => {
+    const isPaid = typeof v.priceCoin === 'number' ? v.priceCoin > 0 : false
+    return (
+      <Pressable style={styles.videoCard} onPress={() => onOpenVideo(v.id)}>
+        <View style={styles.thumbWrap}>
+          <Image
+            source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_VIDEO_IMAGE}
+            style={styles.videoThumb}
+            resizeMode="cover"
+          />
+          {isPaid ? (
+            <View style={styles.paidBadge}>
+              <Text style={styles.paidBadgeText}>有料</Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.videoMeta}>
+          <Text style={styles.videoTitle} numberOfLines={2} ellipsizeMode="tail">
+            {v.title}
+          </Text>
+          <Text style={styles.videoRating}>
+            ★ {Number.isFinite(v.ratingAvg) ? v.ratingAvg.toFixed(1) : '—'}（{Number.isFinite(v.reviewCount) ? v.reviewCount : 0}件）
+          </Text>
+        </View>
+      </Pressable>
+    )
+  }, [onOpenVideo])
 
   return (
     <ScreenContainer footer={<TabBar active="video" onPress={onPressTab} />}>
@@ -114,59 +173,73 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
           <Text style={styles.headerTitle}>動画一覧</Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {/* カテゴリ一覧 */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>カテゴリ</Text>
+        <View style={styles.topTabs}>
+          <Pressable style={[styles.topTab, styles.topTabActive]} disabled>
+            <Text style={[styles.topTabText, styles.topTabTextActive]}>動画</Text>
+          </Pressable>
+          <View style={styles.topTabGap} />
+          <Pressable
+            style={styles.topTab}
+            onPress={() => {
+              onPressTab('cast')
+            }}
+          >
+            <Text style={styles.topTabText}>キャスト</Text>
+          </Pressable>
+        </View>
+
+        {/* カテゴリ一覧 */}
+        {categoryItems.length > 1 ? (
+          <View style={styles.sectionTop}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-              {categories.map((c) => (
-                <Pressable key={c.id} style={styles.chip} onPress={() => {}}>
-                  <Text style={styles.chipText}>{c.name}</Text>
-                </Pressable>
-              ))}
+              {categoryItems.map((c) => {
+                const selected = c.id === selectedCategoryId
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={[styles.chip, selected ? styles.chipSelected : null]}
+                    onPress={() => setSelectedCategoryId(c.id)}
+                  >
+                    <Text style={[styles.chipText, selected ? styles.chipTextSelected : null]}>{c.name}</Text>
+                  </Pressable>
+                )
+              })}
             </ScrollView>
+            {categoriesError ? <Text style={styles.loadNote}>カテゴリ取得に失敗しました（モック表示）</Text> : null}
           </View>
+        ) : null}
 
-          {/* キャスト・スタッフ一覧 */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>キャスト・スタッフ</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
-              {cast.map((p) => (
-                <Pressable key={p.id} style={styles.personCard} onPress={() => {}}>
-                  <Image source={FALLBACK_PERSON_IMAGE} style={styles.personThumb} resizeMode="cover" />
-                  <Text style={styles.personName} numberOfLines={1} ellipsizeMode="tail">
-                    {p.name}
-                  </Text>
-                  <Text style={styles.personRole} numberOfLines={1} ellipsizeMode="tail">
-                    {p.role}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+        {busyInitial ? (
+          <View style={styles.loadingCenter}>
+            <ActivityIndicator />
           </View>
-
-          {/* 動画一覧 */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>動画</Text>
-            {loadError ? <Text style={styles.loadError}>読み込みに失敗しました（モック表示）</Text> : null}
-
-            <View style={styles.videoGrid}>
-              {videos.map((v) => (
-                <Pressable key={v.id} style={styles.videoCard} onPress={() => onOpenVideo(v.id)}>
-                  <Image source={FALLBACK_VIDEO_IMAGE} style={styles.videoThumb} resizeMode="cover" />
-                  <View style={styles.videoMeta}>
-                    <Text style={styles.videoTitle} numberOfLines={2} ellipsizeMode="tail">
-                      {v.title}
-                    </Text>
-                    <Text style={styles.videoRating}>
-                      ★ {v.rating.toFixed(1)}（{v.ratingCount}）
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        </ScrollView>
+        ) : (
+          <FlatList
+            data={videos}
+            keyExtractor={(v) => v.id}
+            numColumns={2}
+            renderItem={({ item }) => renderVideo(item)}
+            contentContainerStyle={styles.listContent}
+            columnWrapperStyle={styles.column}
+            showsVerticalScrollIndicator={false}
+            onEndReachedThreshold={0.6}
+            onEndReached={() => {
+              void fetchVideos('more')
+            }}
+            ListHeaderComponent={
+              videosError ? <Text style={styles.loadNote}>動画取得に失敗しました（モック表示）</Text> : null
+            }
+            ListFooterComponent={
+              busyMore ? (
+                <View style={styles.footerLoading}>
+                  <ActivityIndicator />
+                </View>
+              ) : (
+                <View style={styles.footerSpace} />
+              )
+            }
+          />
+        )}
       </View>
     </ScreenContainer>
   )
@@ -184,21 +257,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  scrollContent: {
-    paddingBottom: 16,
+  topTabs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
   },
-  section: {
-    marginBottom: 16,
+  topTabGap: {
+    width: 10,
   },
-  sectionTitle: {
+  topTab: {
+    flex: 1,
+    height: 40,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topTabActive: {
+    borderColor: THEME.accent,
+  },
+  topTabText: {
     color: THEME.text,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
+  },
+  topTabTextActive: {
+    color: THEME.accent,
+  },
+  sectionTop: {
+    marginBottom: 10,
   },
   chipRow: {
     gap: 8,
     paddingRight: 8,
-    marginTop: 10,
   },
   chip: {
     paddingVertical: 8,
@@ -208,63 +301,66 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.outline,
   },
+  chipSelected: {
+    borderColor: THEME.accent,
+  },
   chipText: {
     color: THEME.text,
     fontSize: 12,
     fontWeight: '700',
   },
-  hList: {
-    gap: 12,
-    paddingRight: 8,
+  chipTextSelected: {
+    color: THEME.accent,
   },
-  personCard: {
-    width: 132,
-    borderRadius: 16,
-    backgroundColor: THEME.card,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    overflow: 'hidden',
-    paddingBottom: 10,
-  },
-  personThumb: {
-    width: '100%',
-    height: 84,
-  },
-  personName: {
-    color: THEME.text,
-    fontSize: 11,
-    fontWeight: '800',
-    paddingHorizontal: 10,
-    paddingTop: 10,
-  },
-  personRole: {
-    color: THEME.textMuted,
-    fontSize: 10,
-    paddingHorizontal: 10,
-    paddingTop: 2,
-  },
-  loadError: {
-    marginTop: 10,
+  loadNote: {
+    marginTop: 8,
     color: THEME.textMuted,
     fontSize: 10,
   },
-  videoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  loadingCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listContent: {
+    paddingBottom: 16,
+  },
+  column: {
     gap: 12,
-    marginTop: 10,
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
   videoCard: {
-    width: '48%',
+    flex: 1,
     borderRadius: 16,
     backgroundColor: THEME.card,
     borderWidth: 1,
     borderColor: THEME.outline,
     overflow: 'hidden',
   },
-  videoThumb: {
+  thumbWrap: {
     width: '100%',
-    height: 96,
+    aspectRatio: 16 / 9,
+    backgroundColor: THEME.card,
+  },
+  videoThumb: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  paidBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: THEME.card,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+  },
+  paidBadgeText: {
+    color: THEME.text,
+    fontSize: 10,
+    fontWeight: '800',
   },
   videoMeta: {
     paddingHorizontal: 10,
@@ -279,5 +375,11 @@ const styles = StyleSheet.create({
   videoRating: {
     color: THEME.textMuted,
     fontSize: 10,
+  },
+  footerLoading: {
+    paddingVertical: 12,
+  },
+  footerSpace: {
+    height: 6,
   },
 })

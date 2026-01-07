@@ -8,3 +8,11 @@ export async function getBoolean(key: string): Promise<boolean> {
 export async function setBoolean(key: string, value: boolean): Promise<void> {
   await AsyncStorage.setItem(key, value ? '1' : '0')
 }
+
+export async function getString(key: string): Promise<string | null> {
+  return AsyncStorage.getItem(key)
+}
+
+export async function setString(key: string, value: string): Promise<void> {
+  await AsyncStorage.setItem(key, value)
+}

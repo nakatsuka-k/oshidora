@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { RowItem, ScreenContainer, THEME } from '../components'
 
 type DevItem = {
@@ -10,14 +10,16 @@ type DevItem = {
 type DeveloperMenuScreenProps = {
   onBack: () => void
   onGo: (screenKey: string) => void
+  loggedIn: boolean
+  onLoginToggle: () => void
 }
 
-export function DeveloperMenuScreen({ onBack, onGo }: DeveloperMenuScreenProps) {
+export function DeveloperMenuScreen({ onBack, onGo, loggedIn, onLoginToggle }: DeveloperMenuScreenProps) {
   const items: DevItem[] = [
     { key: 'welcome', title: 'Welcome（初期トップ）', subtitle: '#/welcome' },
-    { key: 'welcomeAuth', title: 'Welcome（ログイン/会員登録）', subtitle: '#/start' },
     { key: 'tutorial', title: 'チュートリアル', subtitle: '#/tutorial/1' },
     { key: 'terms', title: '利用規約', subtitle: '#/terms' },
+    { key: 'privacy', title: 'プライバシーポリシー', subtitle: '#/privacy' },
     { key: 'signup', title: '新規登録', subtitle: '#/signup' },
     { key: 'emailVerify', title: 'メール認証', subtitle: '#/email-verify' },
     { key: 'sms2fa', title: 'SMS 2段階（登録）', subtitle: '#/sms-2fa' },
@@ -37,6 +39,9 @@ export function DeveloperMenuScreen({ onBack, onGo }: DeveloperMenuScreenProps) 
     { key: 'favorites', title: 'お気に入り一覧', subtitle: '#/favorites' },
     { key: 'notice', title: 'お知らせ', subtitle: '#/notice' },
 
+    { key: 'purchase', title: '購入確認（有料動画課金）', subtitle: '#/purchase' },
+    { key: 'comment', title: 'コメント投稿', subtitle: '#/comment' },
+
     { key: 'profile', title: 'プロフィール（ワイヤー）', subtitle: '#/profile' },
     { key: 'workDetail', title: '作品詳細（ワイヤー）', subtitle: '#/work' },
 
@@ -46,6 +51,18 @@ export function DeveloperMenuScreen({ onBack, onGo }: DeveloperMenuScreenProps) 
   return (
     <ScreenContainer title="Developer" onBack={onBack}>
       <View style={styles.root}>
+        <View style={styles.toggleBox}>
+          <Text style={styles.toggleLabel}>ログイン状態：</Text>
+          <Pressable
+            style={[styles.toggleButton, loggedIn ? styles.toggleButtonActive : null]}
+            onPress={onLoginToggle}
+          >
+            <Text style={[styles.toggleText, loggedIn ? styles.toggleTextActive : null]}>
+              {loggedIn ? 'ログイン中' : 'ログアウト'}
+            </Text>
+          </Pressable>
+        </View>
+
         <Text style={styles.note}>
           画面遷移の動作確認用メニューです。Web版はURL（hash）も合わせて更新されます。
         </Text>
@@ -69,6 +86,43 @@ export function DeveloperMenuScreen({ onBack, onGo }: DeveloperMenuScreenProps) 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  toggleBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: THEME.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  toggleLabel: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  toggleButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+  },
+  toggleButtonActive: {
+    borderColor: THEME.accent,
+    backgroundColor: THEME.accent,
+  },
+  toggleText: {
+    color: THEME.text,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  toggleTextActive: {
+    color: THEME.card,
   },
   note: {
     color: THEME.textMuted,

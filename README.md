@@ -32,6 +32,26 @@ npm run dev:api
 
 `http://127.0.0.1:8787/health` が `ok` を返せば起動しています。
 
+#### Cloudflare Stream（サンプル再生）
+
+API は Cloudflare Stream の管理APIを叩くため、以下の環境変数が必要です（トークン/署名鍵は **必ずサーバ側のみに保持**）。
+
+- `CLOUDFLARE_ACCOUNT_ID`（非secret。`apps/api/wrangler.toml` に設定済み）
+- `CLOUDFLARE_STREAM_API_TOKEN`（secret）
+- `CLOUDFLARE_STREAM_SIGNING_KEY_ID`（secret扱い推奨）
+- `CLOUDFLARE_STREAM_SIGNING_KEY_JWK`（secret。Cloudflareが返すRSA秘密鍵JWK）
+
+ローカル開発では [apps/api/.dev.vars.example](apps/api/.dev.vars.example) を `.dev.vars` にコピーして、トークンを埋めてください（`.dev.vars` はgitignoreされています）。
+
+Cloudflare にデプロイする場合は:
+
+```bash
+cd apps/api
+npx wrangler secret put CLOUDFLARE_STREAM_API_TOKEN
+npx wrangler secret put CLOUDFLARE_STREAM_SIGNING_KEY_ID
+npx wrangler secret put CLOUDFLARE_STREAM_SIGNING_KEY_JWK
+```
+
 ### Mobile (Expo)
 
 ```bash
@@ -42,6 +62,10 @@ npm run dev:mobile
 起動するとログイン（SMS 2段階認証）の画面フロー（AXCMS-L-001〜003）が表示されます。
 
 APIのURLは `EXPO_PUBLIC_API_BASE_URL` で上書きできます。
+
+Cloudflare Stream のサンプル動画IDは `EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID` で指定します（例は [apps/mobile/.env.example](apps/mobile/.env.example)）。
+
+作品詳細画面の再生は API の `GET /v1/stream/signed-playback/:videoId` が返す署名付き HLS を使います（非公開配信 / Signed URL）。
 
 - Web: デフォルト `http://localhost:8787`
 - Androidエミュレータ: デフォルト `http://10.0.2.2:8787`
@@ -122,9 +146,7 @@ APIのURLを本番に向ける場合は、Pagesの Environment variables に `EX
 	- `CLOUDFLARE_API_TOKEN`
 	- `CLOUDFLARE_ACCOUNT_ID`
 
-Web版は `apps/mobile/dist/_worker.js` により、許可IP以外を 403 にします。
-
-- 許可IPは `OSHIDORA_ALLOWED_IPS`（カンマ区切り）で上書きできます
+Web版は `apps/mobile/dist/_worker.js` を使って Cloudflare Pages へデプロイします。
 
 ## D1 (本番DB作成・適用)
 

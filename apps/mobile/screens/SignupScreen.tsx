@@ -51,42 +51,44 @@ export function SignupScreen({ initialEmail, onSendCode, onLogin, onBack }: Sign
       <View style={styles.root}>
         {error ? <Text style={styles.bannerError}>{error}</Text> : null}
 
-        <View style={styles.field}>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="メールアドレス"
-            placeholderTextColor={THEME.textMuted}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={styles.input}
-          />
-        </View>
-
-        <View style={styles.field}>
-          <View style={styles.passwordRow}>
+        <View style={styles.top}>
+          <View style={styles.field}>
             <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="パスワード"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="メールアドレス"
               placeholderTextColor={THEME.textMuted}
-              secureTextEntry={!show}
               autoCapitalize="none"
-              style={styles.passwordInput}
+              keyboardType="email-address"
+              style={styles.input}
             />
-            <Pressable
-              onPress={() => setShow((v) => !v)}
-              hitSlop={10}
-              style={styles.eyeButton}
-              accessibilityRole="button"
-              accessibilityLabel={show ? 'パスワードを非表示にする' : 'パスワードを表示する'}
-            >
-              <EyeIcon open={show} />
-            </Pressable>
           </View>
-        </View>
 
-        <Text style={styles.help}>登録用の認証コードをメールで送信します</Text>
+          <View style={styles.field}>
+            <View style={styles.passwordRow}>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="パスワード"
+                placeholderTextColor={THEME.textMuted}
+                secureTextEntry={!show}
+                autoCapitalize="none"
+                style={styles.passwordInput}
+              />
+              <Pressable
+                onPress={() => setShow((v) => !v)}
+                hitSlop={10}
+                style={styles.eyeButton}
+                accessibilityRole="button"
+                accessibilityLabel={show ? 'パスワードを非表示にする' : 'パスワードを表示する'}
+              >
+                <EyeIcon open={show} />
+              </Pressable>
+            </View>
+          </View>
+
+          <Text style={styles.help}>登録用の認証コードをメールで送信します</Text>
+        </View>
 
         <View style={styles.bottom}>
           <PrimaryButton
@@ -124,6 +126,10 @@ export function SignupScreen({ initialEmail, onSendCode, onLogin, onBack }: Sign
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    justifyContent: 'space-between',
+  },
+  top: {
+    paddingTop: 0,
   },
   bannerError: {
     fontSize: 12,
@@ -179,7 +185,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   bottom: {
-    marginTop: 8,
+    marginTop: 16,
     paddingBottom: 8,
   },
   spacer: {

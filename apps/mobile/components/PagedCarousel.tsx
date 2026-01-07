@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject, ReactNode } from 'react'
 import {
+  type LayoutChangeEvent,
   Pressable,
   ScrollView,
   StyleProp,
@@ -37,7 +38,8 @@ export function PagedCarousel<TItem>({
   controllerRef,
 }: PagedCarouselProps<TItem>) {
   const { width } = useWindowDimensions()
-  const pageWidth = Math.max(1, width)
+  const [containerWidth, setContainerWidth] = useState<number | null>(null)
+  const pageWidth = Math.max(1, containerWidth ?? width)
 
   const scrollRef = useRef<ScrollView | null>(null)
 
@@ -66,8 +68,14 @@ export function PagedCarousel<TItem>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeIndex, pageWidth])
 
+  const onLayout = (e: LayoutChangeEvent) => {
+    const nextWidth = Math.round(e.nativeEvent.layout.width)
+    if (!Number.isFinite(nextWidth) || nextWidth <= 0) return
+    setContainerWidth((prev) => (prev === nextWidth ? prev : nextWidth))
+  }
+
   return (
-    <View style={[styles.root, containerStyle, height ? { height } : null]}>
+    <View onLayout={onLayout} style={[styles.root, containerStyle, height ? { height } : null]}>
       <ScrollView
         ref={(r) => {
           scrollRef.current = r

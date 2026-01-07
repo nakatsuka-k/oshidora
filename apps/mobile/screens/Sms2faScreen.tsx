@@ -31,25 +31,58 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
   return (
     <ScreenContainer title="二段階認証" onBack={onBack} scroll maxWidth={520}>
       <View style={styles.root}>
-        <Text style={styles.desc}>セキュリティ向上のため、SMSによる認証を行います</Text>
-        <Text style={styles.desc2}>登録した電話番号に4桁の認証コードを送信します</Text>
+        <View style={styles.top}>
+          <Text style={styles.desc}>セキュリティ向上のため、SMSによる認証を行います</Text>
+          <Text style={styles.desc2}>登録した電話番号に4桁の認証コードを送信します</Text>
 
-        {error ? <Text style={styles.bannerError}>{error}</Text> : null}
+          {error ? <Text style={styles.bannerError}>{error}</Text> : null}
 
-        {phase === 'phone' ? (
-          <>
-            <Text style={styles.label}>電話番号</Text>
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="09012345678"
-              placeholderTextColor={THEME.textMuted}
-              keyboardType="phone-pad"
-              style={styles.input}
-            />
-            <Text style={styles.help}>SMSが受信できる番号を入力してください</Text>
+          {phase === 'phone' ? (
+            <>
+              <Text style={styles.label}>電話番号</Text>
+              <TextInput
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="09012345678"
+                placeholderTextColor={THEME.textMuted}
+                keyboardType="phone-pad"
+                style={styles.input}
+              />
+              <Text style={styles.help}>SMSが受信できる番号を入力してください</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.label}>認証コード</Text>
+              <Text style={styles.help2}>SMSで届いた4桁のコードを入力してください</Text>
+              <PinInput length={4} value={code} onChange={setCode} error={!!error} />
 
-            <View style={styles.bottom}>
+              <View style={styles.resendRow}>
+                {cooldown > 0 ? (
+                  <Text style={styles.resendDisabled}>認証コードを再送する（{cooldown}秒）</Text>
+                ) : (
+                  <Pressable
+                    onPress={async () => {
+                      setError('')
+                      setBusy(true)
+                      try {
+                        await new Promise((r) => setTimeout(r, 250))
+                        setCooldown(30)
+                      } finally {
+                        setBusy(false)
+                      }
+                    }}
+                  >
+                    <Text style={styles.resend}>認証コードを再送する</Text>
+                  </Pressable>
+                )}
+              </View>
+            </>
+          )}
+        </View>
+
+        <View style={styles.bottom}>
+          {phase === 'phone' ? (
+            <>
               <PrimaryButton
                 label="認証コードを送信"
                 disabled={!canSend}
@@ -71,36 +104,9 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
               />
               <View style={styles.spacer} />
               <SecondaryButton label="戻る" onPress={onBack} />
-            </View>
-          </>
-        ) : (
-          <>
-            <Text style={styles.label}>認証コード</Text>
-            <Text style={styles.help2}>SMSで届いた4桁のコードを入力してください</Text>
-            <PinInput length={4} value={code} onChange={setCode} error={!!error} />
-
-            <View style={styles.resendRow}>
-              {cooldown > 0 ? (
-                <Text style={styles.resendDisabled}>認証コードを再送する（{cooldown}秒）</Text>
-              ) : (
-                <Pressable
-                  onPress={async () => {
-                    setError('')
-                    setBusy(true)
-                    try {
-                      await new Promise((r) => setTimeout(r, 250))
-                      setCooldown(30)
-                    } finally {
-                      setBusy(false)
-                    }
-                  }}
-                >
-                  <Text style={styles.resend}>認証コードを再送する</Text>
-                </Pressable>
-              )}
-            </View>
-
-            <View style={styles.bottom}>
+            </>
+          ) : (
+            <>
               <PrimaryButton
                 label="認証する"
                 disabled={!canVerify}
@@ -133,9 +139,9 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
                   setPhase('phone')
                 }}
               />
-            </View>
-          </>
-        )}
+            </>
+          )}
+        </View>
       </View>
     </ScreenContainer>
   )
@@ -144,6 +150,10 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    justifyContent: 'space-between',
+  },
+  top: {
+    paddingTop: 0,
   },
   desc: {
     color: THEME.textMuted,

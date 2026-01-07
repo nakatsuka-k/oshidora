@@ -8,26 +8,50 @@ type ScreenContainerProps = {
   scroll?: boolean
   footer?: ReactNode
   maxWidth?: number
+  padding?: number
   children: ReactNode
 }
 
-export function ScreenContainer({ title, onBack, scroll, footer, maxWidth, children }: ScreenContainerProps) {
-  const content = (
-    <View style={styles.contentOuter}>
+export function ScreenContainer({ title, onBack, scroll, footer, maxWidth, padding = 16, children }: ScreenContainerProps) {
+  const outerStyle = (opts?: { top?: number; bottom?: number }) => {
+    if (padding === 16 && !opts) return styles.contentOuter
+    const top = opts?.top ?? padding
+    const bottom = opts?.bottom ?? padding
+    return {
+      paddingLeft: padding,
+      paddingRight: padding,
+      paddingTop: top,
+      paddingBottom: bottom,
+      flex: 1,
+    } as const
+  }
+
+  const headerOuterStyle = (opts?: { top?: number; bottom?: number }) => {
+    const top = opts?.top ?? padding
+    const bottom = opts?.bottom ?? padding
+    return {
+      paddingLeft: padding,
+      paddingRight: padding,
+      paddingTop: top,
+      paddingBottom: bottom,
+    } as const
+  }
+
+  const header = onBack ? (
+    <View style={headerOuterStyle({ bottom: 0 })}>
       <View style={[styles.contentInner, maxWidth ? { maxWidth } : null]}>
-        {title ? (
-          <View style={styles.headerBar}>
-            {onBack ? (
-              <Pressable onPress={onBack} style={styles.headerBack}>
-                <Text style={styles.headerBackText}>‹</Text>
-              </Pressable>
-            ) : (
-              <View style={styles.headerRightSpace} />
-            )}
-            <Text style={styles.headerTitle}>{title}</Text>
-            <View style={styles.headerRightSpace} />
-          </View>
-        ) : null}
+        <View style={styles.headerBackOnly}>
+          <Pressable onPress={onBack} style={styles.headerBack}>
+            <Text style={styles.headerBackText}>‹</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  ) : null
+
+  const body = (
+    <View style={onBack ? outerStyle({ top: 0 }) : outerStyle()}>
+      <View style={[styles.contentInner, maxWidth ? { maxWidth } : null]}>
         <View style={styles.body}>{children}</View>
       </View>
     </View>
@@ -36,8 +60,9 @@ export function ScreenContainer({ title, onBack, scroll, footer, maxWidth, child
   if (scroll) {
     return (
       <View style={styles.root}>
+        {header}
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {content}
+          {body}
         </ScrollView>
         {footer ? <View style={styles.footer}>{footer}</View> : null}
       </View>
@@ -46,7 +71,10 @@ export function ScreenContainer({ title, onBack, scroll, footer, maxWidth, child
 
   return (
     <View style={styles.root}>
-      <View style={styles.main}>{content}</View>
+      <View style={styles.main}>
+        {header}
+        {body}
+      </View>
       {footer ? <View style={styles.footer}>{footer}</View> : null}
     </View>
   )
@@ -82,35 +110,23 @@ const styles = StyleSheet.create({
   footer: {
     width: '100%',
   },
-  headerBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    marginBottom: 16,
+  headerBackOnly: {
+    paddingVertical: 4,
+    marginBottom: 10,
   },
   headerBack: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: THEME.outline,
-    borderRadius: 22,
+    borderRadius: 20,
     backgroundColor: THEME.card,
   },
   headerBackText: {
     color: THEME.text,
-    fontSize: 22,
-    lineHeight: 22,
-  },
-  headerTitle: {
-    color: THEME.text,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  headerRightSpace: {
-    width: 44,
-    height: 44,
+    fontSize: 20,
+    lineHeight: 20,
   },
 })

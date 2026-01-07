@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Platform,
+  Pressable,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -35,11 +37,20 @@ import {
   TutorialScreen,
   TopScreen,
   VideoListScreen,
-  WelcomeAuthChoiceScreen,
   WelcomeTopScreen,
+  PrivacyPolicyScreen,
+  PaidVideoPurchaseScreen,
+  CommentPostScreen,
+  VideoPlayerScreen,
+  StaffCastReviewScreen,
+  CastSearchScreen,
+  VideoSearchScreen,
+  CastSearchResultScreen,
+  MyPageScreen,
+  UserProfileEditScreen,
 } from './screens'
 
-import { getBoolean, setBoolean } from './utils/storage'
+import { setBoolean, getString, setString } from './utils/storage'
 
 type Oshi = {
   id: string
@@ -50,18 +61,22 @@ type Oshi = {
 type Screen =
   | 'home'
   | 'welcome'
-  | 'welcomeAuth'
   | 'login'
   | 'tutorial'
   | 'terms'
+  | 'privacy'
+  | 'purchase'
+  | 'comment'
   | 'signup'
   | 'emailVerify'
   | 'sms2fa'
   | 'registerComplete'
   | 'videoList'
   | 'cast'
+  | 'castSearchResult'
   | 'search'
   | 'mypage'
+  | 'profileEdit'
   | 'ranking'
   | 'favorites'
   | 'notice'
@@ -70,7 +85,9 @@ type Screen =
   | 'top'
   | 'dev'
   | 'profile'
+  | 'castReview'
   | 'workDetail'
+  | 'videoPlayer'
 
 const WEB_DEFAULT_SCREEN: Screen = 'welcome'
 
@@ -84,20 +101,28 @@ function screenToWebHash(screen: Screen): string {
       return '#/videos'
     case 'cast':
       return '#/cast'
+    case 'castSearchResult':
+      return '#/cast-result'
     case 'search':
       return '#/search'
     case 'mypage':
       return '#/mypage'
+    case 'profileEdit':
+      return '#/profile-edit'
     case 'welcome':
       return '#/welcome'
-    case 'welcomeAuth':
-      return '#/start'
     case 'login':
       return '#/login'
     case 'tutorial':
       return '#/tutorial/1'
     case 'terms':
       return '#/terms'
+    case 'privacy':
+      return '#/privacy'
+    case 'purchase':
+      return '#/purchase'
+    case 'comment':
+      return '#/comment'
     case 'signup':
       return '#/signup'
     case 'emailVerify':
@@ -118,8 +143,12 @@ function screenToWebHash(screen: Screen): string {
       return '#/notice'
     case 'profile':
       return '#/profile'
+    case 'castReview':
+      return '#/cast-review'
     case 'workDetail':
       return '#/work'
+    case 'videoPlayer':
+      return '#/play'
     case 'top':
       return '#/debug'
     case 'dev':
@@ -153,14 +182,13 @@ function parseTutorialIndexFromWebHash(hash: string): number | null {
 
 function webHashToScreen(hash: string): Screen {
   const value = (hash || '').trim()
-  const path = value.startsWith('#') ? value.slice(1) : value
+  const raw = value.startsWith('#') ? value.slice(1) : value
+  const path = raw.split('?')[0]
 
   switch (path) {
     case '/':
     case '/welcome':
       return 'welcome'
-    case '/start':
-      return 'welcomeAuth'
     case '/login':
       return 'login'
     case '/tutorial':
@@ -168,6 +196,12 @@ function webHashToScreen(hash: string): Screen {
       return 'tutorial'
     case '/terms':
       return 'terms'
+    case '/privacy':
+      return 'privacy'
+    case '/purchase':
+      return 'purchase'
+    case '/comment':
+      return 'comment'
     case '/signup':
       return 'signup'
     case '/email-verify':
@@ -186,10 +220,14 @@ function webHashToScreen(hash: string): Screen {
       return 'videoList'
     case '/cast':
       return 'cast'
+    case '/cast-result':
+      return 'castSearchResult'
     case '/search':
       return 'search'
     case '/mypage':
       return 'mypage'
+    case '/profile-edit':
+      return 'profileEdit'
     case '/ranking':
       return 'ranking'
     case '/favorites':
@@ -198,8 +236,12 @@ function webHashToScreen(hash: string): Screen {
       return 'notice'
     case '/profile':
       return 'profile'
+    case '/cast-review':
+      return 'castReview'
     case '/work':
       return 'workDetail'
+    case '/play':
+      return 'videoPlayer'
     case '/debug':
       return 'top'
     case '/dev':
@@ -218,8 +260,6 @@ function screenToDocumentTitle(
   switch (screen) {
     case 'welcome':
       return base
-    case 'welcomeAuth':
-      return `${base} | はじめる`
     case 'login':
       return `${base} | ログイン`
     case 'tutorial':
@@ -229,6 +269,12 @@ function screenToDocumentTitle(
       return `${base} | チュートリアル`
     case 'terms':
       return `${base} | 利用規約`
+    case 'privacy':
+      return `${base} | プライバシーポリシー`
+    case 'purchase':
+      return `${base} | 購入確認`
+    case 'comment':
+      return `${base} | コメント`
     case 'signup':
       return `${base} | 新規登録`
     case 'emailVerify':
@@ -259,8 +305,12 @@ function screenToDocumentTitle(
       return `${base} | お知らせ`
     case 'profile':
       return `${base} | プロフィール`
+    case 'castReview':
+      return `${base} | 評価`
     case 'workDetail':
       return `${base} | 作品詳細`
+    case 'videoPlayer':
+      return `${base} | 動画表示`
     case 'dev':
       return `${base} | Developer`
     case 'top':
@@ -305,8 +355,19 @@ export default function App() {
     return env && env.trim().length > 0 ? env : 'password'
   }, [])
 
+  const streamSampleVideoId = useMemo(() => {
+    const env = process.env.EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID
+    return env && env.trim().length > 0 ? env.trim() : '367b90a85d2d8f745dc709d988dff07d'
+  }, [])
+
+  // Player context (AXCMS-PL-001)
+  const [playerVideoIdNoSub, setPlayerVideoIdNoSub] = useState<string>('367b90a85d2d8f745dc709d988dff07d')
+  const [playerVideoIdWithSub, setPlayerVideoIdWithSub] = useState<string | null>(null)
+
   const [screen, setScreen] = useState<Screen>('welcome')
   const [history, setHistory] = useState<Screen[]>([])
+
+  const [postLoginTarget, setPostLoginTarget] = useState<Screen | null>(null)
 
   const [tutorialIndex, setTutorialIndex] = useState<number>(0)
 
@@ -359,6 +420,76 @@ export default function App() {
     })
   }, [])
 
+  const [health, setHealth] = useState<string>('')
+  const [items, setItems] = useState<Oshi[]>([])
+  const [name, setName] = useState<string>('')
+  const [apiBusy, setApiBusy] = useState<boolean>(false)
+  const [error, setError] = useState<string>('')
+
+  // Auth flow busy flag (login/phone/otp). Keep separate from apiBusy so auth buttons don't get disabled by
+  // background health/data fetches on Pages production.
+  const [authBusy, setAuthBusy] = useState<boolean>(false)
+
+  const [loggedIn, setLoggedIn] = useState<boolean>(false)
+
+  // Initialize login state from AsyncStorage and API
+  useEffect(() => {
+    const initializeLoginState = async () => {
+      try {
+        // Try to get login state from AsyncStorage first
+        const savedState = await getString('dev_login_state')
+        if (savedState !== null) {
+          setLoggedIn(savedState === 'true')
+          return
+        }
+
+        // If not saved, fetch from API
+        const res = await fetch(`${apiBaseUrl}/v1/dev/login-state`)
+        if (res.ok) {
+          const data = (await res.json()) as { loggedIn: boolean }
+          setLoggedIn(data.loggedIn)
+          // Save to AsyncStorage
+          await setString('dev_login_state', data.loggedIn ? 'true' : 'false')
+        }
+      } catch (e) {
+        // Silently fail, default to false
+      }
+    }
+    initializeLoginState()
+  }, [apiBaseUrl])
+
+  // Persist login state to AsyncStorage when it changes
+  useEffect(() => {
+    setString('dev_login_state', loggedIn ? 'true' : 'false')
+  }, [loggedIn])
+
+  useEffect(() => {
+    // Guard for direct navigation (e.g. web hash) to login-required screens.
+    if (loggedIn) return
+    if (screen !== 'profile' && screen !== 'castReview' && screen !== 'comment') return
+
+    setPostLoginTarget(screen)
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.location.hash = screenToWebHash('login')
+      return
+    }
+    setHistory([])
+    setScreen('login')
+  }, [loggedIn, screen])
+
+  const requireLogin = useCallback((next: Screen): boolean => {
+    if (loggedIn) return true
+    setPostLoginTarget(next)
+    goTo('login')
+    return false
+  }, [goTo, loggedIn])
+
+  type ApprovedComment = { id: string; author: string; body: string; createdAt?: string }
+
+  const [approvedComments, setApprovedComments] = useState<ApprovedComment[]>([])
+  const [commentsBusy, setCommentsBusy] = useState(false)
+  const [commentsError, setCommentsError] = useState('')
+
   const switchTab = useCallback((key: 'home' | 'video' | 'cast' | 'search' | 'mypage') => {
     const next: Screen =
       key === 'home'
@@ -371,6 +502,8 @@ export default function App() {
               ? 'search'
               : 'mypage'
 
+    // Access control: videos are public, cast list is public; cast profile/review/comment are login-required.
+
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       window.location.hash = screenToWebHash(next)
       return
@@ -378,42 +511,44 @@ export default function App() {
 
     setHistory([])
     setScreen(next)
-  }, [])
-
-  const [health, setHealth] = useState<string>('')
-  const [items, setItems] = useState<Oshi[]>([])
-  const [name, setName] = useState<string>('')
-  const [busy, setBusy] = useState<boolean>(false)
-  const [error, setError] = useState<string>('')
-
-  const [loggedIn, setLoggedIn] = useState<boolean>(false)
+  }, [goTo, loggedIn])
 
   const [debugDotsIndex, setDebugDotsIndex] = useState<number>(0)
   const [debugSlideIndex, setDebugSlideIndex] = useState<number>(0)
 
   const mockProfile = useMemo(
     () => ({
-      nameJa: '松岡美沙',
-      nameEn: 'Misa Matsuoka',
-      tags: ['Drama', 'Comedy', 'Action'],
-      rating: 4.95,
-      reviews: 22,
-      profileSections: [
-        {
-          title: 'プロフィール',
-          text: '生年月日：1998年11月29日\n神奈川県出身（最寄駅：たまプラーザ駅）\n（サイズ）T158 W46 B81 H83\n趣味：映画・アニメ鑑賞・パフェ・カフェ巡り・ホカンス\n特技：ダンス・歌・ラーメン作り・中華鍋',
-        },
-        {
-          title: '出演実績',
-          text: '＜広告・モデル＞\n・伊勢半ヒロインメイクシリーズ メインモデル\n・YOKU MOKU（ヨックモック）新商品テレビシリーズ\n・Wolt Web広告（カップル編）\n\n＜TV・ドラマ＞\n・CX「1日3回言ってください？」\n・NETFLIX「FOLLOWERS」',
-        },
+      id: 'cast-1',
+      name: '松岡美沙',
+      affiliation: 'フリーランス',
+      genre: ['女優'],
+      biography:
+        '生年月日：1998年11月29日\n神奈川県出身\n趣味：映画・アニメ鑑賞・カフェ巡り\n特技：ダンス・歌',
+      worksText:
+        '・ダウトコール\n・ミステリーX\n・ラブストーリーY',
+      snsLinks: [
+        { label: 'X', url: 'https://x.com/' },
+        { label: 'Instagram', url: 'https://www.instagram.com/' },
       ],
+      selfPr:
+        '作品の世界観を大切に、観る人の心に残るお芝居を目指しています。応援よろしくお願いします。',
     }),
     []
   )
 
+  const [selectedCast, setSelectedCast] = useState<{ id: string; name: string; roleLabel?: string } | null>(null)
+  const [castReviews, setCastReviews] = useState<Record<string, { rating: number; comment: string; updatedAt: number }>>({})
+
+  const [castSearchKeyword, setCastSearchKeyword] = useState<string>('')
+
+  const selectedCastReview = useMemo(() => {
+    if (!selectedCast) return null
+    return castReviews[selectedCast.id] ?? null
+  }, [castReviews, selectedCast])
+
   const mockWork = useMemo(
     () => ({
+      id: 'content-1',
       title: 'ダウトコール',
       subtitle: 'あなた、浮気されてますよ。',
       tags: ['Drama', 'Mystery', 'Romance'],
@@ -422,9 +557,9 @@ export default function App() {
       story:
         '夫といつも通りの会話をしていると、突然スマホが鳴る。\nドキドキしながら手に取ると…「あなた、浮気されてますよ」\nと不気味な女から一言。\n\nそこから日々の調査は加速し、次々と“自分だけが知らない日常”が暴かれていく。\n結果として浮気しているのは誰なのか？浮気がばれてどんな復讐が待っているのか？',
       episodes: [
-        { id: '01', title: '第01話', action: '再生' },
-        { id: '02', title: '第02話', action: '再生' },
-        { id: '03', title: '第03話', action: '再生' },
+        { id: '01', title: '第01話', priceCoin: 0 },
+        { id: '02', title: '第02話', priceCoin: 0 },
+        { id: '03', title: '第03話', priceCoin: 30 },
       ],
       staff: [
         { role: '出演者', name: '松岡美沙' },
@@ -435,6 +570,71 @@ export default function App() {
     }),
     []
   )
+
+  const shareUrlForWork = useCallback((contentId: string, videoIdNoSub: string) => {
+    const base = apiBaseUrl.replace(/\/$/, '')
+    // Use Cloudflare Stream thumbnail (public) for OG image when available.
+    const thumb = `https://videodelivery.net/${encodeURIComponent(videoIdNoSub)}/thumbnails/thumbnail.jpg?time=1s`
+    const u = new URL(`${base}/share/work/${encodeURIComponent(contentId)}`)
+    u.searchParams.set('thumb', thumb)
+    u.searchParams.set('title', mockWork.title)
+    return u.toString()
+  }, [apiBaseUrl, mockWork.title])
+
+  const shareUrlForCast = useCallback((castId: string, castName: string) => {
+    const base = apiBaseUrl.replace(/\/$/, '')
+    const u = new URL(`${base}/share/cast/${encodeURIComponent(castId)}`)
+    u.searchParams.set('title', castName)
+    return u.toString()
+  }, [apiBaseUrl])
+
+  const mockApprovedComments = useMemo(
+    () => [
+      { id: 'c1', author: '匿名', body: 'めちゃくちゃ続きが気になる…！' },
+      { id: 'c2', author: 'Misa', body: '演技が最高。表情の作り方がすごい。' },
+      { id: 'c3', author: 'ユーザーA', body: 'BGMが良くて一気見しました。' },
+      { id: 'c4', author: 'ユーザーB', body: 'ラストの展開が予想外で鳥肌…！！！' },
+      { id: 'c5', author: 'ユーザーC', body: '好きなシーン何回も見返した。' },
+      { id: 'c6', author: 'ユーザーD', body: '第3話から急に加速して面白い。' },
+      { id: 'c7', author: 'ユーザーE', body: 'キャストが豪華。' },
+      { id: 'c8', author: 'ユーザーF', body: '次回が待ちきれない。' },
+      { id: 'c9', author: 'ユーザーG', body: '短いのに満足感ある。' },
+      { id: 'c10', author: 'ユーザーH', body: '伏線回収が楽しみ。' },
+      { id: 'c11', author: 'ユーザーI', body: '51文字以上のコメントは省略される仕様なので長めに書いてみます。これはテスト用の文章です。' },
+    ],
+    []
+  )
+
+  const [commentTarget, setCommentTarget] = useState<{ contentId: string; contentTitle: string } | null>(null)
+  const [commentJustSubmitted, setCommentJustSubmitted] = useState(false)
+
+  const [ownedCoins, setOwnedCoins] = useState<number>(20)
+
+  const [purchasedTargets, setPurchasedTargets] = useState<Set<string>>(() => new Set())
+  const [purchaseTarget, setPurchaseTarget] = useState<
+    | {
+        targetType: 'episode'
+        targetId: string
+        title: string
+        requiredCoins: number
+        contentTypeLabel: string
+      }
+    | null
+  >(null)
+
+  const truncateCommentBody = useCallback((value: string) => {
+    const v = String(value ?? '')
+    if (v.length <= 50) return v
+    return `${v.slice(0, 50)}…`
+  }, [])
+
+  const hasPurchasedAnyEpisode = useMemo(() => {
+    // コメント投稿は作品単位だが、現状のモック購入はエピソード単位のため「いずれか購入済み」で投稿可とする。
+    for (const key of purchasedTargets) {
+      if (key.startsWith('episode:')) return true
+    }
+    return false
+  }, [purchasedTargets])
 
   const [loginEmail, setLoginEmail] = useState<string>('')
   const [loginPassword, setLoginPassword] = useState<string>('')
@@ -453,7 +653,7 @@ export default function App() {
 
   const checkHealth = useCallback(async () => {
     setError('')
-    setBusy(true)
+    setApiBusy(true)
     try {
       const res = await fetch(`${apiBaseUrl}/health`)
       const text = await res.text()
@@ -462,13 +662,41 @@ export default function App() {
       setHealth('')
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(false)
+      setApiBusy(false)
     }
   }, [apiBaseUrl])
 
+  const fetchApprovedComments = useCallback(
+    async (contentId: string) => {
+      setCommentsBusy(true)
+      setCommentsError('')
+      try {
+        const u = new URL(`${apiBaseUrl}/v1/comments`)
+        u.searchParams.set('content_id', contentId)
+        u.searchParams.set('limit', '50')
+        const res = await fetch(u.toString())
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const json = (await res.json()) as { items?: ApprovedComment[] }
+        const items = Array.isArray(json.items) ? json.items : []
+        setApprovedComments(items)
+      } catch (e) {
+        setApprovedComments([])
+        setCommentsError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setCommentsBusy(false)
+      }
+    },
+    [apiBaseUrl]
+  )
+
+  useEffect(() => {
+    if (screen !== 'workDetail') return
+    void fetchApprovedComments(mockWork.id)
+  }, [fetchApprovedComments, mockWork.id, screen])
+
   const loadOshi = useCallback(async () => {
     setError('')
-    setBusy(true)
+    setApiBusy(true)
     try {
       const res = await fetch(`${apiBaseUrl}/v1/oshi`)
       const json = (await res.json()) as { items: Oshi[] }
@@ -476,7 +704,7 @@ export default function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(false)
+      setApiBusy(false)
     }
   }, [apiBaseUrl])
 
@@ -485,7 +713,7 @@ export default function App() {
     if (!trimmed) return
 
     setError('')
-    setBusy(true)
+    setApiBusy(true)
     try {
       const res = await fetch(`${apiBaseUrl}/v1/oshi`, {
         method: 'POST',
@@ -501,7 +729,7 @@ export default function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(false)
+      setApiBusy(false)
     }
   }, [apiBaseUrl, loadOshi, name])
 
@@ -559,18 +787,9 @@ export default function App() {
     goBack()
   }, [goBack, resetAuthErrors])
 
-  const onStartRegister = useCallback(async () => {
-    try {
-      const seen = await getBoolean(TUTORIAL_SEEN_KEY)
-      goTo(seen ? 'terms' : 'tutorial')
-    } catch {
-      goTo('tutorial')
-    }
-  }, [TUTORIAL_SEEN_KEY, goTo])
-
   const canLoginNext = useMemo(() => {
-    return isValidEmail(loginEmail) && loginPassword.trim().length > 0 && !busy
-  }, [busy, loginEmail, loginPassword])
+    return isValidEmail(loginEmail) && loginPassword.trim().length > 0 && !authBusy
+  }, [authBusy, loginEmail, loginPassword])
 
   const onLoginNext = useCallback(async () => {
     resetAuthErrors()
@@ -587,7 +806,7 @@ export default function App() {
       return
     }
 
-    setBusy(true)
+    setAuthBusy(true)
     try {
       // NOTE: 認証APIは設計書では仮パスのため、現状は画面遷移のみ実装。
       // 実APIに接続する場合はここで fetch を行い、失敗時は setLoginBannerError を設定してください。
@@ -600,7 +819,7 @@ export default function App() {
 
       goTo('phone')
     } finally {
-      setBusy(false)
+      setAuthBusy(false)
     }
   }, [expectedLoginEmail, expectedLoginPassword, goTo, loginEmail, loginPassword, resetAuthErrors])
 
@@ -608,8 +827,8 @@ export default function App() {
 
   const canPhoneNext = useMemo(() => {
     const len = normalizedPhoneDigits.length
-    return len >= 10 && len <= 20 && !busy
-  }, [busy, normalizedPhoneDigits.length])
+    return len >= 10 && len <= 20 && !authBusy
+  }, [authBusy, normalizedPhoneDigits.length])
 
   const onPhoneNext = useCallback(async () => {
     resetAuthErrors()
@@ -623,7 +842,7 @@ export default function App() {
       return
     }
 
-    setBusy(true)
+    setAuthBusy(true)
     try {
       // NOTE: SMS送信APIは設計書では仮パスのため、現状は画面遷移のみ実装。
       await new Promise((r) => setTimeout(r, 250))
@@ -637,13 +856,16 @@ export default function App() {
       goTo('otp')
       setTimeout(() => otpRefs.current[0]?.focus?.(), 50)
     } finally {
-      setBusy(false)
+      setAuthBusy(false)
     }
   }, [OTP_LENGTH, goTo, normalizedPhoneDigits, resetAuthErrors])
 
   const otpValue = useMemo(() => otpDigits.join(''), [otpDigits])
   const otpComplete = useMemo(() => otpValue.length === OTP_LENGTH && !otpValue.includes(''), [OTP_LENGTH, otpValue])
-  const canOtpNext = useMemo(() => otpValue.length === OTP_LENGTH && otpDigits.every((d) => d.length === 1) && !busy, [OTP_LENGTH, busy, otpDigits, otpValue.length])
+  const canOtpNext = useMemo(
+    () => otpValue.length === OTP_LENGTH && otpDigits.every((d) => d.length === 1) && !authBusy,
+    [OTP_LENGTH, authBusy, otpDigits, otpValue.length]
+  )
 
   const setOtpAt = useCallback((index: number, value: string) => {
     const digit = digitsOnly(value).slice(-1)
@@ -680,7 +902,7 @@ export default function App() {
       return
     }
 
-    setBusy(true)
+    setAuthBusy(true)
     try {
       // NOTE: 認証コード検証APIは設計書では仮パスのため、現状は画面遷移のみ実装。
       await new Promise((r) => setTimeout(r, 250))
@@ -692,23 +914,22 @@ export default function App() {
 
       setLoggedIn(true)
       setHistory([])
-      setScreen('home')
+      setScreen(postLoginTarget ?? 'home')
+      setPostLoginTarget(null)
     } finally {
-      setBusy(false)
+      setAuthBusy(false)
     }
-  }, [otpDigits, resetAuthErrors])
+  }, [otpDigits, postLoginTarget, resetAuthErrors])
 
   return (
     <SafeAreaView style={styles.safeArea}>
       {screen === 'welcome' ? (
-        <WelcomeTopScreen onNext={() => goTo('welcomeAuth')} />
-      ) : null}
-
-      {screen === 'welcomeAuth' ? (
-        <WelcomeAuthChoiceScreen
-          onBack={goBack}
+        <WelcomeTopScreen
           onLogin={() => goTo('login')}
-          onRegister={() => void onStartRegister()}
+          onStart={() => {
+            setTutorialIndex(0)
+            goTo('tutorial')
+          }}
         />
       ) : null}
 
@@ -716,6 +937,7 @@ export default function App() {
         <TutorialScreen
           initialIndex={tutorialIndex}
           onIndexChange={onTutorialIndexChange}
+          onBack={goBack}
           onSkip={() => {
             void setBoolean(TUTORIAL_SEEN_KEY, true)
             goTo('terms')
@@ -728,55 +950,68 @@ export default function App() {
       ) : null}
 
       {screen === 'terms' ? (
-        <TermsScreen onBack={goBack} onAgreeRegister={() => goTo('signup')} />
+        <TermsScreen
+          onBack={goBack}
+          onAgreeRegister={() => goTo('signup')}
+          onOpenPrivacyPolicy={() => goTo('privacy')}
+        />
+      ) : null}
+
+      {screen === 'privacy' ? (
+        <PrivacyPolicyScreen onBack={goBack} />
       ) : null}
 
       {screen === 'login' ? (
         <ScreenContainer title="ログイン" maxWidth={520}>
           <View style={styles.authCenter}>
             <View style={styles.authContent}>
-              {loginBannerError ? <Text style={styles.bannerError}>{loginBannerError}</Text> : null}
-
-              <View style={styles.field}>
-                <TextInput
-                  value={loginEmail}
-                  onChangeText={(v) => setLoginEmail(v)}
-                  placeholder="メールアドレス"
-                  placeholderTextColor={THEME.textMuted}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  style={[styles.input, loginFieldErrors.email ? styles.inputError : null]}
-                />
-                {loginFieldErrors.email ? (
-                  <Text style={styles.fieldError}>{loginFieldErrors.email}</Text>
-                ) : null}
-              </View>
-
-              <View style={styles.field}>
-                <TextInput
-                  value={loginPassword}
-                  onChangeText={(v) => setLoginPassword(v)}
-                  placeholder="パスワード"
-                  placeholderTextColor={THEME.textMuted}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  style={[styles.input, loginFieldErrors.password ? styles.inputError : null]}
-                />
-                {loginFieldErrors.password ? (
-                  <Text style={styles.fieldError}>{loginFieldErrors.password}</Text>
-                ) : null}
-              </View>
-
-              <View style={styles.buttons}>
-                <View style={styles.buttonRow}>
-                  <SecondaryButton label="キャンセル" onPress={onCancel} disabled={busy} />
-                  <View style={styles.spacer} />
-                  <PrimaryButton
-                    label="次へ"
-                    onPress={onLoginNext}
-                    disabled={!canLoginNext}
-                    fullWidth={false}
+              <View style={styles.authTop}>
+                <View style={styles.authLogoWrap}>
+                  <Image
+                    source={require('./assets/oshidora-logo.png')}
+                    style={styles.authLogo}
+                    resizeMode="contain"
                   />
+                </View>
+
+                {loginBannerError ? <Text style={styles.bannerError}>{loginBannerError}</Text> : null}
+
+                <View style={styles.field}>
+                  <TextInput
+                    value={loginEmail}
+                    onChangeText={(v) => setLoginEmail(v)}
+                    placeholder="メールアドレス"
+                    placeholderTextColor={THEME.textMuted}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    style={[styles.input, loginFieldErrors.email ? styles.inputError : null]}
+                  />
+                  {loginFieldErrors.email ? <Text style={styles.fieldError}>{loginFieldErrors.email}</Text> : null}
+                </View>
+
+                <View style={styles.field}>
+                  <TextInput
+                    value={loginPassword}
+                    onChangeText={(v) => setLoginPassword(v)}
+                    placeholder="パスワード"
+                    placeholderTextColor={THEME.textMuted}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    style={[styles.input, loginFieldErrors.password ? styles.inputError : null]}
+                  />
+                  {loginFieldErrors.password ? (
+                    <Text style={styles.fieldError}>{loginFieldErrors.password}</Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={styles.authBottom}>
+                <View style={styles.buttons}>
+                  <View style={styles.buttonRow}>
+                    <SecondaryButton label="キャンセル" onPress={onCancel} disabled={authBusy} />
+                    <View style={styles.spacer} />
+                    <PrimaryButton label="次へ" onPress={onLoginNext} disabled={!canLoginNext} fullWidth={false} />
+                  </View>
                 </View>
               </View>
             </View>
@@ -830,7 +1065,8 @@ export default function App() {
           onGoVideos={() => {
             setLoggedIn(true)
             setHistory([])
-            setScreen('home')
+            setScreen(postLoginTarget ?? 'home')
+            setPostLoginTarget(null)
           }}
         />
       ) : null}
@@ -851,15 +1087,72 @@ export default function App() {
       ) : null}
 
       {screen === 'cast' ? (
-        <TabbedPlaceholderScreen title="キャスト" activeTab="cast" onPressTab={switchTab} />
+        <CastSearchScreen
+          apiBaseUrl={apiBaseUrl}
+          onPressTab={switchTab}
+          onOpenProfile={(cast) => {
+            if (!requireLogin('profile')) return
+            setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
+            goTo('profile')
+          }}
+          onOpenResults={(keyword) => {
+            setCastSearchKeyword(keyword)
+            goTo('castSearchResult')
+          }}
+        />
+      ) : null}
+
+      {screen === 'castSearchResult' ? (
+        <CastSearchResultScreen
+          apiBaseUrl={apiBaseUrl}
+          onPressTab={switchTab}
+          keyword={castSearchKeyword}
+          onBack={() => {
+            goBack()
+          }}
+          onOpenProfile={(cast) => {
+            if (!requireLogin('profile')) return
+            setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
+            goTo('profile')
+          }}
+        />
       ) : null}
 
       {screen === 'search' ? (
-        <TabbedPlaceholderScreen title="検索" activeTab="search" onPressTab={switchTab} />
+        <VideoSearchScreen
+          apiBaseUrl={apiBaseUrl}
+          onPressTab={switchTab}
+          onOpenVideo={() => goTo('workDetail')}
+          onOpenProfile={(cast) => {
+            if (!requireLogin('profile')) return
+            setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
+            goTo('profile')
+          }}
+        />
       ) : null}
 
       {screen === 'mypage' ? (
-        <TabbedPlaceholderScreen title="マイページ" activeTab="mypage" onPressTab={switchTab} />
+        <MyPageScreen
+          apiBaseUrl={apiBaseUrl}
+          onPressTab={switchTab}
+          loggedIn={loggedIn}
+          userEmail={loginEmail || registerEmail}
+          userType="user"
+          onNavigate={(screenKey) => {
+            goTo(screenKey as Screen)
+          }}
+        />
+      ) : null}
+
+      {screen === 'profileEdit' ? (
+        <UserProfileEditScreen
+          onBack={goBack}
+          initialEmail={loginEmail || registerEmail}
+          onSave={async (opts) => {
+            // TODO: Save profile to API
+            console.log('Profile saved:', opts)
+          }}
+        />
       ) : null}
 
       {screen === 'ranking' ? (
@@ -899,7 +1192,7 @@ export default function App() {
 
           <View style={styles.buttons}>
             <View style={styles.buttonRow}>
-              <SecondaryButton label="キャンセル" onPress={onCancel} disabled={busy} />
+              <SecondaryButton label="キャンセル" onPress={onCancel} disabled={authBusy} />
               <View style={styles.spacer} />
               <PrimaryButton label="次へ" onPress={onPhoneNext} disabled={!canPhoneNext} fullWidth={false} />
             </View>
@@ -935,7 +1228,7 @@ export default function App() {
 
           <View style={styles.buttons}>
             <View style={styles.buttonRow}>
-              <SecondaryButton label="キャンセル" onPress={onCancel} disabled={busy} />
+              <SecondaryButton label="キャンセル" onPress={onCancel} disabled={authBusy} />
               <View style={styles.spacer} />
               <PrimaryButton label="次へ" onPress={onOtpNext} disabled={!canOtpNext} fullWidth={false} />
             </View>
@@ -1003,12 +1296,12 @@ export default function App() {
             <PrimaryButton
               label="Add"
               onPress={addOshi}
-              disabled={busy || name.trim().length === 0}
+              disabled={apiBusy || name.trim().length === 0}
               fullWidth={false}
             />
           </View>
 
-          {busy ? <ActivityIndicator style={styles.loading} /> : null}
+          {apiBusy ? <ActivityIndicator style={styles.loading} /> : null}
 
           <FlatList
             data={items}
@@ -1031,6 +1324,23 @@ export default function App() {
           onGo={(key) => {
             goTo(key as Screen)
           }}
+          loggedIn={loggedIn}
+          onLoginToggle={async () => {
+            const next = !loggedIn
+            try {
+              const res = await fetch(`${apiBaseUrl}/v1/dev/login-state`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ loggedIn: next }),
+              })
+              if (res.ok) {
+                setLoggedIn(next)
+              }
+            } catch (e) {
+              // fallback: toggle locally even if request fails
+              setLoggedIn(next)
+            }
+          }}
         />
       ) : null}
 
@@ -1042,35 +1352,121 @@ export default function App() {
           </View>
 
           <View style={styles.titleBlock}>
-            <Text style={styles.h1}>{mockProfile.nameJa}</Text>
-            <Text style={styles.h2}>{mockProfile.nameEn || '—'}</Text>
+            <Text style={styles.h1}>{selectedCast?.name ?? mockProfile.name}</Text>
+            <Text style={styles.h2}>{mockProfile.affiliation || '—'}</Text>
           </View>
 
           <View style={styles.chipsWrap}>
-            {mockProfile.tags.map((t) => (
+            {mockProfile.genre.map((t) => (
               <Chip key={t} label={t} />
             ))}
           </View>
 
           <View style={styles.metaRow}>
-            <Text style={styles.metaText}>★ {mockProfile.rating.toFixed(2)}</Text>
+            <Text style={styles.metaText}>★ {selectedCastReview ? selectedCastReview.rating.toFixed(1) : '—'}</Text>
             <Text style={styles.metaDot}>•</Text>
-            <Text style={styles.metaText}>{mockProfile.reviews} reviews</Text>
+            <Text style={styles.metaText}>{selectedCastReview ? '1件' : '0件'}</Text>
           </View>
 
-          {mockProfile.profileSections.map((s) => (
-            <Section key={s.title} title={s.title}>
-              <Text style={styles.bodyText}>{s.text || '—'}</Text>
-            </Section>
-          ))}
+          <View style={styles.actionsRow}>
+            <IconButton
+              label="↗"
+              onPress={async () => {
+                if (!requireLogin('profile')) return
+                const castId = selectedCast?.id ?? mockProfile.id
+                const castName = selectedCast?.name ?? mockProfile.name
+                const url = shareUrlForCast(castId, castName)
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                  window.open(url, '_blank', 'noopener,noreferrer')
+                  return
+                }
+                const { Share } = await import('react-native')
+                await Share.share({ message: `${castName}\n${url}`, url })
+              }}
+            />
+            <View style={styles.spacer} />
+            <IconButton
+              label="★"
+              onPress={() => {
+                if (!requireLogin('castReview')) return
+                goTo('castReview')
+              }}
+            />
+          </View>
+
+          <Section title="経歴">
+            <Text style={styles.bodyText}>{mockProfile.biography || '—'}</Text>
+          </Section>
+
+          <Section title="代表作">
+            <Text style={styles.bodyText}>{mockProfile.worksText || '—'}</Text>
+          </Section>
+
+          <Section title="自己PR">
+            <Text style={styles.bodyText}>{mockProfile.selfPr || '—'}</Text>
+          </Section>
+
+          <Section title="SNS">
+            {mockProfile.snsLinks.length === 0 ? (
+              <Text style={styles.bodyText}>—</Text>
+            ) : (
+              <View style={{ gap: 10 }}>
+                {mockProfile.snsLinks.map((l) => (
+                  <Pressable
+                    key={l.label}
+                    onPress={() => {
+                      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                        window.open(l.url, '_blank', 'noopener,noreferrer')
+                      }
+                    }}
+                    style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: THEME.outline, backgroundColor: THEME.card }}
+                  >
+                    <Text style={{ color: THEME.text, fontSize: 12, fontWeight: '800' }}>{l.label}</Text>
+                    <Text style={{ color: THEME.textMuted, fontSize: 12, fontWeight: '700', marginTop: 4 }}>{l.url}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </Section>
         </ScreenContainer>
       ) : null}
 
+      {screen === 'castReview' && selectedCast ? (
+        <StaffCastReviewScreen
+          onBack={goBack}
+          cast={{ id: selectedCast.id, name: selectedCast.name, roleLabel: selectedCast.roleLabel }}
+          initial={{ rating: selectedCastReview?.rating ?? null, comment: selectedCastReview?.comment ?? null }}
+          onSubmit={async ({ castId, rating, comment }) => {
+            await new Promise((r) => setTimeout(r, 300))
+            setCastReviews((prev) => ({
+              ...prev,
+              [castId]: { rating, comment, updatedAt: Date.now() },
+            }))
+          }}
+          onDone={() => {
+            goTo('profile')
+          }}
+        />
+      ) : null}
+
       {screen === 'workDetail' ? (
-        <ScreenContainer title="作品一覧" onBack={goBack} scroll maxWidth={520}>
+        <ScreenContainer title="作品詳細" onBack={goBack} scroll maxWidth={520}>
 
           <View style={styles.heroImage}>
-            <View style={styles.heroPlaceholder} />
+            <Pressable
+              onPress={() => {
+                setPlayerVideoIdNoSub(streamSampleVideoId)
+                setPlayerVideoIdWithSub(null)
+                goTo('videoPlayer')
+              }}
+              style={StyleSheet.absoluteFill}
+            >
+              <View style={styles.heroPlaceholder}>
+                <View style={styles.playBadge}>
+                  <Text style={styles.playBadgeText}>▶ 再生</Text>
+                </View>
+              </View>
+            </Pressable>
           </View>
 
           <View style={styles.titleBlock}>
@@ -1097,7 +1493,18 @@ export default function App() {
           <View style={styles.actionsRow}>
             <IconButton label="♡" onPress={() => {}} />
             <View style={styles.spacer} />
-            <IconButton label="↗" onPress={() => {}} />
+            <IconButton
+              label="↗"
+              onPress={async () => {
+                const url = shareUrlForWork(mockWork.id, playerVideoIdNoSub)
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                  window.open(url, '_blank', 'noopener,noreferrer')
+                  return
+                }
+                const { Share } = await import('react-native')
+                await Share.share({ message: `${mockWork.title}\n${url}`, url })
+              }}
+            />
           </View>
           <PrimaryButton label="本編を再生する" onPress={() => {}} />
 
@@ -1106,12 +1513,35 @@ export default function App() {
               <Text style={styles.emptyText}>空です</Text>
             ) : (
               mockWork.episodes.map((e) => (
+                (() => {
+                  const key = `episode:${e.id}`
+                  const requiredCoins = typeof (e as any).priceCoin === 'number' ? (e as any).priceCoin : 0
+                  const purchased = purchasedTargets.has(key)
+                  const isPaid = requiredCoins > 0
+                  const action = isPaid && !purchased ? '購入' : '再生'
+
+                  return (
                 <RowItem
                   key={e.id}
                   title={`${e.id} ${e.title}`}
-                  actionLabel={e.action}
-                  onAction={() => {}}
+                  actionLabel={action}
+                  onAction={() => {
+                    if (isPaid && !purchased) {
+                      setPurchaseTarget({
+                        targetType: 'episode',
+                        targetId: e.id,
+                        title: `${mockWork.title} ${e.title}`,
+                        requiredCoins,
+                        contentTypeLabel: 'ショート',
+                      })
+                      goTo('purchase')
+                      return
+                    }
+                    // TODO: 再生処理（未実装）
+                  }}
                 />
+                  )
+                })()
               ))
             )}
           </Section>
@@ -1125,12 +1555,164 @@ export default function App() {
                   key={`${s.role}-${idx}`}
                   title={`${s.role}：${s.name}`}
                   actionLabel="詳しく"
-                  onAction={() => {}}
+                  onAction={() => {
+                    if (!requireLogin('profile')) return
+                    setSelectedCast({
+                      id: `cast:${s.name}`,
+                      name: s.name,
+                      roleLabel: s.role,
+                    })
+                    goTo('profile')
+                  }}
                 />
               ))
             )}
           </Section>
+
+          <Section
+            title={`コメント（${(commentsError ? mockApprovedComments : approvedComments).length}件）`}
+          >
+            <View style={styles.commentsBox}>
+              {commentsBusy ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator />
+                </View>
+              ) : null}
+
+              {commentsError ? <Text style={styles.loadNote}>取得に失敗しました（モック表示）</Text> : null}
+
+              {(commentsError ? mockApprovedComments : approvedComments).slice(0, 10).map((c) => (
+                <View key={c.id} style={styles.commentItem}>
+                  <Text style={styles.commentAuthor} numberOfLines={1} ellipsizeMode="tail">
+                    {c.author}
+                  </Text>
+                  <Text style={styles.commentBody}>{truncateCommentBody(c.body)}</Text>
+                </View>
+              ))}
+
+              {(commentsError ? mockApprovedComments : approvedComments).length > 10 ? (
+                <Text style={styles.moreLink}>もっと見る</Text>
+              ) : null}
+            </View>
+
+            {hasPurchasedAnyEpisode ? (
+              <View style={styles.commentCtaWrap}>
+                <View style={styles.fakeInput}>
+                  <Text style={styles.fakeInputText}>コメントを書く</Text>
+                </View>
+                <PrimaryButton
+                  label="コメントを書く"
+                  onPress={() => {
+                    setCommentJustSubmitted(false)
+                    setCommentTarget({ contentId: mockWork.id, contentTitle: mockWork.title })
+                    if (!requireLogin('comment')) return
+                    goTo('comment')
+                  }}
+                />
+              </View>
+            ) : (
+              <View style={styles.commentCtaWrap}>
+                <View style={[styles.fakeInput, styles.fakeInputDisabled]}>
+                  <Text style={[styles.fakeInputText, styles.fakeInputTextDisabled]}>購入するとコメントできます</Text>
+                </View>
+                <SecondaryButton
+                  label="購入へ"
+                  onPress={() => {
+                    const paid = mockWork.episodes.find((e) => typeof (e as any).priceCoin === 'number' && (e as any).priceCoin > 0)
+                    if (!paid) return
+                    const requiredCoins = (paid as any).priceCoin as number
+                    setPurchaseTarget({
+                      targetType: 'episode',
+                      targetId: paid.id,
+                      title: `${mockWork.title} ${paid.title}`,
+                      requiredCoins,
+                      contentTypeLabel: 'ショート',
+                    })
+                    goTo('purchase')
+                  }}
+                />
+              </View>
+            )}
+
+            {commentJustSubmitted ? (
+              <Text style={styles.commentNotice}>
+                ※ コメントは管理者の確認後に公開されます。{`\n`}反映までお時間がかかる場合があります。
+              </Text>
+            ) : null}
+          </Section>
         </ScreenContainer>
+      ) : null}
+
+      {screen === 'comment' && commentTarget ? (
+        <CommentPostScreen
+          onBack={goBack}
+          contentId={commentTarget.contentId}
+          contentTitle={commentTarget.contentTitle}
+          onSubmitted={async ({ contentId, body }) => {
+            const trimmed = body.trim()
+            if (!trimmed) throw new Error('コメントを入力してください')
+
+            const author = (loginEmail.trim() || registerEmail.trim() || 'ユーザー').slice(0, 50)
+            const res = await fetch(`${apiBaseUrl}/v1/comments`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contentId, author, body: trimmed }),
+            })
+            if (!res.ok) {
+              const msg = await res.text().catch(() => '')
+              throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+            }
+          }}
+          onDone={() => {
+            setCommentJustSubmitted(true)
+            goTo('workDetail')
+          }}
+        />
+      ) : null}
+
+      {screen === 'purchase' && purchaseTarget ? (
+        <PaidVideoPurchaseScreen
+          onBack={goBack}
+          targetType={purchaseTarget.targetType}
+          targetId={purchaseTarget.targetId}
+          title={purchaseTarget.title}
+          contentTypeLabel={purchaseTarget.contentTypeLabel}
+          requiredCoins={purchaseTarget.requiredCoins}
+          ownedCoins={ownedCoins}
+          purchased={purchasedTargets.has(`episode:${purchaseTarget.targetId}`)}
+          onBuyCoins={() => {
+            // Stripe 画面は未実装のため、現状はモックで加算。
+            setOwnedCoins((v) => v + 100)
+          }}
+          onPurchase={async ({ targetId, requiredCoins }) => {
+            const key = `episode:${targetId}`
+            if (purchasedTargets.has(key)) {
+              goBack()
+              return
+            }
+            if (ownedCoins < requiredCoins) {
+              throw new Error('コインが不足しています')
+            }
+            // NOTE: 実運用は購入APIを呼び、結果を正として反映する。
+            await new Promise((r) => setTimeout(r, 400))
+            setOwnedCoins((v) => v - requiredCoins)
+            setPurchasedTargets((prev) => {
+              const next = new Set(prev)
+              next.add(key)
+              return next
+            })
+            goTo('workDetail')
+          }}
+        />
+      ) : null}
+
+      {screen === 'videoPlayer' ? (
+        <VideoPlayerScreen
+          apiBaseUrl={apiBaseUrl}
+          videoIdNoSub={playerVideoIdNoSub}
+          videoIdWithSub={playerVideoIdWithSub}
+          onBack={goBack}
+        />
       ) : null}
 
       <StatusBar style="auto" />
@@ -1144,12 +1726,28 @@ const styles = StyleSheet.create({
   },
   authCenter: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   authContent: {
     alignSelf: 'center',
     width: '100%',
     maxWidth: 520,
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  authTop: {
+    paddingTop: 0,
+  },
+  authBottom: {
+    paddingBottom: 8,
+  },
+  authLogoWrap: {
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  authLogo: {
+    width: 160,
+    height: 80,
   },
   welcomeTitle: {
     color: THEME.text,
@@ -1334,6 +1932,21 @@ const styles = StyleSheet.create({
   heroPlaceholder: {
     flex: 1,
     backgroundColor: THEME.placeholder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playBadge: {
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  playBadgeText: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '800',
   },
   titleBlock: {
     marginBottom: 8,
@@ -1381,6 +1994,82 @@ const styles = StyleSheet.create({
   emptyText: {
     color: THEME.textMuted,
     fontSize: 12,
+  },
+
+  commentsBox: {
+    backgroundColor: THEME.card,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  loadingRow: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  loadNote: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  commentItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.divider,
+  },
+  commentAuthor: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  commentBody: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  moreLink: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: THEME.accent,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  commentCtaWrap: {
+    gap: 10,
+  },
+  fakeInput: {
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  fakeInputDisabled: {
+    opacity: 0.7,
+  },
+  fakeInputText: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  fakeInputTextDisabled: {
+    color: THEME.textMuted,
+  },
+  commentNotice: {
+    marginTop: 10,
+    color: THEME.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
   },
 })
 
