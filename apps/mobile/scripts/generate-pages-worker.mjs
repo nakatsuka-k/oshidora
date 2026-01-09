@@ -29,6 +29,7 @@ function main() {
 // Pages Worker with IP allowlist protection
 
 const ALLOWED_IPS = ${ipsJson};
+const ROBOTS_TAG = ${JSON.stringify(ROBOTS_TAG)};
 
 function splitXForwardedFor(xff) {
   if (!xff) return [];
@@ -130,6 +131,7 @@ export default {
       });
     }
 
+    // Cloudflare Pages provides the static asset binding as env.ASSETS.
     const res = await env.ASSETS.fetch(request);
     const headers = new Headers(res.headers);
     headers.set('X-Robots-Tag', ROBOTS_TAG);

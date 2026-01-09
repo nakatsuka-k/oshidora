@@ -51,6 +51,8 @@ import {
   MyPageScreen,
   CastProfileRegisterScreen,
   UserProfileEditScreen,
+  FavoriteCastsScreen,
+  FavoriteCastsEditScreen,
 } from './screens'
 
 import { getBoolean, setBoolean, getString, setString } from './utils/storage'
@@ -99,6 +101,7 @@ type Screen =
   | 'profileEdit'
   | 'ranking'
   | 'favorites'
+  | 'favoriteCastsEdit'
   | 'notice'
   | 'phone'
   | 'otp'
@@ -165,6 +168,8 @@ function screenToWebHash(screen: Screen): string {
       return '#/ranking'
     case 'favorites':
       return '#/favorites'
+    case 'favoriteCastsEdit':
+      return '#/favorites/casts/edit'
     case 'notice':
       return '#/notice'
     case 'profile':
@@ -264,6 +269,8 @@ function webHashToScreen(hash: string): Screen {
       return 'ranking'
     case '/favorites':
       return 'favorites'
+    case '/favorites/casts/edit':
+      return 'favoriteCastsEdit'
     case '/notice':
       return 'notice'
     case '/profile':
@@ -339,6 +346,8 @@ function screenToDocumentTitle(
       return `${base} | ランキング`
     case 'favorites':
       return `${base} | お気に入り`
+    case 'favoriteCastsEdit':
+      return `${base} | お気に入りキャスト 編集`
     case 'notice':
       return `${base} | お知らせ`
     case 'profile':
@@ -549,7 +558,7 @@ export default function App() {
   useEffect(() => {
     // Guard for direct navigation (e.g. web hash) to login-required screens.
     if (loggedIn || debugAuthBypass) return
-    if (screen !== 'profile' && screen !== 'castReview' && screen !== 'comment') return
+    if (screen !== 'profile' && screen !== 'castReview' && screen !== 'comment' && screen !== 'favorites' && screen !== 'favoriteCastsEdit') return
 
     setPostLoginTarget(screen)
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -1495,9 +1504,26 @@ export default function App() {
       ) : null}
 
       {screen === 'favorites' ? (
-        <ScreenContainer title="お気に入り一覧" onBack={goBack} maxWidth={520}>
-          <Text style={styles.centerText}>お気に入り一覧（モック）</Text>
-        </ScreenContainer>
+        <FavoriteCastsScreen
+          apiBaseUrl={apiBaseUrl}
+          authToken={authToken}
+          onBack={goBack}
+          onEdit={() => goTo('favoriteCastsEdit')}
+          onOpenProfile={(cast) => {
+            if (!requireLogin('profile')) return
+            setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
+            goTo('profile')
+          }}
+        />
+      ) : null}
+
+      {screen === 'favoriteCastsEdit' ? (
+        <FavoriteCastsEditScreen
+          apiBaseUrl={apiBaseUrl}
+          authToken={authToken}
+          onCancel={goBack}
+          onDone={goBack}
+        />
       ) : null}
 
       {screen === 'notice' ? (

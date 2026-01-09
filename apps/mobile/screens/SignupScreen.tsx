@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
   },
   bannerError: {
     fontSize: 12,
-    marginBottom: 12,
+    marginBottom: 0,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderWidth: 1,

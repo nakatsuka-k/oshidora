@@ -107,8 +107,8 @@ app.use(
   '*',
   cors({
     origin: '*',
-    allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
-    allowHeaders: ['Content-Type'],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
     maxAge: 86400,
   })
 )
@@ -913,6 +913,79 @@ app.get('/v1/cast', (c) => {
   })
 })
 
+async function handleGetFavoriteCasts(c: any) {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  let rows: Array<{ cast_id?: unknown; created_at?: unknown }> = []
+  try {
+    const { results } = await c.env.DB.prepare(
+      'SELECT cast_id, created_at FROM favorite_casts WHERE user_id = ? ORDER BY created_at DESC'
+    )
+      .bind(auth.userId)
+      .all()
+    rows = (results ?? []) as any
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows.map((r) => {
+    const id = String(r.cast_id ?? '')
+    const found = MOCK_CASTS.find((x) => x.id === id)
+    return {
+      id,
+      name: found?.name ?? '',
+      role: found?.role ?? '',
+      thumbnailUrl: found?.thumbnailUrl ?? '',
+    }
+  })
+
+  return c.json({ items })
+}
+
+async function handleDeleteFavoriteCasts(c: any) {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { castIds?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const raw = body.castIds
+  if (!Array.isArray(raw)) return c.json({ error: 'castIds must be an array' }, 400)
+
+  const castIds = Array.from(
+    new Set(
+      raw
+        .map((v) => String(v ?? '').trim())
+        .filter((v) => v)
+    )
+  )
+
+  if (castIds.length === 0) return c.json({ error: 'castIds is required' }, 400)
+  if (castIds.length > 100) return c.json({ error: 'castIds is too large (max 100)' }, 400)
+
+  const placeholders = castIds.map(() => '?').join(',')
+  try {
+    await c.env.DB.prepare(`DELETE FROM favorite_casts WHERE user_id = ? AND cast_id IN (${placeholders})`)
+      .bind(auth.userId, ...castIds)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ deleted: castIds.length })
+}
+
+app.get('/v1/favorites/casts', handleGetFavoriteCasts)
+app.delete('/v1/favorites/casts', handleDeleteFavoriteCasts)
+
+// Design-doc compatibility (docs/アプリ/* use /api/...)
+app.get('/api/favorites/casts', handleGetFavoriteCasts)
+app.delete('/api/favorites/casts', handleDeleteFavoriteCasts)
+
 app.get('/v1/videos', (c) => {
   return c.json({
     items: MOCK_VIDEOS.map((v) => ({
@@ -1070,7 +1143,7 @@ function jsonD1SetupError(c: any, err: unknown) {
   return c.json(
     {
       error: 'db_not_migrated',
-      message: 'D1 schema is missing. Run `npm run db:migrate:local` (or remote) in apps/api before calling auth endpoints.',
+      message: 'D1 schema is missing. Run `npm run db:migrate:local` (or remote) in apps/api before calling DB-backed endpoints.',
       detail: shouldReturnDebugCodes(c.env) ? detail : undefined,
     },
     500
