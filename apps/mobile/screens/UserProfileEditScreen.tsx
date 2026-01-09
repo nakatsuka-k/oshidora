@@ -115,7 +115,9 @@ export function UserProfileEditScreen({
       setAvatarUploading(true)
       try {
         const blob = await fetch(asset.uri).then((r) => r.blob())
-        const uploadResp = await fetch(`${apiBaseUrl}/v1/r2/assets/${fileName}`, {
+        const uploadUrl = `${apiBaseUrl}/v1/r2/assets/${fileName}`
+        console.log('Uploading to:', uploadUrl)
+        const uploadResp = await fetch(uploadUrl, {
           method: 'PUT',
           headers: {
             'Content-Type': mimeType,
@@ -124,8 +126,10 @@ export function UserProfileEditScreen({
         })
 
         if (!uploadResp.ok) {
-          const text = await uploadResp.text().catch(() => '')
-          throw new Error(text || 'アップロードに失敗しました')
+          const errorData = await uploadResp.json().catch(() => ({}))
+          const errorMsg = errorData.error || `Upload failed with status ${uploadResp.status}`
+          const debugInfo = errorData.debug ? `\nDebug: ${JSON.stringify(errorData.debug)}` : ''
+          throw new Error(errorMsg + debugInfo)
         }
 
         const data = (await uploadResp.json().catch(() => null)) as { publicUrl?: string } | null

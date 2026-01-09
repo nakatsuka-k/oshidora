@@ -204,7 +204,17 @@ async function awsV4Signature(opts: {
 // Avoids direct browser->R2 CORS issues.
 app.put('/v1/r2/assets/*', async (c) => {
   const keyRaw = (c.req.param('*') || '').trim()
-  if (!keyRaw) return c.json({ error: 'key is required' }, 400)
+  if (!keyRaw) {
+    return c.json({
+      error: 'key is required',
+      debug: {
+        method: c.req.method,
+        path: c.req.path,
+        param_star: c.req.param('*'),
+        url: c.req.url,
+      },
+    }, 400)
+  }
   if (keyRaw.includes('..')) return c.json({ error: 'invalid key' }, 400)
 
   const accountId = c.env.CLOUDFLARE_ACCOUNT_ID
