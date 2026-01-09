@@ -5,7 +5,7 @@ import { digitsOnly } from '../utils/validators'
 
 type Sms2faScreenProps = {
   onBack: () => void
-  onComplete: () => void
+  onComplete: (phone: string) => void
 }
 
 export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
@@ -124,7 +124,7 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
                       setError('認証コードが正しくありません')
                       return
                     }
-                    onComplete()
+                    onComplete(phoneDigits)
                   } finally {
                     setBusy(false)
                   }

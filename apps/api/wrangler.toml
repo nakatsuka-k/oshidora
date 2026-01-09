@@ -4,8 +4,24 @@ compatibility_date = "2026-01-02"
 
 [vars]
 CLOUDFLARE_ACCOUNT_ID = "c6270d2ac0aefb2ca6ce6831cbc9ca30"
+R2_BUCKET = "assets"
+R2_PUBLIC_BASE_URL = "https://pub-a2d549876dd24a08aebc65d95ed4ff91.r2.dev"
 
 [[d1_databases]]
+binding = "DB"
+database_name = "oshidora-db"
+database_id = "08f808b2-9698-4519-b5eb-5bcfb5c7c82e"
+remote = true
+# Production environment
+[env.production]
+name = "oshidora-api-production"
+
+[env.production.vars]
+CLOUDFLARE_ACCOUNT_ID = "c6270d2ac0aefb2ca6ce6831cbc9ca30"
+R2_BUCKET = "assets"
+R2_PUBLIC_BASE_URL = "https://pub-a2d549876dd24a08aebc65d95ed4ff91.r2.dev"
+
+[[env.production.d1_databases]]
 binding = "DB"
 database_name = "oshidora-db"
 database_id = "08f808b2-9698-4519-b5eb-5bcfb5c7c82e"

@@ -169,25 +169,6 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
   return (
     <ScreenContainer footer={<TabBar active="video" onPress={onPressTab} />}>
       <View style={styles.root}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>動画一覧</Text>
-        </View>
-
-        <View style={styles.topTabs}>
-          <Pressable style={[styles.topTab, styles.topTabActive]} disabled>
-            <Text style={[styles.topTabText, styles.topTabTextActive]}>動画</Text>
-          </Pressable>
-          <View style={styles.topTabGap} />
-          <Pressable
-            style={styles.topTab}
-            onPress={() => {
-              onPressTab('cast')
-            }}
-          >
-            <Text style={styles.topTabText}>キャスト</Text>
-          </Pressable>
-        </View>
-
         {/* カテゴリ一覧 */}
         {categoryItems.length > 1 ? (
           <View style={styles.sectionTop}>

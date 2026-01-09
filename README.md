@@ -52,6 +52,33 @@ npx wrangler secret put CLOUDFLARE_STREAM_SIGNING_KEY_ID
 npx wrangler secret put CLOUDFLARE_STREAM_SIGNING_KEY_JWK
 ```
 
+#### R2（プロフィール画像アップロード）
+
+Web（localhost:8081）から R2 の S3 API へ直接 `PUT` すると CORS の preflight(OPTIONS) でブロックされるため、
+本リポジトリでは **API 経由で R2 へアップロード**します。
+
+- アップロードAPI: `PUT /v1/r2/assets/:key`
+- 成功時レスポンス: `{ publicUrl: "https://<your-public>.r2.dev/<key>" }`
+
+必要な設定:
+
+- `apps/api/wrangler.toml`（非secret）
+	- `R2_BUCKET`（例: `assets`）
+	- `R2_PUBLIC_BASE_URL`（例: `https://<pub-...>.r2.dev`）
+- Workers secrets（secret）
+	- `R2_ACCESS_KEY_ID`
+	- `R2_SECRET_ACCESS_KEY`
+
+設定コマンド（値は貼り付けず、対話入力してください。ログに残るのを防ぐため）:
+
+```bash
+cd apps/api
+npx wrangler secret put R2_ACCESS_KEY_ID
+npx wrangler secret put R2_SECRET_ACCESS_KEY
+```
+
+ローカル開発では `.dev.vars.example` を `.dev.vars` にコピーして使えます（`.dev.vars` は gitignore 済み）。
+
 ### Mobile (Expo)
 
 ```bash

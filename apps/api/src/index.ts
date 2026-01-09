@@ -5,6 +5,10 @@ type Env = {
   Bindings: {
     DB: D1Database
     CLOUDFLARE_ACCOUNT_ID?: string
+    R2_ACCESS_KEY_ID?: string
+    R2_SECRET_ACCESS_KEY?: string
+    R2_BUCKET?: string
+    R2_PUBLIC_BASE_URL?: string
     CLOUDFLARE_STREAM_API_TOKEN?: string
     CLOUDFLARE_STREAM_SIGNING_KEY_ID?: string
     // Cloudflare Stream Signed URLs require an RSA signing key.
@@ -95,13 +99,187 @@ app.use(
   '*',
   cors({
     origin: '*',
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
     allowHeaders: ['Content-Type'],
     maxAge: 86400,
   })
 )
 
 app.get('/health', (c) => c.text('ok'))
+
+function toHex(bytes: ArrayBuffer) {
+  const u8 = new Uint8Array(bytes)
+  let out = ''
+  for (const b of u8) out += b.toString(16).padStart(2, '0')
+  return out
+}
+
+function awsUriEncode(value: string) {
+  // RFC3986 encode (AWS SigV4 requires encoding !'()* as well)
+  return encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
+function awsEncodePathPreserveSlash(path: string) {
+  return path
+    .split('/')
+    .map((seg) => awsUriEncode(seg))
+    .join('/')
+}
+
+function amzDateNow() {
+  // YYYYMMDD'T'HHMMSS'Z'
+  const iso = new Date().toISOString() // 2026-01-09T12:34:56.789Z
+  return iso.replace(/[:-]/g, '').replace(/\.(\d{3})Z$/, 'Z')
+}
+
+async function sha256Hex(text: string) {
+  const bytes = new TextEncoder().encode(text)
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return toHex(digest)
+}
+
+async function sha256HexBytes(data: ArrayBuffer) {
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return toHex(digest)
+}
+
+async function hmacSha256(key: ArrayBuffer | Uint8Array, message: string) {
+  const rawKey = key instanceof Uint8Array ? key : new Uint8Array(key)
+  const cryptoKey = await crypto.subtle.importKey('raw', rawKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message))
+  return new Uint8Array(sig)
+}
+
+async function awsV4SigningKey(secretAccessKey: string, dateStamp: string, region: string, service: string) {
+  const kDate = await hmacSha256(new TextEncoder().encode(`AWS4${secretAccessKey}`), dateStamp)
+  const kRegion = await hmacSha256(kDate, region)
+  const kService = await hmacSha256(kRegion, service)
+  const kSigning = await hmacSha256(kService, 'aws4_request')
+  return kSigning
+}
+
+async function awsV4Signature(opts: {
+  method: string
+  canonicalUri: string
+  host: string
+  contentType: string
+  amzDate: string
+  dateStamp: string
+  accessKeyId: string
+  secretAccessKey: string
+  region: string
+  service: string
+  payloadHash: string
+}) {
+  const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date'
+  const canonicalHeaders =
+    `content-type:${opts.contentType}\n` +
+    `host:${opts.host}\n` +
+    `x-amz-content-sha256:${opts.payloadHash}\n` +
+    `x-amz-date:${opts.amzDate}\n`
+
+  const canonicalRequest = [
+    opts.method,
+    opts.canonicalUri,
+    '',
+    canonicalHeaders,
+    signedHeaders,
+    opts.payloadHash,
+  ].join('\n')
+
+  const canonicalRequestHash = await sha256Hex(canonicalRequest)
+  const scope = `${opts.dateStamp}/${opts.region}/${opts.service}/aws4_request`
+  const stringToSign = `AWS4-HMAC-SHA256\n${opts.amzDate}\n${scope}\n${canonicalRequestHash}`
+  const signingKey = await awsV4SigningKey(opts.secretAccessKey, opts.dateStamp, opts.region, opts.service)
+  const signatureBytes = await hmacSha256(signingKey, stringToSign)
+  const signature = Array.from(signatureBytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+
+  const authorization = `AWS4-HMAC-SHA256 Credential=${opts.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`
+  return { authorization, signedHeaders }
+}
+
+// R2 upload proxy: browser uploads -> this API -> server-side PUT to R2(S3)
+// Avoids direct browser->R2 CORS issues.
+app.put('/v1/r2/assets/*', async (c) => {
+  const keyRaw = (c.req.param('*') || '').trim()
+  if (!keyRaw) return c.json({ error: 'key is required' }, 400)
+  if (keyRaw.includes('..')) return c.json({ error: 'invalid key' }, 400)
+
+  const accountId = c.env.CLOUDFLARE_ACCOUNT_ID
+  const accessKeyId = c.env.R2_ACCESS_KEY_ID
+  const secretAccessKey = c.env.R2_SECRET_ACCESS_KEY
+  const bucket = (c.env.R2_BUCKET || 'assets').trim() || 'assets'
+  const publicBaseUrl = (c.env.R2_PUBLIC_BASE_URL || 'https://pub-a2d549876dd24a08aebc65d95ed4ff91.r2.dev').trim()
+
+  if (!accountId) return c.json({ error: 'CLOUDFLARE_ACCOUNT_ID is required' }, 500)
+  if (!accessKeyId || !secretAccessKey) {
+    return c.json(
+      {
+        error: 'R2 credentials are not configured',
+        hint: 'Set R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY as Worker secrets.',
+      },
+      501
+    )
+  }
+
+  const key = awsEncodePathPreserveSlash(keyRaw)
+  const host = `${accountId}.r2.cloudflarestorage.com`
+  const canonicalUri = `/${bucket}/${key}`
+  const targetUrl = `https://${host}${canonicalUri}`
+
+  const contentType = c.req.header('content-type')?.trim() || 'application/octet-stream'
+  const amzDate = amzDateNow()
+  const dateStamp = amzDate.slice(0, 8)
+
+  // Buffer payload so we can compute x-amz-content-sha256 reliably.
+  // This is more compatible than UNSIGNED-PAYLOAD across S3-compatible providers.
+  const bodyBytes = await c.req.arrayBuffer()
+  if (bodyBytes.byteLength > 10 * 1024 * 1024) {
+    return c.json({ error: 'Payload too large (max 10MB)' }, 413)
+  }
+  const payloadHash = await sha256HexBytes(bodyBytes)
+
+  const { authorization } = await awsV4Signature({
+    method: 'PUT',
+    canonicalUri,
+    host,
+    contentType,
+    amzDate,
+    dateStamp,
+    accessKeyId,
+    secretAccessKey,
+    region: 'auto',
+    service: 's3',
+    payloadHash,
+  })
+
+  const upstreamResp = await fetch(targetUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': contentType,
+      'x-amz-date': amzDate,
+      'x-amz-content-sha256': payloadHash,
+      Authorization: authorization,
+    },
+    body: bodyBytes,
+  })
+
+  if (!upstreamResp.ok) {
+    const text = await upstreamResp.text().catch(() => '')
+    return c.json(
+      {
+        error: 'Failed to upload to R2',
+        status: upstreamResp.status,
+        details: text.slice(0, 1000),
+      },
+      502
+    )
+  }
+
+  return c.json({ publicUrl: `${publicBaseUrl}/${keyRaw}` })
+})
 
 function escapeHtml(value: string) {
   return value

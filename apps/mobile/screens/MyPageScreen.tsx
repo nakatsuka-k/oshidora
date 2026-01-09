@@ -52,7 +52,7 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
     (key: string) => {
       switch (key) {
         case 'profileEdit':
-          // TODO: プロフィール編集画面へ遷移
+          onNavigate('profileEdit')
           break
         case 'castRegister':
           // TODO: キャストプロフィール登録画面へ遷移

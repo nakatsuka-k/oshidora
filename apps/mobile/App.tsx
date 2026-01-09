@@ -46,6 +46,7 @@ import {
   CastSearchScreen,
   VideoSearchScreen,
   CastSearchResultScreen,
+  WorkSearchScreen,
   MyPageScreen,
   UserProfileEditScreen,
 } from './screens'
@@ -70,11 +71,13 @@ type Screen =
   | 'signup'
   | 'emailVerify'
   | 'sms2fa'
+  | 'profileRegister'
   | 'registerComplete'
   | 'videoList'
   | 'cast'
   | 'castSearchResult'
   | 'search'
+  | 'work'
   | 'mypage'
   | 'profileEdit'
   | 'ranking'
@@ -105,10 +108,14 @@ function screenToWebHash(screen: Screen): string {
       return '#/cast-result'
     case 'search':
       return '#/search'
+    case 'work':
+      return '#/work-search'
     case 'mypage':
       return '#/mypage'
     case 'profileEdit':
       return '#/profile-edit'
+    case 'profileRegister':
+      return '#/profile-register'
     case 'welcome':
       return '#/welcome'
     case 'login':
@@ -206,6 +213,8 @@ function webHashToScreen(hash: string): Screen {
       return 'signup'
     case '/email-verify':
       return 'emailVerify'
+    case '/profile-register':
+      return 'profileRegister'
     case '/sms-2fa':
       return 'sms2fa'
     case '/register-complete':
@@ -224,6 +233,8 @@ function webHashToScreen(hash: string): Screen {
       return 'castSearchResult'
     case '/search':
       return 'search'
+    case '/work-search':
+      return 'work'
     case '/mypage':
       return 'mypage'
     case '/profile-edit':
@@ -281,6 +292,8 @@ function screenToDocumentTitle(
       return `${base} | メール認証`
     case 'sms2fa':
       return `${base} | SMS認証`
+    case 'profileRegister':
+      return `${base} | プロフィール登録`
     case 'registerComplete':
       return `${base} | 登録完了`
     case 'phone':
@@ -295,6 +308,8 @@ function screenToDocumentTitle(
       return `${base} | キャスト`
     case 'search':
       return `${base} | 検索`
+    case 'work':
+      return `${base} | 作品から探す`
     case 'mypage':
       return `${base} | マイページ`
     case 'ranking':
@@ -373,6 +388,21 @@ export default function App() {
 
   const [registerEmail, setRegisterEmail] = useState<string>('')
   const [registerPassword, setRegisterPassword] = useState<string>('')
+  const [registerPhone, setRegisterPhone] = useState<string>('')
+
+  const [userProfile, setUserProfile] = useState<{
+    displayName: string
+    email: string
+    phone: string
+    birthDate: string
+    avatarUrl?: string
+  }>({
+    displayName: '',
+    email: '',
+    phone: '',
+    birthDate: '',
+    avatarUrl: undefined,
+  })
 
   const goTo = useCallback((next: Screen) => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -490,7 +520,7 @@ export default function App() {
   const [commentsBusy, setCommentsBusy] = useState(false)
   const [commentsError, setCommentsError] = useState('')
 
-  const switchTab = useCallback((key: 'home' | 'video' | 'cast' | 'search' | 'mypage') => {
+  const switchTab = useCallback((key: 'home' | 'video' | 'cast' | 'work' | 'search' | 'mypage') => {
     const next: Screen =
       key === 'home'
         ? 'home'
@@ -498,9 +528,11 @@ export default function App() {
           ? 'videoList'
           : key === 'cast'
             ? 'cast'
-            : key === 'search'
-              ? 'search'
-              : 'mypage'
+            : key === 'work'
+              ? 'work'
+              : key === 'search'
+                ? 'search'
+                : 'mypage'
 
     // Access control: videos are public, cast list is public; cast profile/review/comment are login-required.
 
@@ -1054,7 +1086,28 @@ export default function App() {
       {screen === 'sms2fa' ? (
         <Sms2faScreen
           onBack={goBack}
-          onComplete={() => {
+          onComplete={(phone) => {
+            setRegisterPhone(phone)
+            goTo('profileRegister')
+          }}
+        />
+      ) : null}
+
+      {screen === 'profileRegister' ? (
+        <UserProfileEditScreen
+          apiBaseUrl={apiBaseUrl}
+          isNewRegistration={true}
+          onBack={goBack}
+          initialEmail={registerEmail}
+          initialPhone={registerPhone}
+          onSave={async (opts) => {
+            setUserProfile({
+              displayName: opts.displayName,
+              email: opts.email,
+              phone: opts.phone,
+              birthDate: opts.birthDate,
+              avatarUrl: opts.avatarUrl,
+            })
             goTo('registerComplete')
           }}
         />
@@ -1131,6 +1184,14 @@ export default function App() {
         />
       ) : null}
 
+      {screen === 'work' ? (
+        <WorkSearchScreen
+          apiBaseUrl={apiBaseUrl}
+          onPressTab={switchTab}
+          onOpenVideo={() => goTo('workDetail')}
+        />
+      ) : null}
+
       {screen === 'mypage' ? (
         <MyPageScreen
           apiBaseUrl={apiBaseUrl}
@@ -1146,11 +1207,23 @@ export default function App() {
 
       {screen === 'profileEdit' ? (
         <UserProfileEditScreen
+          apiBaseUrl={apiBaseUrl}
           onBack={goBack}
-          initialEmail={loginEmail || registerEmail}
+          initialDisplayName={userProfile.displayName}
+          initialEmail={userProfile.email || loginEmail || registerEmail}
+          initialPhone={userProfile.phone}
+          initialBirthDate={userProfile.birthDate}
+          initialAvatarUrl={userProfile.avatarUrl ?? ''}
           onSave={async (opts) => {
-            // TODO: Save profile to API
+            setUserProfile({
+              displayName: opts.displayName,
+              email: opts.email,
+              phone: opts.phone,
+              birthDate: opts.birthDate,
+              avatarUrl: opts.avatarUrl,
+            })
             console.log('Profile saved:', opts)
+            goBack()
           }}
         />
       ) : null}

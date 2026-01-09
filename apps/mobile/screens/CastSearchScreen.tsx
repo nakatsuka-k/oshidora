@@ -182,10 +182,6 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
   return (
     <ScreenContainer footer={<TabBar active="cast" onPress={onPressTab} />}>
       <View style={styles.root}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>キャスト</Text>
-        </View>
-
         <View style={styles.topTabs}>
           <Pressable style={[styles.topTab, tab === 'name' ? styles.topTabActive : null]} onPress={() => setTab('name')}>
             <Text style={[styles.topTabText, tab === 'name' ? styles.topTabTextActive : null]}>名前から探す</Text>
