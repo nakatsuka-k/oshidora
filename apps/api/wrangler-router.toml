@@ -1,0 +1,6 @@
+name = "oshidra-web-router"
+main = "src/ip-router.ts"
+compatibility_date = "2026-01-02"
+
+[env.production]
+name = "oshidra-web-router"

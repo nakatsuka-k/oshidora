@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import DateTimePicker from '@react-native-community/datetimepicker'
 import * as ImagePicker from 'expo-image-picker'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
 import { isValidEmail } from '../utils/validators'
@@ -45,6 +46,22 @@ export function UserProfileEditScreen({
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl)
   const [busy, setBusy] = useState(false)
   const [avatarUploading, setAvatarUploading] = useState(false)
+  const [birthPickerOpen, setBirthPickerOpen] = useState(false)
+
+  const birthDateValue = useMemo(() => {
+    const v = birthDate.trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return new Date(1990, 0, 1)
+    const [y, m, d] = v.split('-').map((x) => Number(x))
+    if (!y || !m || !d) return new Date(1990, 0, 1)
+    return new Date(y, m - 1, d)
+  }, [birthDate])
+
+  const setBirthDateFromDate = useCallback((date: Date) => {
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    setBirthDate(`${y}-${m}-${d}`)
+  }, [])
 
   const hasChanges = useMemo(() => {
     return (
@@ -77,6 +94,12 @@ export function UserProfileEditScreen({
 
   const handleBack = useCallback(() => {
     if (hasChanges) {
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const ok = window.confirm('変更内容を保存せずに戻りますか？')
+        if (ok) onBack()
+        return
+      }
+
       Alert.alert('確認', '変更内容を保存せずに戻りますか？', [
         { text: 'キャンセル', style: 'cancel' },
         {
@@ -89,6 +112,33 @@ export function UserProfileEditScreen({
     }
     onBack()
   }, [hasChanges, onBack])
+
+  const openBirthDatePicker = useCallback(() => {
+    if (busy) return
+
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input')
+      input.type = 'date'
+      input.value = /^\d{4}-\d{2}-\d{2}$/.test(birthDate.trim()) ? birthDate.trim() : ''
+      input.max = new Date().toISOString().slice(0, 10)
+      input.style.position = 'fixed'
+      input.style.left = '-9999px'
+      input.style.top = '0'
+      input.onchange = () => {
+        const v = input.value
+        if (v) setBirthDate(v)
+        input.remove()
+      }
+      input.onblur = () => {
+        setTimeout(() => input.remove(), 0)
+      }
+      document.body.appendChild(input)
+      input.click()
+      return
+    }
+
+    setBirthPickerOpen(true)
+  }, [birthDate, busy])
 
   const handlePickImage = useCallback(async () => {
     try {
@@ -115,27 +165,55 @@ export function UserProfileEditScreen({
       setAvatarUploading(true)
       try {
         const blob = await fetch(asset.uri).then((r) => r.blob())
-        const uploadUrl = `${apiBaseUrl}/v1/r2/assets/${fileName}`
-        console.log('Uploading to:', uploadUrl)
-        const uploadResp = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': mimeType,
-          },
-          body: blob,
-        })
+        const uploaderBaseUrl = (process.env.EXPO_PUBLIC_UPLOADER_BASE_URL || '').trim()
+        const uploaderJwt = (process.env.EXPO_PUBLIC_UPLOADER_JWT || '').trim()
 
-        if (!uploadResp.ok) {
-          const errorData = await uploadResp.json().catch(() => ({}))
-          const errorMsg = errorData.error || `Upload failed with status ${uploadResp.status}`
-          const debugInfo = errorData.debug ? `\nDebug: ${JSON.stringify(errorData.debug)}` : ''
-          throw new Error(errorMsg + debugInfo)
+        if (uploaderBaseUrl) {
+          if (!uploaderJwt) {
+            throw new Error('アップロード設定が不足しています（EXPO_PUBLIC_UPLOADER_JWT が未設定）')
+          }
+
+          const uploadUrl = uploaderBaseUrl.replace(/\/+$/, '') + '/'
+          const uploadResp = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${uploaderJwt}`,
+              'Content-Type': mimeType,
+            },
+            body: blob,
+          })
+
+          const json = (await uploadResp.json().catch(() => ({}))) as any
+          if (!uploadResp.ok) {
+            const errorMsg = json?.error || `Upload failed with status ${uploadResp.status}`
+            throw new Error(errorMsg)
+          }
+
+          const url = json?.data?.url
+          if (!url || typeof url !== 'string') throw new Error('アップロードの応答が不正です')
+          setAvatarUrl(url)
+        } else {
+          const uploadUrl = `${apiBaseUrl}/v1/r2/assets/${fileName}`
+          const uploadResp = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': mimeType,
+            },
+            body: blob,
+          })
+
+          if (!uploadResp.ok) {
+            const errorData = await uploadResp.json().catch(() => ({}))
+            const errorMsg = errorData.error || `Upload failed with status ${uploadResp.status}`
+            const debugInfo = errorData.debug ? `\nDebug: ${JSON.stringify(errorData.debug)}` : ''
+            throw new Error(errorMsg + debugInfo)
+          }
+
+          const data = (await uploadResp.json().catch(() => null)) as { publicUrl?: string } | null
+          const url = data?.publicUrl
+          if (!url) throw new Error('アップロードの応答が不正です')
+          setAvatarUrl(url)
         }
-
-        const data = (await uploadResp.json().catch(() => null)) as { publicUrl?: string } | null
-        const url = data?.publicUrl
-        if (!url) throw new Error('アップロードの応答が不正です')
-        setAvatarUrl(url)
       } finally {
         setAvatarUploading(false)
       }
@@ -207,9 +285,37 @@ export function UserProfileEditScreen({
     }
   }, [displayName, email, phone, birthDate, password, passwordConfirm, avatarUrl, isNewRegistration, onSave])
 
+  const birthDatePicker = Platform.OS !== 'web' ? (
+    <Modal transparent visible={birthPickerOpen} animationType="fade" onRequestClose={() => setBirthPickerOpen(false)}>
+      <Pressable style={styles.modalBackdrop} onPress={() => setBirthPickerOpen(false)}>
+        <Pressable style={styles.modalCard} onPress={() => {}}>
+          <Text style={styles.modalTitle}>生年月日を選択</Text>
+          <DateTimePicker
+            value={birthDateValue}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            maximumDate={new Date()}
+            onChange={(_, date) => {
+              if (!date) return
+              setBirthDateFromDate(date)
+              if (Platform.OS !== 'ios') setBirthPickerOpen(false)
+            }}
+          />
+
+          {Platform.OS === 'ios' ? (
+            <View style={styles.modalButtons}>
+              <SecondaryButton label="閉じる" onPress={() => setBirthPickerOpen(false)} disabled={busy} />
+            </View>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  ) : null
+
   return (
     <ScreenContainer title={isNewRegistration ? 'プロフィール登録' : 'ユーザープロフィール編集'} onBack={handleBack} scroll maxWidth={520}>
       <View style={styles.root}>
+        {birthDatePicker}
         {isNewRegistration && (
           <View style={styles.infoBox}>
             <Text style={styles.infoText}>あと少しで利用開始できます。プロフィールを登録してください。</Text>
@@ -319,15 +425,17 @@ export function UserProfileEditScreen({
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>生年月日（YYYY-MM-DD）</Text>
-            <TextInput
-              value={birthDate}
-              onChangeText={setBirthDate}
-              placeholder="1990-01-15"
-              placeholderTextColor={THEME.textMuted}
-              editable={!busy}
-              style={styles.input}
-            />
+            <Text style={styles.label}>生年月日</Text>
+            <Pressable
+              onPress={openBirthDatePicker}
+              disabled={busy}
+              style={[styles.input, busy ? styles.inputDisabled : null]}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.dateText, birthDate.trim() ? null : styles.datePlaceholder]}>
+                {birthDate.trim() || '選択してください'}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -415,6 +523,14 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontSize: 13,
   },
+  dateText: {
+    color: THEME.text,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  datePlaceholder: {
+    color: THEME.textMuted,
+  },
   inputDisabled: {
     opacity: 0.6,
   },
@@ -464,5 +580,32 @@ const styles = StyleSheet.create({
   },
   spacer: {
     width: 10,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: THEME.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    padding: 16,
+  },
+  modalTitle: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 12,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
   },
 })

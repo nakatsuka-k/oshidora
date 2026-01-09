@@ -1,0 +1,21 @@
+name = "oshidra-uploader"
+account_id = "c6270d2ac0aefb2ca6ce6831cbc9ca30"
+main = "src/index.ts"
+compatibility_date = "2026-01-02"
+
+[vars]
+PUBLIC_BASE_URL = "https://assets.oshidra.com"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "assets"
+
+[env.production]
+name = "oshidra-uploader"
+
+[env.production.vars]
+PUBLIC_BASE_URL = "https://assets.oshidra.com"
+
+[[env.production.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "assets"

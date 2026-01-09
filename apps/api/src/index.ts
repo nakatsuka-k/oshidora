@@ -202,15 +202,27 @@ async function awsV4Signature(opts: {
 
 // R2 upload proxy: browser uploads -> this API -> server-side PUT to R2(S3)
 // Avoids direct browser->R2 CORS issues.
-app.put('/v1/r2/assets/*', async (c) => {
-  const keyRaw = (c.req.param('*') || '').trim()
+app.put('/v1/r2/assets/:path*', async (c) => {
+  const prefix = '/v1/r2/assets/'
+  const keyFromParam = (c.req.param('path') || '').trim()
+  const keyFromPath = c.req.path.startsWith(prefix) ? c.req.path.slice(prefix.length).trim() : ''
+
+  let keyRaw = (keyFromParam || keyFromPath).trim()
+  try {
+    keyRaw = decodeURIComponent(keyRaw)
+  } catch {
+    // keep as-is
+  }
+
   if (!keyRaw) {
     return c.json({
       error: 'key is required',
       debug: {
         method: c.req.method,
         path: c.req.path,
-        param_star: c.req.param('*'),
+        prefix,
+        keyFromParam,
+        keyFromPath,
         url: c.req.url,
       },
     }, 400)

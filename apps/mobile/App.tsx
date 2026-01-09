@@ -52,6 +52,16 @@ import {
 } from './screens'
 
 import { setBoolean, getString, setString } from './utils/storage'
+import { useIpAddress } from './utils/useIpAddress'
+
+const FALLBACK_ALLOWED_IPS = [
+  '223.135.200.51',
+  '117.102.205.215',
+  '133.232.96.225',
+  '3.114.72.126',
+  '133.200.10.97',
+  '159.28.175.137',
+]
 
 type Oshi = {
   id: string
@@ -359,6 +369,26 @@ export default function App() {
     return env && env.trim().length > 0 ? env.trim() : defaultApiBaseUrl()
   }, [])
 
+  const allowedIpSet = useMemo(() => {
+    const raw = (process.env.EXPO_PUBLIC_ALLOWED_IPS || '').trim()
+    const ips = raw
+      ? raw
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+      : FALLBACK_ALLOWED_IPS
+    return new Set(ips)
+  }, [])
+
+  const isLocalhostWeb =
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '::1')
+
+  const ipRestrictionEnabled = Platform.OS === 'web' && !isLocalhostWeb
+  const { ipInfo, isLoading: ipLoading, error: ipError, refetch: refetchIp } = useIpAddress({ enabled: ipRestrictionEnabled })
+  const ipAllowed = !ipRestrictionEnabled || (ipInfo?.ip ? allowedIpSet.has(ipInfo.ip) : false)
+
   const expectedLoginEmail = useMemo(() => {
     const env = process.env.EXPO_PUBLIC_LOGIN_EMAIL
     const value = env && env.trim().length > 0 ? env.trim() : 'test@example.com'
@@ -374,6 +404,44 @@ export default function App() {
     const env = process.env.EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID
     return env && env.trim().length > 0 ? env.trim() : '367b90a85d2d8f745dc709d988dff07d'
   }, [])
+
+  if (ipRestrictionEnabled) {
+    if (ipLoading) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <ScreenContainer title="IP確認中" maxWidth={520}>
+            <View style={styles.ipGate}>
+              <ActivityIndicator />
+              <Text style={styles.ipGateText}>アクセス元IPを確認しています…</Text>
+            </View>
+          </ScreenContainer>
+        </SafeAreaView>
+      )
+    }
+
+    if (!ipAllowed) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <ScreenContainer title="Access Denied" maxWidth={520}>
+            <View style={styles.ipGate}>
+              <Text style={styles.ipGateTitle}>このIPは許可されていません</Text>
+              <Text style={styles.ipGateText}>許可IPに追加してください。</Text>
+              <View style={styles.ipGateBox}>
+                <Text style={styles.ipGateMono}>IP: {ipInfo?.ip || '(unknown)'}</Text>
+                {ipInfo?.city || ipInfo?.region || ipInfo?.country ? (
+                  <Text style={styles.ipGateMono}>
+                    {ipInfo?.country || ''} {ipInfo?.region || ''} {ipInfo?.city || ''}
+                  </Text>
+                ) : null}
+                {ipError ? <Text style={styles.ipGateError}>{ipError}</Text> : null}
+              </View>
+              <SecondaryButton label="再取得" onPress={refetchIp} />
+            </View>
+          </ScreenContainer>
+        </SafeAreaView>
+      )
+    }
+  }
 
   // Player context (AXCMS-PL-001)
   const [playerVideoIdNoSub, setPlayerVideoIdNoSub] = useState<string>('367b90a85d2d8f745dc709d988dff07d')
@@ -1796,6 +1864,45 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+  },
+  ipGate: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  ipGateTitle: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  ipGateText: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  ipGateBox: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: THEME.card,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    borderRadius: 12,
+    padding: 12,
+    marginVertical: 14,
+  },
+  ipGateMono: {
+    color: THEME.text,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  ipGateError: {
+    color: THEME.danger,
+    fontSize: 12,
+    marginTop: 8,
   },
   authCenter: {
     flex: 1,
