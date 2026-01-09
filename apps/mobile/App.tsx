@@ -418,44 +418,6 @@ export default function App() {
     return env && env.trim().length > 0 ? env.trim() : '367b90a85d2d8f745dc709d988dff07d'
   }, [])
 
-  if (ipRestrictionEnabled) {
-    if (ipLoading) {
-      return (
-        <SafeAreaView style={styles.safeArea}>
-          <ScreenContainer title="IP確認中" maxWidth={520}>
-            <View style={styles.ipGate}>
-              <ActivityIndicator />
-              <Text style={styles.ipGateText}>アクセス元IPを確認しています…</Text>
-            </View>
-          </ScreenContainer>
-        </SafeAreaView>
-      )
-    }
-
-    if (!ipAllowed) {
-      return (
-        <SafeAreaView style={styles.safeArea}>
-          <ScreenContainer title="Access Denied" maxWidth={520}>
-            <View style={styles.ipGate}>
-              <Text style={styles.ipGateTitle}>このIPは許可されていません</Text>
-              <Text style={styles.ipGateText}>許可IPに追加してください。</Text>
-              <View style={styles.ipGateBox}>
-                <Text style={styles.ipGateMono}>IP: {ipInfo?.ip || '(unknown)'}</Text>
-                {ipInfo?.city || ipInfo?.region || ipInfo?.country ? (
-                  <Text style={styles.ipGateMono}>
-                    {ipInfo?.country || ''} {ipInfo?.region || ''} {ipInfo?.city || ''}
-                  </Text>
-                ) : null}
-                {ipError ? <Text style={styles.ipGateError}>{ipError}</Text> : null}
-              </View>
-              <SecondaryButton label="再取得" onPress={refetchIp} />
-            </View>
-          </ScreenContainer>
-        </SafeAreaView>
-      )
-    }
-  }
-
   // Player context (AXCMS-PL-001)
   const [playerVideoIdNoSub, setPlayerVideoIdNoSub] = useState<string>('367b90a85d2d8f745dc709d988dff07d')
   const [playerVideoIdWithSub, setPlayerVideoIdWithSub] = useState<string | null>(null)
@@ -1119,6 +1081,45 @@ export default function App() {
       setAuthBusy(false)
     }
   }, [apiBaseUrl, authPendingToken, debugAuthBypass, normalizedPhoneDigits, otpDigits, postLoginTarget, resetAuthErrors])
+
+  // Show IP gate if IP restriction is enabled and checks are needed
+  if (ipRestrictionEnabled) {
+    if (ipLoading) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <ScreenContainer title="IP確認中" maxWidth={520}>
+            <View style={styles.ipGate}>
+              <ActivityIndicator />
+              <Text style={styles.ipGateText}>アクセス元IPを確認しています…</Text>
+            </View>
+          </ScreenContainer>
+        </SafeAreaView>
+      )
+    }
+
+    if (!ipAllowed) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <ScreenContainer title="Access Denied" maxWidth={520}>
+            <View style={styles.ipGate}>
+              <Text style={styles.ipGateTitle}>このIPは許可されていません</Text>
+              <Text style={styles.ipGateText}>許可IPに追加してください。</Text>
+              <View style={styles.ipGateBox}>
+                <Text style={styles.ipGateMono}>IP: {ipInfo?.ip || '(unknown)'}</Text>
+                {ipInfo?.city || ipInfo?.region || ipInfo?.country ? (
+                  <Text style={styles.ipGateMono}>
+                    {ipInfo?.country || ''} {ipInfo?.region || ''} {ipInfo?.city || ''}
+                  </Text>
+                ) : null}
+                {ipError ? <Text style={styles.ipGateError}>{ipError}</Text> : null}
+              </View>
+              <SecondaryButton label="再取得" onPress={refetchIp} />
+            </View>
+          </ScreenContainer>
+        </SafeAreaView>
+      )
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
