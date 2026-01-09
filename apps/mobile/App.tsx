@@ -8,6 +8,7 @@ import {
   Pressable,
   SafeAreaView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -48,10 +49,11 @@ import {
   CastSearchResultScreen,
   WorkSearchScreen,
   MyPageScreen,
+  CastProfileRegisterScreen,
   UserProfileEditScreen,
 } from './screens'
 
-import { setBoolean, getString, setString } from './utils/storage'
+import { getBoolean, setBoolean, getString, setString } from './utils/storage'
 import { useIpAddress } from './utils/useIpAddress'
 
 const FALLBACK_ALLOWED_IPS = [
@@ -62,6 +64,10 @@ const FALLBACK_ALLOWED_IPS = [
   '133.200.10.97',
   '159.28.175.137',
 ]
+
+const AUTH_TOKEN_KEY = 'auth_token'
+const DEBUG_AUTH_BYPASS_KEY = 'debug_auth_bypass'
+const DEBUG_AUTH_AUTOFILL_KEY = 'debug_auth_autofill'
 
 type Oshi = {
   id: string
@@ -89,6 +95,7 @@ type Screen =
   | 'search'
   | 'work'
   | 'mypage'
+  | 'castProfileRegister'
   | 'profileEdit'
   | 'ranking'
   | 'favorites'
@@ -122,6 +129,8 @@ function screenToWebHash(screen: Screen): string {
       return '#/work-search'
     case 'mypage':
       return '#/mypage'
+    case 'castProfileRegister':
+      return '#/cast-profile-register'
     case 'profileEdit':
       return '#/profile-edit'
     case 'profileRegister':
@@ -247,6 +256,8 @@ function webHashToScreen(hash: string): Screen {
       return 'work'
     case '/mypage':
       return 'mypage'
+    case '/cast-profile-register':
+      return 'castProfileRegister'
     case '/profile-edit':
       return 'profileEdit'
     case '/ranking':
@@ -322,6 +333,8 @@ function screenToDocumentTitle(
       return `${base} | 作品から探す`
     case 'mypage':
       return `${base} | マイページ`
+    case 'castProfileRegister':
+      return `${base} | キャストプロフィール登録`
     case 'ranking':
       return `${base} | ランキング`
     case 'favorites':
@@ -530,40 +543,50 @@ export default function App() {
 
   const [loggedIn, setLoggedIn] = useState<boolean>(false)
 
-  // Initialize login state from AsyncStorage and API
+  const [authToken, setAuthToken] = useState<string>('')
+  const [authPendingToken, setAuthPendingToken] = useState<string>('')
+
+  const [debugAuthBypass, setDebugAuthBypass] = useState<boolean>(false)
+  const [debugAuthAutofill, setDebugAuthAutofill] = useState<boolean>(false)
+  const [debugEmailCode, setDebugEmailCode] = useState<string>('')
+  const [debugSmsCode, setDebugSmsCode] = useState<string>('')
+
   useEffect(() => {
-    const initializeLoginState = async () => {
+    void (async () => {
       try {
-        // Try to get login state from AsyncStorage first
-        const savedState = await getString('dev_login_state')
-        if (savedState !== null) {
-          setLoggedIn(savedState === 'true')
-          return
+        const [token, bypass, autofill] = await Promise.all([
+          getString(AUTH_TOKEN_KEY),
+          getBoolean(DEBUG_AUTH_BYPASS_KEY),
+          getBoolean(DEBUG_AUTH_AUTOFILL_KEY),
+        ])
+        if (token) {
+          setAuthToken(token)
+          setLoggedIn(true)
         }
-
-        // If not saved, fetch from API
-        const res = await fetch(`${apiBaseUrl}/v1/dev/login-state`)
-        if (res.ok) {
-          const data = (await res.json()) as { loggedIn: boolean }
-          setLoggedIn(data.loggedIn)
-          // Save to AsyncStorage
-          await setString('dev_login_state', data.loggedIn ? 'true' : 'false')
-        }
-      } catch (e) {
-        // Silently fail, default to false
+        setDebugAuthBypass(bypass)
+        setDebugAuthAutofill(autofill)
+      } catch {
+        // ignore
       }
-    }
-    initializeLoginState()
-  }, [apiBaseUrl])
+    })()
+  }, [])
 
-  // Persist login state to AsyncStorage when it changes
   useEffect(() => {
-    setString('dev_login_state', loggedIn ? 'true' : 'false')
-  }, [loggedIn])
+    void setBoolean(DEBUG_AUTH_BYPASS_KEY, debugAuthBypass)
+  }, [debugAuthBypass])
+
+  useEffect(() => {
+    void setBoolean(DEBUG_AUTH_AUTOFILL_KEY, debugAuthAutofill)
+  }, [debugAuthAutofill])
+
+  useEffect(() => {
+    if (!authToken) return
+    void setString(AUTH_TOKEN_KEY, authToken)
+  }, [authToken])
 
   useEffect(() => {
     // Guard for direct navigation (e.g. web hash) to login-required screens.
-    if (loggedIn) return
+    if (loggedIn || debugAuthBypass) return
     if (screen !== 'profile' && screen !== 'castReview' && screen !== 'comment') return
 
     setPostLoginTarget(screen)
@@ -576,11 +599,11 @@ export default function App() {
   }, [loggedIn, screen])
 
   const requireLogin = useCallback((next: Screen): boolean => {
-    if (loggedIn) return true
+    if (loggedIn || debugAuthBypass) return true
     setPostLoginTarget(next)
     goTo('login')
     return false
-  }, [goTo, loggedIn])
+  }, [debugAuthBypass, goTo, loggedIn])
 
   type ApprovedComment = { id: string; author: string; body: string; createdAt?: string }
 
@@ -908,20 +931,41 @@ export default function App() {
 
     setAuthBusy(true)
     try {
-      // NOTE: 認証APIは設計書では仮パスのため、現状は画面遷移のみ実装。
-      // 実APIに接続する場合はここで fetch を行い、失敗時は setLoginBannerError を設定してください。
-      await new Promise((r) => setTimeout(r, 250))
-
-      if (email.toLowerCase() !== expectedLoginEmail || password !== expectedLoginPassword) {
-        setLoginBannerError('メールアドレスまたはパスワードが正しくありません')
+      if (debugAuthBypass) {
+        await new Promise((r) => setTimeout(r, 250))
+        if (email.toLowerCase() !== expectedLoginEmail || password !== expectedLoginPassword) {
+          setLoginBannerError('メールアドレスまたはパスワードが正しくありません')
+          return
+        }
+        goTo('phone')
         return
       }
 
+      const res = await fetch(`${apiBaseUrl}/v1/auth/login/start`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) {
+        const code = String(data?.error ?? '')
+        if (code === 'invalid_credentials') {
+          setLoginBannerError('メールアドレスまたはパスワードが正しくありません')
+        } else if (code === 'email_not_verified') {
+          setLoginBannerError('メール認証が完了していません')
+        } else {
+          setLoginBannerError('ログインに失敗しました')
+        }
+        return
+      }
+
+      setAuthPendingToken(String(data.token ?? ''))
+      setDebugSmsCode('')
       goTo('phone')
     } finally {
       setAuthBusy(false)
     }
-  }, [expectedLoginEmail, expectedLoginPassword, goTo, loginEmail, loginPassword, resetAuthErrors])
+  }, [apiBaseUrl, debugAuthBypass, expectedLoginEmail, expectedLoginPassword, goTo, loginEmail, loginPassword, resetAuthErrors])
 
   const normalizedPhoneDigits = useMemo(() => digitsOnly(phoneNumber), [phoneNumber])
 
@@ -944,21 +988,52 @@ export default function App() {
 
     setAuthBusy(true)
     try {
-      // NOTE: SMS送信APIは設計書では仮パスのため、現状は画面遷移のみ実装。
-      await new Promise((r) => setTimeout(r, 250))
-
-      if (digits.endsWith('0000')) {
-        setPhoneBannerError('SMSの送信に失敗しました。時間をおいて再度お試しください。')
-        return
+      let sentDebugCode = ''
+      if (debugAuthBypass) {
+        await new Promise((r) => setTimeout(r, 250))
+        if (digits.endsWith('0000')) {
+          setPhoneBannerError('SMSの送信に失敗しました。時間をおいて再度お試しください。')
+          return
+        }
+      } else {
+        if (!authPendingToken) {
+          setPhoneBannerError('認証セッションが切れました。最初からやり直してください。')
+          return
+        }
+        const res = await fetch(`${apiBaseUrl}/v1/auth/sms/send`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${authPendingToken}`,
+          },
+          body: JSON.stringify({ phone: digits }),
+        })
+        const data = (await res.json().catch(() => ({}))) as any
+        if (!res.ok) {
+          const code = String(data?.error ?? '')
+          if (code === 'phone_mismatch') {
+            setPhoneBannerError('登録済みの電話番号と一致しません')
+          } else {
+            setPhoneBannerError('SMSの送信に失敗しました。時間をおいて再度お試しください。')
+          }
+          return
+        }
+        const dbg = String(data?.debugCode ?? '')
+        setDebugSmsCode(dbg)
+        sentDebugCode = dbg
       }
 
-      setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ''))
+      if (!debugAuthBypass && debugAuthAutofill && sentDebugCode) {
+        setOtpDigits(sentDebugCode.slice(0, OTP_LENGTH).split(''))
+      } else {
+        setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ''))
+      }
       goTo('otp')
       setTimeout(() => otpRefs.current[0]?.focus?.(), 50)
     } finally {
       setAuthBusy(false)
     }
-  }, [OTP_LENGTH, goTo, normalizedPhoneDigits, resetAuthErrors])
+  }, [OTP_LENGTH, apiBaseUrl, authPendingToken, debugAuthAutofill, debugAuthBypass, goTo, normalizedPhoneDigits, resetAuthErrors])
 
   const otpValue = useMemo(() => otpDigits.join(''), [otpDigits])
   const otpComplete = useMemo(() => otpValue.length === OTP_LENGTH && !otpValue.includes(''), [OTP_LENGTH, otpValue])
@@ -1004,12 +1079,36 @@ export default function App() {
 
     setAuthBusy(true)
     try {
-      // NOTE: 認証コード検証APIは設計書では仮パスのため、現状は画面遷移のみ実装。
-      await new Promise((r) => setTimeout(r, 250))
-
-      if (code === '000000') {
-        setOtpBannerError('認証コードが正しくありません')
-        return
+      if (debugAuthBypass) {
+        await new Promise((r) => setTimeout(r, 250))
+        if (code === '000000') {
+          setOtpBannerError('認証コードが正しくありません')
+          return
+        }
+      } else {
+        if (!authPendingToken) {
+          setOtpBannerError('認証セッションが切れました。最初からやり直してください。')
+          return
+        }
+        const res = await fetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${authPendingToken}`,
+          },
+          body: JSON.stringify({ phone: normalizedPhoneDigits, code }),
+        })
+        const data = (await res.json().catch(() => ({}))) as any
+        if (!res.ok) {
+          setOtpBannerError('認証コードが正しくありません')
+          return
+        }
+        const token = String(data?.token ?? '')
+        if (token) {
+          setAuthToken(token)
+          await setString(AUTH_TOKEN_KEY, token)
+        }
+        setAuthPendingToken('')
       }
 
       setLoggedIn(true)
@@ -1019,7 +1118,7 @@ export default function App() {
     } finally {
       setAuthBusy(false)
     }
-  }, [otpDigits, postLoginTarget, resetAuthErrors])
+  }, [apiBaseUrl, authPendingToken, debugAuthBypass, normalizedPhoneDigits, otpDigits, postLoginTarget, resetAuthErrors])
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1126,9 +1225,26 @@ export default function App() {
           onSendCode={async (email, password) => {
             setRegisterEmail(email)
             setRegisterPassword(password)
-            await new Promise((r) => setTimeout(r, 250))
-            if (email.toLowerCase().endsWith('@fail.example')) {
-              throw new Error('認証コードの送信に失敗しました')
+            if (debugAuthBypass) {
+              await new Promise((r) => setTimeout(r, 250))
+              if (email.toLowerCase().endsWith('@fail.example')) {
+                throw new Error('認証コードの送信に失敗しました')
+              }
+              setDebugEmailCode('')
+            } else {
+              const res = await fetch(`${apiBaseUrl}/v1/auth/signup/start`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+              })
+              const data = (await res.json().catch(() => ({}))) as any
+              if (!res.ok) {
+                const code = String(data?.error ?? '')
+                if (code === 'already_registered') throw new Error('すでに登録済みのメールアドレスです')
+                throw new Error('認証コードの送信に失敗しました')
+              }
+              const dbg = String(data?.debugCode ?? '')
+              setDebugEmailCode(dbg)
             }
             goTo('emailVerify')
           }}
@@ -1139,13 +1255,38 @@ export default function App() {
         <EmailVerifyScreen
           email={registerEmail}
           onBack={goBack}
+          initialCode={!debugAuthBypass && debugAuthAutofill ? debugEmailCode : undefined}
           onResend={async () => {
-            await new Promise((r) => setTimeout(r, 250))
             if (!registerEmail) throw new Error('メールアドレスが不明です')
+            if (debugAuthBypass) {
+              await new Promise((r) => setTimeout(r, 250))
+              return
+            }
+            const res = await fetch(`${apiBaseUrl}/v1/auth/signup/email/resend`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ email: registerEmail }),
+            })
+            const data = (await res.json().catch(() => ({}))) as any
+            if (!res.ok) throw new Error('認証コードの再送に失敗しました')
+            setDebugEmailCode(String(data?.debugCode ?? ''))
           }}
           onVerify={async (code) => {
-            await new Promise((r) => setTimeout(r, 250))
-            if (code === '000000') throw new Error('認証コードが正しくありません')
+            if (debugAuthBypass) {
+              await new Promise((r) => setTimeout(r, 250))
+              if (code === '000000') throw new Error('認証コードが正しくありません')
+            } else {
+              const res = await fetch(`${apiBaseUrl}/v1/auth/signup/email/verify`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ email: registerEmail, code }),
+              })
+              const data = (await res.json().catch(() => ({}))) as any
+              if (!res.ok) {
+                throw new Error('認証コードが正しくありません')
+              }
+              setAuthPendingToken(String(data?.token ?? ''))
+            }
             goTo('sms2fa')
           }}
         />
@@ -1154,6 +1295,49 @@ export default function App() {
       {screen === 'sms2fa' ? (
         <Sms2faScreen
           onBack={goBack}
+          initialCode={!debugAuthBypass && debugAuthAutofill ? debugSmsCode : undefined}
+          onSendCode={async (phone) => {
+            if (debugAuthBypass) {
+              await new Promise((r) => setTimeout(r, 250))
+              return
+            }
+            if (!authPendingToken) throw new Error('認証セッションが切れました')
+            const res = await fetch(`${apiBaseUrl}/v1/auth/sms/send`, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${authPendingToken}`,
+              },
+              body: JSON.stringify({ phone }),
+            })
+            const data = (await res.json().catch(() => ({}))) as any
+            if (!res.ok) throw new Error('SMSの送信に失敗しました')
+            setDebugSmsCode(String(data?.debugCode ?? ''))
+          }}
+          onVerifyCode={async (phone, code) => {
+            if (debugAuthBypass) {
+              await new Promise((r) => setTimeout(r, 250))
+              if (code === '0000') throw new Error('認証コードが正しくありません')
+              return
+            }
+            if (!authPendingToken) throw new Error('認証セッションが切れました')
+            const res = await fetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${authPendingToken}`,
+              },
+              body: JSON.stringify({ phone, code }),
+            })
+            const data = (await res.json().catch(() => ({}))) as any
+            if (!res.ok) throw new Error('認証コードが正しくありません')
+            const token = String(data?.token ?? '')
+            if (token) {
+              setAuthToken(token)
+              await setString(AUTH_TOKEN_KEY, token)
+            }
+            setAuthPendingToken('')
+          }}
           onComplete={(phone) => {
             setRegisterPhone(phone)
             goTo('profileRegister')
@@ -1270,6 +1454,13 @@ export default function App() {
           onNavigate={(screenKey) => {
             goTo(screenKey as Screen)
           }}
+        />
+      ) : null}
+
+      {screen === 'castProfileRegister' ? (
+        <CastProfileRegisterScreen
+          apiBaseUrl={apiBaseUrl}
+          onBack={goBack}
         />
       ) : null}
 
@@ -1856,6 +2047,21 @@ export default function App() {
         />
       ) : null}
 
+      {__DEV__ ? (
+        <View pointerEvents="box-none" style={styles.devOverlayWrap}>
+          <View style={styles.devOverlayCard}>
+            <View style={styles.devOverlayRow}>
+              <Text style={styles.devOverlayLabel}>認証バイパス</Text>
+              <Switch value={debugAuthBypass} onValueChange={setDebugAuthBypass} />
+            </View>
+            <View style={styles.devOverlayRow}>
+              <Text style={styles.devOverlayLabel}>コード自動入力</Text>
+              <Switch value={debugAuthAutofill} onValueChange={setDebugAuthAutofill} />
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       <StatusBar style="auto" />
     </SafeAreaView>
   )
@@ -1864,6 +2070,31 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+  },
+  devOverlayWrap: {
+    position: 'absolute',
+    right: 12,
+    bottom: 24,
+  },
+  devOverlayCard: {
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  devOverlayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  devOverlayLabel: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '700',
   },
   ipGate: {
     flex: 1,

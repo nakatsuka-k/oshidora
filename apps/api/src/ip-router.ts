@@ -1,4 +1,6 @@
 // IP allowlist for oshidra.com
+import type { ExportedHandler } from '@cloudflare/workers-types'
+
 const ALLOWED_IPS = [
   '223.135.200.51',
   '117.102.205.215',
@@ -11,8 +13,8 @@ const ALLOWED_IPS = [
 // Pages project domain
 const PAGES_URL = 'https://oshidra-web.pages.dev'
 
-export default {
-  async fetch(request, env) {
+const handler: ExportedHandler = {
+  async fetch(request: Request, _env: unknown): Promise<Response> {
     // Get client IP
     const clientIP =
       request.headers.get('CF-Connecting-IP') ||
@@ -54,3 +56,5 @@ export default {
     return fetch(proxiedRequest)
   },
 }
+
+export default handler

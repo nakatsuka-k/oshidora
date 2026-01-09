@@ -55,7 +55,7 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
           onNavigate('profileEdit')
           break
         case 'castRegister':
-          // TODO: キャストプロフィール登録画面へ遷移
+          onNavigate('castProfileRegister')
           break
         case 'favorites':
           onNavigate('favorites')

@@ -8,9 +8,10 @@ type EmailVerifyScreenProps = {
   onResend: () => Promise<void>
   onVerify: (code: string) => Promise<void>
   onBack: () => void
+  initialCode?: string
 }
 
-export function EmailVerifyScreen({ email, onResend, onVerify, onBack }: EmailVerifyScreenProps) {
+export function EmailVerifyScreen({ email, onResend, onVerify, onBack, initialCode }: EmailVerifyScreenProps) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -18,7 +19,8 @@ export function EmailVerifyScreen({ email, onResend, onVerify, onBack }: EmailVe
 
   useEffect(() => {
     setCooldown(30)
-  }, [email])
+    if (initialCode) setCode(initialCode)
+  }, [email, initialCode])
 
   useEffect(() => {
     if (cooldown <= 0) return

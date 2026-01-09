@@ -5,10 +5,13 @@ import { digitsOnly } from '../utils/validators'
 
 type Sms2faScreenProps = {
   onBack: () => void
+  onSendCode: (phone: string) => Promise<string | void>
+  onVerifyCode: (phone: string, code: string) => Promise<void>
   onComplete: (phone: string) => void
+  initialCode?: string
 }
 
-export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
+export function Sms2faScreen({ onBack, onSendCode, onVerifyCode, onComplete, initialCode }: Sms2faScreenProps) {
   const [phase, setPhase] = useState<'phone' | 'code'>('phone')
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
@@ -18,10 +21,11 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
 
   useEffect(() => {
     if (phase !== 'code') return
+    if (initialCode) setCode(initialCode)
     if (cooldown <= 0) return
     const t = setInterval(() => setCooldown((s) => s - 1), 1000)
     return () => clearInterval(t)
-  }, [cooldown, phase])
+  }, [cooldown, initialCode, phase])
 
   const phoneDigits = useMemo(() => digitsOnly(phone), [phone])
 
@@ -65,7 +69,7 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
                       setError('')
                       setBusy(true)
                       try {
-                        await new Promise((r) => setTimeout(r, 250))
+                        await onSendCode(phoneDigits)
                         setCooldown(30)
                       } finally {
                         setBusy(false)
@@ -94,7 +98,7 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
                   }
                   setBusy(true)
                   try {
-                    await new Promise((r) => setTimeout(r, 250))
+                    await onSendCode(phoneDigits)
                     setPhase('code')
                     setCooldown(30)
                   } finally {
@@ -119,11 +123,7 @@ export function Sms2faScreen({ onBack, onComplete }: Sms2faScreenProps) {
                   }
                   setBusy(true)
                   try {
-                    await new Promise((r) => setTimeout(r, 250))
-                    if (v === '0000') {
-                      setError('認証コードが正しくありません')
-                      return
-                    }
+                    await onVerifyCode(phoneDigits, v)
                     onComplete(phoneDigits)
                   } finally {
                     setBusy(false)

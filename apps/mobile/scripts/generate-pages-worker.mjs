@@ -6,6 +6,8 @@ const repoRoot = process.cwd();
 const distDir = path.join(repoRoot, 'dist');
 const outFile = path.join(distDir, '_worker.js');
 
+const ROBOTS_TAG = 'noindex, nofollow, noarchive';
+
 const ALLOWED_IPS = [
   '223.135.200.51',
   '117.102.205.215',
@@ -60,6 +62,7 @@ function getDeniedHTML(details) {
     '<head>' +
     '  <meta charset="UTF-8">' +
     '  <meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+    '  <meta name="robots" content="noindex,nofollow,noarchive">' +
     '  <title>Access Denied</title>' +
     '  <style>' +
     '    body {' +
@@ -123,11 +126,18 @@ export default {
     if (!isIPAllowed(details.ips)) {
       return new Response(getDeniedHTML(details), {
         status: 403,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Robots-Tag': ROBOTS_TAG },
       });
     }
 
-    return env.ASSETS.fetch(request);
+    const res = await env.ASSETS.fetch(request);
+    const headers = new Headers(res.headers);
+    headers.set('X-Robots-Tag', ROBOTS_TAG);
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers,
+    });
   },
 };
 `;

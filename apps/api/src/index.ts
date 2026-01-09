@@ -4,6 +4,14 @@ import { cors } from 'hono/cors'
 type Env = {
   Bindings: {
     DB: D1Database
+    AUTH_JWT_SECRET?: string
+    AUTH_CODE_PEPPER?: string
+    ALLOW_DEBUG_RETURN_CODES?: string
+    TWILIO_ACCOUNT_SID?: string
+    TWILIO_AUTH_TOKEN?: string
+    TWILIO_FROM?: string
+    MAIL_FROM?: string
+    MAIL_FROM_NAME?: string
     CLOUDFLARE_ACCOUNT_ID?: string
     R2_ACCESS_KEY_ID?: string
     R2_SECRET_ACCESS_KEY?: string
@@ -148,6 +156,207 @@ async function hmacSha256(key: ArrayBuffer | Uint8Array, message: string) {
   const cryptoKey = await crypto.subtle.importKey('raw', rawKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   const sig = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message))
   return new Uint8Array(sig)
+}
+
+function base64Encode(bytes: Uint8Array) {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+
+function base64DecodeToBytes(base64: string) {
+  const binary = atob(base64)
+  const out = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
+  return out
+}
+
+async function pbkdf2HashPassword(password: string, saltBytes: Uint8Array, iterations = 120_000) {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  )
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations },
+    keyMaterial,
+    32 * 8
+  )
+  return new Uint8Array(bits)
+}
+
+async function hashPasswordForStorage(password: string) {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const hash = await pbkdf2HashPassword(password, salt)
+  return {
+    saltB64: base64Encode(salt),
+    hashB64: base64Encode(hash),
+  }
+}
+
+async function verifyPassword(password: string, saltB64: string, hashB64: string) {
+  const salt = base64DecodeToBytes(saltB64)
+  const expected = base64DecodeToBytes(hashB64)
+  const actual = await pbkdf2HashPassword(password, salt)
+  if (actual.length !== expected.length) return false
+  let diff = 0
+  for (let i = 0; i < actual.length; i++) diff |= actual[i] ^ expected[i]
+  return diff === 0
+}
+
+async function hs256Sign(secret: string, unsigned: string) {
+  const sig = await hmacSha256(new TextEncoder().encode(secret), unsigned)
+  return base64UrlEncode(sig)
+}
+
+async function makeJwtHs256(secret: string, payload: Record<string, unknown>, expiresInSeconds = 60 * 60 * 24 * 7) {
+  const now = Math.floor(Date.now() / 1000)
+  const exp = now + expiresInSeconds
+  const header = { alg: 'HS256', typ: 'JWT' }
+  const body = { ...payload, iat: now, exp }
+  const unsigned = `${base64UrlEncodeJson(header)}.${base64UrlEncodeJson(body)}`
+  const signature = await hs256Sign(secret, unsigned)
+  return `${unsigned}.${signature}`
+}
+
+function base64UrlDecodeToString(value: string) {
+  let b64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const pad = b64.length % 4
+  if (pad === 2) b64 += '=='
+  else if (pad === 3) b64 += '='
+  return atob(b64)
+}
+
+async function verifyJwtHs256(secret: string, token: string) {
+  const parts = token.split('.')
+  if (parts.length !== 3) return null
+  const [h, p, s] = parts
+  const unsigned = `${h}.${p}`
+  const expected = await hs256Sign(secret, unsigned)
+  if (expected !== s) return null
+
+  try {
+    const payload = JSON.parse(base64UrlDecodeToString(p)) as any
+    const exp = typeof payload?.exp === 'number' ? payload.exp : null
+    if (typeof exp === 'number' && Math.floor(Date.now() / 1000) > exp) return null
+    return payload as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function digitsOnly(value: string) {
+  return value.replace(/\D+/g, '')
+}
+
+function normalizePhoneDigitsForJP(value: string) {
+  const digits = digitsOnly(value)
+  // Accept domestic JP formats like 090xxxxxxxx / 080xxxxxxxx / 070xxxxxxxx and normalize to E.164 digits (81...)
+  if (digits.startsWith('0') && (digits.length === 10 || digits.length === 11)) {
+    return `81${digits.slice(1)}`
+  }
+  return digits
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function shouldReturnDebugCodes(env: Env['Bindings']) {
+  return String(env.ALLOW_DEBUG_RETURN_CODES ?? '').trim() === '1'
+}
+
+function makeRandomDigits(length: number) {
+  const bytes = crypto.getRandomValues(new Uint8Array(length))
+  return Array.from(bytes)
+    .map((b) => String(b % 10))
+    .join('')
+}
+
+async function hashVerificationCode(code: string, pepper: string) {
+  return sha256Hex(`${pepper}:${code}`)
+}
+
+async function sendSmsViaTwilio(env: Env['Bindings'], to: string, body: string) {
+  const accountSid = (env.TWILIO_ACCOUNT_SID ?? '').trim()
+  const authToken = (env.TWILIO_AUTH_TOKEN ?? '').trim()
+  const from = (env.TWILIO_FROM ?? '').trim()
+  if (!accountSid || !authToken || !from) {
+    return {
+      ok: false,
+      error: 'Twilio is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM as secrets.',
+      status: 501,
+    }
+  }
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`
+  const form = new URLSearchParams()
+  form.set('To', to)
+  form.set('From', from)
+  form.set('Body', body)
+
+  const auth = btoa(`${accountSid}:${authToken}`)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+    },
+    body: form,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    return { ok: false, error: `Twilio error: ${res.status} ${text}`.slice(0, 500), status: 502 }
+  }
+  return { ok: true }
+}
+
+async function sendEmailViaMailChannels(env: Env['Bindings'], to: string, subject: string, text: string) {
+  const from = (env.MAIL_FROM ?? '').trim()
+  const fromName = (env.MAIL_FROM_NAME ?? 'Oshidora').trim() || 'Oshidora'
+  if (!from) {
+    return {
+      ok: false,
+      error: 'Email is not configured. Set MAIL_FROM (e.g. no-reply@your-domain).',
+      status: 501,
+    }
+  }
+
+  const payload = {
+    personalizations: [{ to: [{ email: to }] }],
+    from: { email: from, name: fromName },
+    subject,
+    content: [{ type: 'text/plain', value: text }],
+  }
+
+  const res = await fetch('https://api.mailchannels.net/tx/v1/send', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const msg = await res.text().catch(() => '')
+    return { ok: false, error: `MailChannels error: ${res.status} ${msg}`.slice(0, 500), status: 502 }
+  }
+  return { ok: true }
+}
+
+async function requireAuth(c: any) {
+  const auth = c.req.header('authorization') || ''
+  const m = auth.match(/^Bearer\s+(.+)$/i)
+  const token = m?.[1] || ''
+  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  if (!secret) return { ok: false, status: 500, error: 'AUTH_JWT_SECRET is not configured' as const }
+  const payload = token ? await verifyJwtHs256(secret, token) : null
+  if (!payload) return { ok: false, status: 401, error: 'Unauthorized' as const }
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  const stage = typeof payload.stage === 'string' ? payload.stage : ''
+  if (!userId) return { ok: false, status: 401, error: 'Unauthorized' as const }
+  return { ok: true, userId, stage, payload } as const
 }
 
 async function awsV4SigningKey(secretAccessKey: string, dateStamp: string, region: string, service: string) {
@@ -845,6 +1054,316 @@ app.post('/v1/dev/login-state', async (c) => {
     mockLoginState = next
   }
   return c.json({ loggedIn: mockLoginState })
+})
+
+// -----------------------------
+// Auth (email + SMS)
+// -----------------------------
+
+function d1LikelyNotMigratedError(err: unknown) {
+  const msg = String((err as any)?.message ?? err)
+  return /no such table/i.test(msg) || /SQLITE_ERROR/i.test(msg)
+}
+
+function jsonD1SetupError(c: any, err: unknown) {
+  const detail = String((err as any)?.message ?? err).slice(0, 300)
+  return c.json(
+    {
+      error: 'db_not_migrated',
+      message: 'D1 schema is missing. Run `npm run db:migrate:local` (or remote) in apps/api before calling auth endpoints.',
+      detail: shouldReturnDebugCodes(c.env) ? detail : undefined,
+    },
+    500
+  )
+}
+
+app.post('/v1/auth/signup/start', async (c) => {
+  type Body = { email?: string; password?: string }
+  const body = await c.req.json<Body>().catch((): Body => ({}))
+  const email = normalizeEmail(body.email ?? '')
+  const password = String(body.password ?? '')
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (!password.trim()) return c.json({ error: 'password is required' }, 400)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const now = new Date().toISOString()
+
+  let existing: any
+  try {
+    existing = await c.env.DB.prepare('SELECT id, email_verified FROM users WHERE email = ?').bind(email).first<any>()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  if (existing && Number(existing.email_verified) === 1) {
+    return c.json({ error: 'already_registered' }, 409)
+  }
+
+  const { saltB64, hashB64 } = await hashPasswordForStorage(password)
+  const userId = existing?.id ? String(existing.id) : crypto.randomUUID()
+
+  if (existing?.id) {
+    try {
+      await c.env.DB.prepare('UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?')
+        .bind(hashB64, saltB64, now, userId)
+        .run()
+    } catch (err) {
+      if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+      throw err
+    }
+  } else {
+    try {
+      await c.env.DB.prepare(
+        'INSERT INTO users (id, email, email_verified, phone, phone_verified, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, 0, NULL, 0, ?, ?, ?, ?)'
+      )
+        .bind(userId, email, hashB64, saltB64, now, now)
+        .run()
+    } catch (err) {
+      if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+      throw err
+    }
+  }
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const code = makeRandomDigits(6)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+
+  try {
+    await c.env.DB.prepare(
+      'INSERT INTO verification_codes (id, user_id, kind, target, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    )
+      .bind(crypto.randomUUID(), userId, 'email', email, codeHash, expiresAt, now)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const mailRes = await sendEmailViaMailChannels(
+    c.env,
+    email,
+    '【推しドラ】認証コード',
+    `認証コード: ${code}\n\n有効期限: 10分\n`
+  )
+
+  const debugCode = shouldReturnDebugCodes(c.env) ? code : undefined
+  if (!mailRes.ok) {
+    if (debugCode) {
+      return c.json({ ok: true, email, debugCode, warning: mailRes.error })
+    }
+    return c.json({ error: mailRes.error, debugCode }, (mailRes.status ?? 502) as any)
+  }
+  return c.json({ ok: true, email, debugCode })
+})
+
+app.post('/v1/auth/signup/email/resend', async (c) => {
+  type Body = { email?: string }
+  const body = await c.req.json<Body>().catch((): Body => ({}))
+  const email = normalizeEmail(body.email ?? '')
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const user = await c.env.DB.prepare('SELECT id, email_verified FROM users WHERE email = ?').bind(email).first<any>()
+  if (!user) return c.json({ error: 'not_found' }, 404)
+  if (Number(user.email_verified) === 1) return c.json({ error: 'already_verified' }, 409)
+
+  const now = new Date().toISOString()
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const code = makeRandomDigits(6)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+
+  await c.env.DB.prepare(
+    'INSERT INTO verification_codes (id, user_id, kind, target, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  )
+    .bind(crypto.randomUUID(), String(user.id), 'email', email, codeHash, expiresAt, now)
+    .run()
+
+  const mailRes = await sendEmailViaMailChannels(
+    c.env,
+    email,
+    '【推しドラ】認証コード（再送）',
+    `認証コード: ${code}\n\n有効期限: 10分\n`
+  )
+
+  const debugCode = shouldReturnDebugCodes(c.env) ? code : undefined
+  if (!mailRes.ok) {
+    if (debugCode) {
+      return c.json({ ok: true, debugCode, warning: mailRes.error })
+    }
+    return c.json({ error: mailRes.error, debugCode }, (mailRes.status ?? 502) as any)
+  }
+  return c.json({ ok: true, debugCode })
+})
+
+app.post('/v1/auth/signup/email/verify', async (c) => {
+  type Body = { email?: string; code?: string }
+  const body = await c.req.json<Body>().catch((): Body => ({}))
+  const email = normalizeEmail(body.email ?? '')
+  const code = digitsOnly(String(body.code ?? ''))
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (code.length !== 6) return c.json({ error: 'code must be 6 digits' }, 400)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first<any>()
+  if (!user) return c.json({ error: 'not_found' }, 404)
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const nowIso = new Date().toISOString()
+
+  const row = await c.env.DB.prepare(
+    "SELECT id, expires_at, consumed_at FROM verification_codes WHERE kind = 'email' AND target = ? ORDER BY created_at DESC LIMIT 1"
+  )
+    .bind(email)
+    .first<any>()
+
+  if (!row) return c.json({ error: 'code_not_found' }, 400)
+  if (row.consumed_at) return c.json({ error: 'code_already_used' }, 400)
+  if (String(row.expires_at) < nowIso) return c.json({ error: 'code_expired' }, 400)
+
+  const ok = await c.env.DB.prepare('SELECT id FROM verification_codes WHERE id = ? AND code_hash = ?')
+    .bind(String(row.id), codeHash)
+    .first<any>()
+  if (!ok) {
+    await c.env.DB.prepare('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?').bind(String(row.id)).run()
+    return c.json({ error: 'invalid_code' }, 400)
+  }
+
+  await c.env.DB.prepare('UPDATE verification_codes SET consumed_at = ? WHERE id = ?').bind(nowIso, String(row.id)).run()
+  await c.env.DB.prepare('UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?')
+    .bind(nowIso, String(user.id))
+    .run()
+
+  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
+  const token = await makeJwtHs256(secret, { userId: String(user.id), stage: 'needs_phone' }, 60 * 30)
+  return c.json({ ok: true, token, stage: 'needs_phone' })
+})
+
+app.post('/v1/auth/login/start', async (c) => {
+  type Body = { email?: string; password?: string }
+  const body = await c.req.json<Body>().catch((): Body => ({}))
+  const email = normalizeEmail(body.email ?? '')
+  const password = String(body.password ?? '')
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (!password.trim()) return c.json({ error: 'password is required' }, 400)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const user = await c.env.DB.prepare(
+    'SELECT id, email_verified, phone, phone_verified, password_hash, password_salt FROM users WHERE email = ?'
+  )
+    .bind(email)
+    .first<any>()
+
+  if (!user) return c.json({ error: 'invalid_credentials' }, 401)
+  if (Number(user.email_verified) !== 1) return c.json({ error: 'email_not_verified' }, 403)
+
+  const passOk = await verifyPassword(password, String(user.password_salt), String(user.password_hash))
+  if (!passOk) return c.json({ error: 'invalid_credentials' }, 401)
+
+  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
+  const stage = 'needs_sms'
+  const token = await makeJwtHs256(secret, { userId: String(user.id), stage }, 60 * 30)
+  const phoneMasked = user.phone ? String(user.phone).replace(/.(?=.{4})/g, '*') : null
+  return c.json({ ok: true, token, stage, phoneMasked, phoneRequired: true })
+})
+
+app.post('/v1/auth/sms/send', async (c) => {
+  type Body = { phone?: string }
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  const body = await c.req.json<Body>().catch((): Body => ({}))
+  const phoneDigits = normalizePhoneDigitsForJP(String(body.phone ?? ''))
+  if (phoneDigits.length < 10 || phoneDigits.length > 20) return c.json({ error: 'invalid_phone' }, 400)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const user = await c.env.DB.prepare('SELECT phone, phone_verified FROM users WHERE id = ?')
+    .bind(auth.userId)
+    .first<any>()
+  if (!user) return c.json({ error: 'not_found' }, 404)
+
+  if (Number(user.phone_verified) === 1) {
+    const registeredDigits = normalizePhoneDigitsForJP(String(user.phone ?? ''))
+    if (registeredDigits && registeredDigits !== phoneDigits) {
+      return c.json({ error: 'phone_mismatch' }, 400)
+    }
+  }
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const codeLength = auth.stage === 'needs_sms' ? 6 : 4
+  const code = makeRandomDigits(codeLength)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const now = new Date().toISOString()
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+
+  await c.env.DB.prepare(
+    'INSERT INTO verification_codes (id, user_id, kind, target, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  )
+    .bind(crypto.randomUUID(), auth.userId, 'sms', phoneDigits, codeHash, expiresAt, now)
+    .run()
+
+  const smsRes = await sendSmsViaTwilio(c.env, `+${phoneDigits}`, `【推しドラ】認証コード: ${code}`)
+  const debugCode = shouldReturnDebugCodes(c.env) ? code : undefined
+  if (!smsRes.ok) {
+    if (debugCode) {
+      return c.json({ ok: true, debugCode, warning: smsRes.error })
+    }
+    return c.json({ error: smsRes.error, debugCode }, (smsRes.status ?? 502) as any)
+  }
+  return c.json({ ok: true, debugCode })
+})
+
+app.post('/v1/auth/sms/verify', async (c) => {
+  type Body = { phone?: string; code?: string }
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  const body = await c.req.json<Body>().catch((): Body => ({}))
+  const phoneDigits = normalizePhoneDigitsForJP(String(body.phone ?? ''))
+  const code = digitsOnly(String(body.code ?? ''))
+  if (phoneDigits.length < 10 || phoneDigits.length > 20) return c.json({ error: 'invalid_phone' }, 400)
+  if (code.length < 4 || code.length > 6) return c.json({ error: 'code must be 4-6 digits' }, 400)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const nowIso = new Date().toISOString()
+
+  const row = await c.env.DB.prepare(
+    "SELECT id, expires_at, consumed_at FROM verification_codes WHERE kind = 'sms' AND target = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1"
+  )
+    .bind(phoneDigits, auth.userId)
+    .first<any>()
+
+  if (!row) return c.json({ error: 'code_not_found' }, 400)
+  if (row.consumed_at) return c.json({ error: 'code_already_used' }, 400)
+  if (String(row.expires_at) < nowIso) return c.json({ error: 'code_expired' }, 400)
+
+  const ok = await c.env.DB.prepare('SELECT id FROM verification_codes WHERE id = ? AND code_hash = ?')
+    .bind(String(row.id), codeHash)
+    .first<any>()
+  if (!ok) {
+    await c.env.DB.prepare('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?').bind(String(row.id)).run()
+    return c.json({ error: 'invalid_code' }, 400)
+  }
+
+  await c.env.DB.prepare('UPDATE verification_codes SET consumed_at = ? WHERE id = ?').bind(nowIso, String(row.id)).run()
+  await c.env.DB.prepare('UPDATE users SET phone = ?, phone_verified = 1, updated_at = ? WHERE id = ?')
+    .bind(phoneDigits, nowIso, auth.userId)
+    .run()
+
+  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
+  const token = await makeJwtHs256(secret, { userId: auth.userId, stage: 'full' })
+  return c.json({ ok: true, token, stage: 'full' })
 })
 
 export default app

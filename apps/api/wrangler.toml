@@ -12,7 +12,7 @@ R2_PUBLIC_BASE_URL = "https://pub-a2d549876dd24a08aebc65d95ed4ff91.r2.dev"
 binding = "DB"
 database_name = "oshidora-db"
 database_id = "1f7de46f-7b0c-4150-ae76-6dd762a23f71"
-remote = true
+
 # Production environment
 [env.production]
 name = "oshidra-api"
