@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
   },
   prePlayCard: {
     width: '100%',
-    maxWidth: 520,
+    maxWidth: 828,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: THEME.outline,
@@ -330,7 +330,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.card,
   },
   hintBarLandscape: {
-    maxWidth: 520,
+    maxWidth: 828,
     alignSelf: 'center',
   },
   hintText: {

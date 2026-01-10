@@ -5,6 +5,7 @@ import { RowItem, ScreenContainer, THEME } from '../components'
 type FavoriteCastsScreenProps = {
   apiBaseUrl: string
   authToken: string
+  loggedIn: boolean
   onBack: () => void
   onEdit: () => void
   onOpenProfile: (cast: { id: string; name: string; role: string }) => void
@@ -19,12 +20,13 @@ type Cast = {
 
 type CastResponse = { items: Cast[] }
 
-export function FavoriteCastsScreen({ apiBaseUrl, authToken, onBack, onEdit, onOpenProfile }: FavoriteCastsScreenProps) {
+export function FavoriteCastsScreen({ apiBaseUrl, authToken, loggedIn, onBack, onEdit, onOpenProfile }: FavoriteCastsScreenProps) {
   const [casts, setCasts] = useState<Cast[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const canFetch = useMemo(() => !!authToken.trim(), [authToken])
+  const showLoginPrompt = useMemo(() => !loggedIn, [loggedIn])
 
   const fetchFavorites = useCallback(async () => {
     if (!canFetch) return
@@ -50,7 +52,7 @@ export function FavoriteCastsScreen({ apiBaseUrl, authToken, onBack, onEdit, onO
   }, [fetchFavorites])
 
   return (
-    <ScreenContainer scroll maxWidth={520}>
+    <ScreenContainer scroll>
       <View style={styles.root}>
         <View style={styles.headerRow}>
           <Pressable onPress={onBack} style={styles.backBtn} accessibilityRole="button">
@@ -62,9 +64,7 @@ export function FavoriteCastsScreen({ apiBaseUrl, authToken, onBack, onEdit, onO
           </Pressable>
         </View>
 
-        {!canFetch ? (
-          <Text style={styles.emptyText}>ログインしてお気に入りキャストを確認してください</Text>
-        ) : null}
+        {showLoginPrompt ? <Text style={styles.emptyText}>ログインしてお気に入りキャストを確認してください</Text> : null}
 
         {error ? <Text style={styles.error}>通信に失敗しました: {error}</Text> : null}
 
@@ -87,7 +87,7 @@ export function FavoriteCastsScreen({ apiBaseUrl, authToken, onBack, onEdit, onO
               />
             )}
             ListEmptyComponent={
-              canFetch ? <Text style={styles.emptyText}>お気に入りキャストがありません</Text> : null
+              loggedIn ? <Text style={styles.emptyText}>お気に入りキャストがありません</Text> : null
             }
           />
         )}

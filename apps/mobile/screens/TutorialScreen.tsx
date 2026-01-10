@@ -58,7 +58,7 @@ export function TutorialScreen({ onBack, onSkip, onDone, initialIndex = 0, onInd
   }, [initialIndex])
 
   return (
-    <ScreenContainer maxWidth={520}>
+    <ScreenContainer>
       <View style={styles.root}>
         <View style={styles.topRow}>
           <Pressable

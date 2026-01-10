@@ -29,7 +29,7 @@ export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
     '2026年1月6日 制定\n'
 
   return (
-    <ScreenContainer title="プライバシーポリシー" onBack={onBack} scroll maxWidth={520}>
+    <ScreenContainer title="プライバシーポリシー" onBack={onBack} scroll>
       <View style={styles.root}>
         <View style={styles.box}>
           <Text style={styles.text}>{policyText}</Text>

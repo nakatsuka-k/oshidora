@@ -165,34 +165,14 @@ export function UserProfileEditScreen({
       setAvatarUploading(true)
       try {
         const blob = await fetch(asset.uri).then((r) => r.blob())
-        const uploaderBaseUrl = (process.env.EXPO_PUBLIC_UPLOADER_BASE_URL || '').trim()
+        const legacyUploader = 'https://oshidra-uploader.kousuke-c62.workers.dev'
+        const defaultUploader = 'https://assets-uploader.oshidra.com/'
+        const envUploader = (process.env.EXPO_PUBLIC_UPLOADER_BASE_URL || '').trim()
         const uploaderJwt = (process.env.EXPO_PUBLIC_UPLOADER_JWT || '').trim()
 
-        if (uploaderBaseUrl) {
-          if (!uploaderJwt) {
-            throw new Error('アップロード設定が不足しています（EXPO_PUBLIC_UPLOADER_JWT が未設定）')
-          }
+        const resolvedUploaderBaseUrl = (envUploader && envUploader !== legacyUploader) ? envUploader : defaultUploader
 
-          const uploadUrl = uploaderBaseUrl.replace(/\/+$/, '') + '/'
-          const uploadResp = await fetch(uploadUrl, {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${uploaderJwt}`,
-              'Content-Type': mimeType,
-            },
-            body: blob,
-          })
-
-          const json = (await uploadResp.json().catch(() => ({}))) as any
-          if (!uploadResp.ok) {
-            const errorMsg = json?.error || `Upload failed with status ${uploadResp.status}`
-            throw new Error(errorMsg)
-          }
-
-          const url = json?.data?.url
-          if (!url || typeof url !== 'string') throw new Error('アップロードの応答が不正です')
-          setAvatarUrl(url)
-        } else {
+        const uploadViaApi = async () => {
           const uploadUrl = `${apiBaseUrl}/v1/r2/assets/${fileName}`
           const uploadResp = await fetch(uploadUrl, {
             method: 'PUT',
@@ -213,6 +193,45 @@ export function UserProfileEditScreen({
           const url = data?.publicUrl
           if (!url) throw new Error('アップロードの応答が不正です')
           setAvatarUrl(url)
+        }
+
+        const uploadViaUploader = async () => {
+          const uploadUrl = resolvedUploaderBaseUrl.replace(/\/+$/, '') + '/'
+          const uploadResp = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${uploaderJwt}`,
+              'Content-Type': mimeType,
+            },
+            body: blob,
+          })
+
+          const json = (await uploadResp.json().catch(() => ({}))) as any
+          if (!uploadResp.ok) {
+            const errorMsg = json?.error || `Upload failed with status ${uploadResp.status}`
+            throw new Error(errorMsg)
+          }
+
+          const url = json?.data?.url
+          if (!url || typeof url !== 'string') throw new Error('アップロードの応答が不正です')
+          setAvatarUrl(url)
+        }
+
+        if (uploaderJwt) {
+          try {
+            await uploadViaUploader()
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            // If uploader auth is misconfigured (401/403), fall back to API upload.
+            if (/unauthorized|token|authorization/i.test(msg)) {
+              await uploadViaApi()
+            } else {
+              throw e
+            }
+          }
+        } else {
+          // No JWT available; use API proxy upload.
+          await uploadViaApi()
         }
       } finally {
         setAvatarUploading(false)
@@ -313,7 +332,7 @@ export function UserProfileEditScreen({
   ) : null
 
   return (
-    <ScreenContainer title={isNewRegistration ? 'プロフィール登録' : 'ユーザープロフィール編集'} onBack={handleBack} scroll maxWidth={520}>
+    <ScreenContainer title={isNewRegistration ? 'プロフィール登録' : 'ユーザープロフィール編集'} onBack={handleBack} scroll>
       <View style={styles.root}>
         {birthDatePicker}
         {isNewRegistration && (
@@ -364,7 +383,7 @@ export function UserProfileEditScreen({
               editable={!busy && !isNewRegistration}
               style={[styles.input, busy || isNewRegistration ? styles.inputDisabled : null]}
             />
-            {isNewRegistration && <Text style={styles.hintText}>※ 認証済みのメールアドレスです（変更は別フロー）</Text>}
+            {isNewRegistration && <Text style={styles.hintText}>※ 認証済みのメールアドレスです</Text>}
           </View>
 
           {isNewRegistration && (

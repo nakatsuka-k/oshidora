@@ -31,7 +31,7 @@ export function EmailVerifyScreen({ email, onResend, onVerify, onBack, initialCo
   const canVerify = useMemo(() => digitsOnly(code).length === 6 && !busy, [busy, code])
 
   return (
-    <ScreenContainer title="メール認証" onBack={onBack} scroll maxWidth={520}>
+    <ScreenContainer title="メール認証" onBack={onBack} scroll>
       <View style={styles.root}>
         <View style={styles.top}>
           <Text style={styles.desc}>入力したメールアドレスに認証コードを送信しました</Text>

@@ -1,18 +1,24 @@
 import { useMemo, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
 
 type CommentPostScreenProps = {
   onBack: () => void
-  contentId: string
-  contentTitle: string
-  onSubmitted: (opts: { contentId: string; body: string }) => Promise<void>
+  workId: string
+  workTitle: string
+  onSubmitted: (opts: { workId: string; body: string }) => Promise<void>
   onDone: () => void
 }
 
 const MAX_LEN = 500
 
-export function CommentPostScreen({ onBack, contentId, contentTitle, onSubmitted, onDone }: CommentPostScreenProps) {
+export function CommentPostScreen({
+  onBack,
+  workId,
+  workTitle,
+  onSubmitted,
+  onDone,
+}: CommentPostScreenProps) {
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>('')
@@ -28,7 +34,7 @@ export function CommentPostScreen({ onBack, contentId, contentTitle, onSubmitted
     setError('')
     setBusy(true)
     try {
-      await onSubmitted({ contentId, body })
+      await onSubmitted({ workId, body })
       setDone(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -38,25 +44,30 @@ export function CommentPostScreen({ onBack, contentId, contentTitle, onSubmitted
   }
 
   return (
-    <ScreenContainer title="コメント" onBack={onBack} scroll maxWidth={520}>
+    <ScreenContainer title="コメント" onBack={onBack} scroll>
       <View style={styles.root}>
         <View style={styles.targetBox}>
           <Text style={styles.targetTitle} numberOfLines={2} ellipsizeMode="tail">
-            {contentTitle}
+            {workTitle}
           </Text>
         </View>
 
         {done ? (
           <View style={styles.doneBox}>
             <Text style={styles.doneTitle}>送信が完了しました</Text>
-            <Text style={styles.doneSub}>ご投稿ありがとうございます</Text>
+            <Text style={styles.doneSub}>
+              ご投稿ありがとうございます。{`\n`}
+              コメント公開前に管理者側のチェックを挟むため、反映までに時間がかかる場合があります。
+            </Text>
             <View style={styles.doneButtons}>
-              <PrimaryButton label="動画詳細へ戻る" onPress={onDone} />
+              <PrimaryButton label="作品詳細へ戻る" onPress={onDone} />
             </View>
           </View>
         ) : (
           <View style={styles.form}>
             {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <Text style={styles.label}>投稿内容</Text>
 
             <View style={styles.textareaWrap}>
               <TextInput
@@ -110,6 +121,23 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
+  },
+  label: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: THEME.card,
+    color: THEME.text,
+    fontSize: 13,
+    fontWeight: '700',
   },
   error: {
     color: THEME.text,

@@ -220,7 +220,7 @@ export function CastProfileRegisterScreen({ apiBaseUrl, onBack }: CastProfileReg
   }, [busy, editMode, hasChanges, readOnly, save, status])
 
   return (
-    <ScreenContainer scroll maxWidth={520}>
+    <ScreenContainer scroll>
       <View style={styles.root}>
         <View style={styles.headerRow}>
           <Pressable onPress={handleBack} disabled={busy} style={styles.backBtn} accessibilityRole="button">

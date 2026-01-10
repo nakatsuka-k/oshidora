@@ -804,6 +804,54 @@ app.get('/v1/top', (c) => {
   })
 })
 
+type MockNotice = {
+  id: string
+  title: string
+  publishedAt: string
+  excerpt: string
+  bodyHtml: string
+}
+
+const MOCK_NOTICES: MockNotice[] = [
+  {
+    id: 'n1',
+    title: '新機能追加のお知らせ',
+    publishedAt: '2026-01-10 10:00',
+    excerpt: '本日より新機能を追加しました。より快適に視聴できるよう改善しています。',
+    bodyHtml:
+      '<p>本日より新機能を追加しました。より快適に視聴できるよう改善しています。</p><p><strong>主な変更点</strong></p><p>・トップ画面右上のベルからお知らせ一覧を確認できます。</p><p>・お知らせ詳細はHTMLで表示されます。</p>',
+  },
+  {
+    id: 'n2',
+    title: 'キャンペーン開催のお知らせ',
+    publishedAt: '2026-01-09 18:00',
+    excerpt: '期間限定キャンペーンを開催します。詳しくはお知らせ詳細をご確認ください。',
+    bodyHtml:
+      '<p>期間限定キャンペーンを開催します。</p><p>詳しくはキャンペーンページをご確認ください。</p><p><a href="https://oshidora.example.com">キャンペーン詳細</a></p>',
+  },
+]
+
+app.get('/v1/notices', (c) => {
+  return c.json({
+    items: MOCK_NOTICES.map(({ bodyHtml: _bodyHtml, ...rest }) => rest),
+  })
+})
+
+app.get('/v1/notices/:id', (c) => {
+  const id = c.req.param('id')
+  const item = MOCK_NOTICES.find((n) => n.id === id) ?? null
+  return c.json({ item })
+})
+
+app.post('/v1/inquiries', async (c) => {
+  // NOTE: モック。実運用ではDB保存＋管理者通知（メール等）を行う。
+  const body = (await c.req.json().catch(() => null)) as any
+  if (!body || typeof body.subject !== 'string' || typeof body.body !== 'string') {
+    return c.json({ error: 'Invalid payload' }, 400)
+  }
+  return c.json({ ok: true })
+})
+
 app.get('/v1/categories', (c) => {
   return c.json({
     items: [
@@ -832,6 +880,8 @@ type MockVideo = {
   priceCoin?: number
   thumbnailUrl?: string
   castIds: string[]
+  categoryId: string
+  tags: string[]
 }
 
 const MOCK_CASTS: MockCast[] = [
@@ -851,6 +901,8 @@ const MOCK_VIDEOS: MockVideo[] = [
     priceCoin: 0,
     thumbnailUrl: '',
     castIds: ['a1', 'a2', 'a3'],
+    categoryId: 'c1',
+    tags: ['Drama', 'Mystery'],
   },
   {
     id: 'v2',
@@ -861,6 +913,8 @@ const MOCK_VIDEOS: MockVideo[] = [
     priceCoin: 30,
     thumbnailUrl: '',
     castIds: ['a1', 'a2', 'a3'],
+    categoryId: 'c1',
+    tags: ['Drama', 'Mystery'],
   },
   {
     id: 'v3',
@@ -871,6 +925,8 @@ const MOCK_VIDEOS: MockVideo[] = [
     priceCoin: 30,
     thumbnailUrl: '',
     castIds: ['a1', 'a2', 'a3'],
+    categoryId: 'c1',
+    tags: ['Drama', 'Mystery'],
   },
   {
     id: 'v4',
@@ -881,6 +937,8 @@ const MOCK_VIDEOS: MockVideo[] = [
     priceCoin: 0,
     thumbnailUrl: '',
     castIds: ['a2', 'a3'],
+    categoryId: 'c2',
+    tags: ['Mystery'],
   },
   {
     id: 'v5',
@@ -891,6 +949,8 @@ const MOCK_VIDEOS: MockVideo[] = [
     priceCoin: 10,
     thumbnailUrl: '',
     castIds: ['a1'],
+    categoryId: 'c3',
+    tags: ['Romance'],
   },
 ]
 
@@ -987,14 +1047,26 @@ app.get('/api/favorites/casts', handleGetFavoriteCasts)
 app.delete('/api/favorites/casts', handleDeleteFavoriteCasts)
 
 app.get('/v1/videos', (c) => {
+  const categoryId = String(c.req.query('category_id') ?? '').trim()
+  const tag = normalizeQuery(String(c.req.query('tag') ?? ''))
+
+  let items = MOCK_VIDEOS
+  if (categoryId) {
+    items = items.filter((v) => v.categoryId === categoryId)
+  }
+  if (tag) {
+    items = items.filter((v) => v.tags.some((t) => normalizeQuery(t) === tag))
+  }
+
   return c.json({
-    items: MOCK_VIDEOS.map((v) => ({
+    items: items.map((v) => ({
       id: v.id,
       title: v.title,
       ratingAvg: v.ratingAvg,
       reviewCount: v.reviewCount,
       priceCoin: v.priceCoin,
       thumbnailUrl: v.thumbnailUrl,
+      tags: v.tags,
     })),
   })
 })
@@ -1008,7 +1080,7 @@ app.get('/v1/comments', async (c) => {
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
 
   const { results } = await c.env.DB.prepare(
-    "SELECT id, author, body, created_at FROM comments WHERE content_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT ?"
+    "SELECT id, author, body, episode_id, created_at FROM comments WHERE content_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT ?"
   )
     .bind(contentId, limit)
     .all()
@@ -1018,16 +1090,137 @@ app.get('/v1/comments', async (c) => {
       id: String(r.id ?? ''),
       author: String(r.author ?? ''),
       body: String(r.body ?? ''),
+      episodeId: String(r.episode_id ?? ''),
       createdAt: String(r.created_at ?? ''),
     })),
   })
 })
 
+// --- Reviews (mock + API compatibility) ---
+// NOTE: This is a minimal API to support UI "評価表示" with a mock fallback.
+// Persistence is not implemented yet (in-memory only for POST).
+
+type ReviewItem = { id: string; rating: number; comment: string; createdAt: string }
+type ReviewSummary = { ratingAvg: number; reviewCount: number }
+
+const MOCK_WORK_REVIEW_SUMMARY: Record<string, ReviewSummary> = {
+  // Work/content ids (and common aliases used by the app)
+  'content-1': { ratingAvg: 4.7, reviewCount: 128 },
+  'content-2': { ratingAvg: 4.4, reviewCount: 61 },
+  'content-3': { ratingAvg: 4.2, reviewCount: 43 },
+  'content-4': { ratingAvg: 4.1, reviewCount: 38 },
+  p1: { ratingAvg: 4.7, reviewCount: 128 },
+  p2: { ratingAvg: 4.7, reviewCount: 128 },
+  p3: { ratingAvg: 4.7, reviewCount: 128 },
+  r1: { ratingAvg: 4.7, reviewCount: 128 },
+  r2: { ratingAvg: 4.4, reviewCount: 61 },
+  r3: { ratingAvg: 4.2, reviewCount: 43 },
+  r4: { ratingAvg: 4.1, reviewCount: 38 },
+  f1: { ratingAvg: 4.7, reviewCount: 128 },
+  f2: { ratingAvg: 4.4, reviewCount: 61 },
+  f3: { ratingAvg: 4.2, reviewCount: 43 },
+  v1: { ratingAvg: 4.7, reviewCount: 128 },
+  v2: { ratingAvg: 4.6, reviewCount: 94 },
+  v3: { ratingAvg: 4.8, reviewCount: 156 },
+  v4: { ratingAvg: 4.4, reviewCount: 61 },
+  v5: { ratingAvg: 4.2, reviewCount: 43 },
+}
+
+const MOCK_CAST_REVIEW_SUMMARY: Record<string, ReviewSummary> = {
+  // Cast ids used by the app mock
+  cast1: { ratingAvg: 4.8, reviewCount: 12 },
+}
+
+// In-memory review items (non-persistent)
+const WORK_REVIEWS: Record<string, ReviewItem[]> = {
+  'content-1': [{ id: 'wr1', rating: 5, comment: '最高！', createdAt: '2026-01-10T00:00:00.000Z' }],
+}
+
+const CAST_REVIEWS: Record<string, ReviewItem[]> = {
+  cast1: [
+    { id: 'cr1', rating: 5, comment: '最高でした！', createdAt: '2026-01-10T00:00:00.000Z' },
+    { id: 'cr2', rating: 4, comment: '応援してます', createdAt: '2026-01-09T00:00:00.000Z' },
+  ],
+}
+
+function buildSummaryFromItems(items: ReviewItem[], fallback: ReviewSummary): ReviewSummary {
+  if (!items.length) return fallback
+  const sum = items.reduce((acc, it) => acc + (Number.isFinite(it.rating) ? it.rating : 0), 0)
+  const avg = sum / Math.max(1, items.length)
+  return {
+    ratingAvg: Math.round(avg * 10) / 10,
+    reviewCount: items.length,
+  }
+}
+
+app.get('/v1/reviews/work', (c) => {
+  const contentId = String(c.req.query('content_id') ?? '').trim()
+  if (!contentId) return c.json({ error: 'content_id is required' }, 400)
+  const items = Array.isArray(WORK_REVIEWS[contentId]) ? WORK_REVIEWS[contentId] : []
+  const fallback = MOCK_WORK_REVIEW_SUMMARY[contentId] ?? { ratingAvg: 4.5, reviewCount: 0 }
+  const summary = buildSummaryFromItems(items, fallback)
+  return c.json({ summary })
+})
+
+app.post('/v1/reviews/work', async (c) => {
+  type Body = { contentId?: string; rating?: number; comment?: string }
+  const body = (await c.req.json().catch((): Body => ({}))) as Body
+  const contentId = String(body.contentId ?? '').trim()
+  const rating = Number(body.rating)
+  const comment = String(body.comment ?? '').trim()
+
+  if (!contentId) return c.json({ error: 'contentId is required' }, 400)
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) return c.json({ error: 'rating must be 1..5' }, 400)
+  if (comment.length > 500) return c.json({ error: 'comment is too long' }, 400)
+
+  const item: ReviewItem = {
+    id: crypto.randomUUID(),
+    rating,
+    comment,
+    createdAt: new Date().toISOString(),
+  }
+
+  WORK_REVIEWS[contentId] = [item, ...(WORK_REVIEWS[contentId] ?? [])]
+  return c.json({ ok: true, item }, 201)
+})
+
+app.get('/v1/reviews/cast', (c) => {
+  const castId = String(c.req.query('cast_id') ?? '').trim()
+  if (!castId) return c.json({ error: 'cast_id is required' }, 400)
+  const items = Array.isArray(CAST_REVIEWS[castId]) ? CAST_REVIEWS[castId] : []
+  const fallback = MOCK_CAST_REVIEW_SUMMARY[castId] ?? { ratingAvg: 0, reviewCount: 0 }
+  const summary = buildSummaryFromItems(items, fallback)
+  return c.json({ summary, items: items.slice(0, 20) })
+})
+
+app.post('/v1/reviews/cast', async (c) => {
+  type Body = { castId?: string; rating?: number; comment?: string }
+  const body = (await c.req.json().catch((): Body => ({}))) as Body
+  const castId = String(body.castId ?? '').trim()
+  const rating = Number(body.rating)
+  const comment = String(body.comment ?? '').trim()
+
+  if (!castId) return c.json({ error: 'castId is required' }, 400)
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) return c.json({ error: 'rating must be 1..5' }, 400)
+  if (comment.length > 500) return c.json({ error: 'comment is too long' }, 400)
+
+  const item: ReviewItem = {
+    id: crypto.randomUUID(),
+    rating,
+    comment,
+    createdAt: new Date().toISOString(),
+  }
+
+  CAST_REVIEWS[castId] = [item, ...(CAST_REVIEWS[castId] ?? [])]
+  return c.json({ ok: true, item }, 201)
+})
+
 app.post('/v1/comments', async (c) => {
-  type Body = { contentId?: string; author?: string; body?: string }
+  type Body = { contentId?: string; episodeId?: string; author?: string; body?: string }
   const body = await c.req.json<Body>().catch((): Body => ({}))
 
   const contentId = (body.contentId ?? '').trim()
+  const episodeId = (body.episodeId ?? '').trim()
   const author = (body.author ?? '').trim()
   const text = String(body.body ?? '')
   const trimmed = text.trim()
@@ -1045,12 +1238,12 @@ app.post('/v1/comments', async (c) => {
   const status = 'pending'
 
   await c.env.DB.prepare(
-    'INSERT INTO comments (id, content_id, author, body, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO comments (id, content_id, episode_id, author, body, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   )
-    .bind(id, contentId, author, trimmed, status, createdAt)
+    .bind(id, contentId, episodeId || null, author, trimmed, status, createdAt)
     .run()
 
-  return c.json({ id, contentId, status, createdAt }, 201)
+  return c.json({ id, contentId, episodeId: episodeId || null, status, createdAt }, 201)
 })
 
 app.get('/v1/search', (c) => {

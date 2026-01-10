@@ -9,7 +9,7 @@ type WelcomeAuthChoiceScreenProps = {
 
 export function WelcomeAuthChoiceScreen({ onBack, onLogin, onRegister }: WelcomeAuthChoiceScreenProps) {
   return (
-    <ScreenContainer onBack={onBack} maxWidth={520}>
+    <ScreenContainer onBack={onBack}>
       <View style={styles.root}>
         <View style={styles.row}>
           <View style={styles.button}>

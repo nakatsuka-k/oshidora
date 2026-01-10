@@ -15,6 +15,7 @@ import { CheckboxRow, ScreenContainer, THEME } from '../components'
 type FavoriteCastsEditScreenProps = {
   apiBaseUrl: string
   authToken: string
+  loggedIn: boolean
   onCancel: () => void
   onDone: () => void
 }
@@ -42,7 +43,7 @@ function confirmAction(message: string): Promise<boolean> {
   })
 }
 
-export function FavoriteCastsEditScreen({ apiBaseUrl, authToken, onCancel, onDone }: FavoriteCastsEditScreenProps) {
+export function FavoriteCastsEditScreen({ apiBaseUrl, authToken, loggedIn, onCancel, onDone }: FavoriteCastsEditScreenProps) {
   const [casts, setCasts] = useState<Cast[]>([])
   const [busy, setBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -52,6 +53,7 @@ export function FavoriteCastsEditScreen({ apiBaseUrl, authToken, onCancel, onDon
   const selectedCount = selectedIds.size
 
   const canFetch = useMemo(() => !!authToken.trim(), [authToken])
+  const showLoginPrompt = useMemo(() => !loggedIn, [loggedIn])
 
   const fetchFavorites = useCallback(async () => {
     if (!canFetch) return
@@ -145,7 +147,6 @@ export function FavoriteCastsEditScreen({ apiBaseUrl, authToken, onCancel, onDon
   return (
     <ScreenContainer
       scroll
-      maxWidth={520}
       footer={
         showFooter ? (
           <View style={styles.footer}>
@@ -176,7 +177,7 @@ export function FavoriteCastsEditScreen({ apiBaseUrl, authToken, onCancel, onDon
           </Pressable>
         </View>
 
-        {!canFetch ? <Text style={styles.emptyText}>ログインしてお気に入りキャストを編集してください</Text> : null}
+        {showLoginPrompt ? <Text style={styles.emptyText}>ログインしてお気に入りキャストを編集してください</Text> : null}
 
         {error ? <Text style={styles.error}>通信に失敗しました: {error}</Text> : null}
 
@@ -217,7 +218,7 @@ export function FavoriteCastsEditScreen({ apiBaseUrl, authToken, onCancel, onDon
               )
             }}
             ListEmptyComponent={
-              canFetch ? <Text style={styles.emptyText}>お気に入りキャストがありません</Text> : null
+              loggedIn ? <Text style={styles.emptyText}>お気に入りキャストがありません</Text> : null
             }
           />
         )}

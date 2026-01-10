@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { ScreenContainer, TabBar, THEME } from '../components'
+import { NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
 
 type VideoListScreenProps = {
   apiBaseUrl: string
   onPressTab: (key: 'home' | 'video' | 'cast' | 'search' | 'mypage') => void
   onOpenVideo: (id: string) => void
+  onOpenNotice?: () => void
+  tag?: string | null
+  onChangeTag?: (tag: string | null) => void
 }
 
 type Video = {
@@ -15,6 +18,7 @@ type Video = {
   reviewCount: number
   priceCoin?: number
   thumbnailUrl?: string
+  tags?: string[]
 }
 
 type Category = { id: string; name: string }
@@ -26,7 +30,11 @@ const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
 
 const PAGE_SIZE = 20
 
-export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoListScreenProps) {
+function normalizeText(value: string) {
+  return value.trim().toLowerCase()
+}
+
+export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNotice, tag, onChangeTag }: VideoListScreenProps) {
   const mockCategories = useMemo<Category[]>(
     () => [
       { id: 'c1', name: 'ドラマ' },
@@ -40,11 +48,11 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
 
   const mockVideos = useMemo<Video[]>(
     () => [
-      { id: 'v1', title: 'ダウトコール 第01話', ratingAvg: 4.7, reviewCount: 128, priceCoin: 0 },
-      { id: 'v2', title: 'ダウトコール 第02話', ratingAvg: 4.6, reviewCount: 94, priceCoin: 30 },
-      { id: 'v3', title: 'ダウトコール 第03話', ratingAvg: 4.8, reviewCount: 156, priceCoin: 30 },
-      { id: 'v4', title: 'ミステリーX 第01話', ratingAvg: 4.4, reviewCount: 61, priceCoin: 0 },
-      { id: 'v5', title: 'ラブストーリーY 第01話', ratingAvg: 4.2, reviewCount: 43, priceCoin: 10 },
+      { id: 'v1', title: 'ダウトコール 第01話', ratingAvg: 4.7, reviewCount: 128, priceCoin: 0, tags: ['Drama', 'Mystery'] },
+      { id: 'v2', title: 'ダウトコール 第02話', ratingAvg: 4.6, reviewCount: 94, priceCoin: 30, tags: ['Drama', 'Mystery'] },
+      { id: 'v3', title: 'ダウトコール 第03話', ratingAvg: 4.8, reviewCount: 156, priceCoin: 30, tags: ['Drama', 'Mystery'] },
+      { id: 'v4', title: 'ミステリーX 第01話', ratingAvg: 4.4, reviewCount: 61, priceCoin: 0, tags: ['Mystery'] },
+      { id: 'v5', title: 'ラブストーリーY 第01話', ratingAvg: 4.2, reviewCount: 43, priceCoin: 10, tags: ['Romance'] },
     ],
     []
   )
@@ -74,9 +82,10 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
     }
   }, [apiBaseUrl, mockCategories])
 
-  const buildVideosUrl = useCallback((opts: { categoryId: string; cursor?: string | null }) => {
+  const buildVideosUrl = useCallback((opts: { categoryId: string; tag?: string | null; cursor?: string | null }) => {
     const u = new URL(`${apiBaseUrl}/v1/videos`)
     if (opts.categoryId && opts.categoryId !== 'all') u.searchParams.set('category_id', opts.categoryId)
+    if (opts.tag) u.searchParams.set('tag', opts.tag)
     u.searchParams.set('limit', String(PAGE_SIZE))
     if (opts.cursor) u.searchParams.set('cursor', opts.cursor)
     return u.toString()
@@ -90,16 +99,24 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
     if (mode === 'initial') setVideosError('')
 
     try {
-      const url = buildVideosUrl({ categoryId: selectedCategoryId, cursor: mode === 'more' ? nextCursor : null })
+      const url = buildVideosUrl({ categoryId: selectedCategoryId, tag, cursor: mode === 'more' ? nextCursor : null })
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as VideosResponse
       const items = Array.isArray(json.items) ? json.items : []
 
+      const filteredByTag = tag
+        ? items.filter((v) => {
+            const tags = Array.isArray((v as any).tags) ? ((v as any).tags as string[]) : []
+            if (tags.some((t) => normalizeText(t) === normalizeText(tag))) return true
+            return normalizeText(String(v.title ?? '')).includes(normalizeText(tag))
+          })
+        : items
+
       if (mode === 'initial') {
-        setVideos(items)
+        setVideos(filteredByTag)
       } else {
-        setVideos((prev) => [...prev, ...items])
+        setVideos((prev) => [...prev, ...filteredByTag])
       }
       setNextCursor(typeof json.nextCursor === 'string' ? json.nextCursor : null)
     } catch (e) {
@@ -121,7 +138,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
     setNextCursor(null)
     void fetchVideos('initial')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCategoryId])
+  }, [selectedCategoryId, tag])
 
   useEffect(() => {
     if (videos.length === 0) void fetchVideos('initial')
@@ -167,8 +184,26 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo }: VideoLi
   }, [onOpenVideo])
 
   return (
-    <ScreenContainer footer={<TabBar active="video" onPress={onPressTab} />}>
+    <ScreenContainer
+      title="動画"
+      headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+      footer={<TabBar active="video" onPress={onPressTab} />}
+    >
       <View style={styles.root}>
+        {tag ? (
+          <View style={styles.tagRow}>
+            <Text style={styles.tagLabel}>タグ：</Text>
+            <Pressable
+              style={styles.tagChip}
+              onPress={() => {
+                onChangeTag?.(null)
+              }}
+            >
+              <Text style={styles.tagChipText}>{tag} ×</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* カテゴリ一覧 */}
         {categoryItems.length > 1 ? (
           <View style={styles.sectionTop}>
@@ -270,6 +305,30 @@ const styles = StyleSheet.create({
   sectionTop: {
     marginBottom: 10,
   },
+  tagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  tagLabel: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  tagChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: THEME.card,
+    borderWidth: 1,
+    borderColor: THEME.accent,
+  },
+  tagChipText: {
+    color: THEME.accent,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   chipRow: {
     gap: 8,
     paddingRight: 8,
@@ -323,9 +382,11 @@ const styles = StyleSheet.create({
     width: '100%',
     aspectRatio: 16 / 9,
     backgroundColor: THEME.card,
+    overflow: 'hidden',
   },
   videoThumb: {
-    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   paidBadge: {
     position: 'absolute',

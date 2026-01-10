@@ -6,9 +6,23 @@ type RowItemProps = {
   subtitle?: string
   actionLabel: string
   onAction?: () => void
+  actionDisabled?: boolean
+
+  secondaryActionLabel?: string
+  onSecondaryAction?: () => void
+  secondaryActionDisabled?: boolean
 }
 
-export function RowItem({ title, subtitle, actionLabel, onAction }: RowItemProps) {
+export function RowItem({
+  title,
+  subtitle,
+  actionLabel,
+  onAction,
+  actionDisabled,
+  secondaryActionLabel,
+  onSecondaryAction,
+  secondaryActionDisabled,
+}: RowItemProps) {
   return (
     <View style={styles.root}>
       <View style={styles.left}>
@@ -21,9 +35,28 @@ export function RowItem({ title, subtitle, actionLabel, onAction }: RowItemProps
           </Text>
         ) : null}
       </View>
-      <Pressable onPress={onAction} style={styles.action}>
-        <Text style={styles.actionText}>{actionLabel}</Text>
-      </Pressable>
+
+      <View style={styles.actions}>
+        {secondaryActionLabel ? (
+          <Pressable
+            onPress={onSecondaryAction}
+            disabled={secondaryActionDisabled}
+            style={[styles.action, secondaryActionDisabled ? styles.actionDisabled : null]}
+          >
+            <Text style={[styles.actionText, secondaryActionDisabled ? styles.actionTextDisabled : null]}>
+              {secondaryActionLabel}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        <Pressable
+          onPress={onAction}
+          disabled={actionDisabled}
+          style={[styles.action, actionDisabled ? styles.actionDisabled : null]}
+        >
+          <Text style={[styles.actionText, actionDisabled ? styles.actionTextDisabled : null]}>{actionLabel}</Text>
+        </Pressable>
+      </View>
     </View>
   )
 }
@@ -41,6 +74,11 @@ const styles = StyleSheet.create({
   },
   left: {
     flex: 1,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   title: {
     color: THEME.text,
@@ -60,9 +98,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     backgroundColor: THEME.card,
   },
+  actionDisabled: {
+    opacity: 0.5,
+  },
   actionText: {
     color: THEME.accent,
     fontSize: 12,
     fontWeight: '700',
+  },
+  actionTextDisabled: {
+    color: THEME.textMuted,
   },
 })

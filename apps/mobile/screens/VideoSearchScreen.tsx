@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { IconButton, ScreenContainer, TabBar, THEME } from '../components'
+import { IconButton, NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -18,6 +18,7 @@ type VideoSearchScreenProps = {
   onPressTab: (key: TabKey) => void
   onOpenVideo: (id: string) => void
   onOpenProfile: (cast: { id: string; name: string; role: string }) => void
+  onOpenNotice?: () => void
 }
 
 type Video = {
@@ -47,7 +48,7 @@ function normalize(value: string) {
   return value.trim()
 }
 
-export function VideoSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenProfile }: VideoSearchScreenProps) {
+export function VideoSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenProfile, onOpenNotice }: VideoSearchScreenProps) {
   const [keyword, setKeyword] = useState('')
   const [searchedKeyword, setSearchedKeyword] = useState<string | null>(null)
 
@@ -91,12 +92,12 @@ export function VideoSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenP
   const showResults = searchedKeyword !== null
 
   return (
-    <ScreenContainer footer={<TabBar active="search" onPress={onPressTab} />}>
+    <ScreenContainer
+      title="検索"
+      headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+      footer={<TabBar active="search" onPress={onPressTab} />}
+    >
       <View style={styles.root}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>検索</Text>
-        </View>
-
         <View style={styles.searchBox}>
           <TextInput
             value={keyword}
@@ -194,15 +195,6 @@ export function VideoSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenP
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  header: {
-    paddingTop: 2,
-    paddingBottom: 12,
-  },
-  headerTitle: {
-    color: THEME.text,
-    fontSize: 18,
-    fontWeight: '800',
   },
   searchBox: {
     flexDirection: 'row',

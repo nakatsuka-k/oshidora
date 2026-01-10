@@ -38,6 +38,10 @@ export function DeveloperMenuScreen({ onBack, onGo, loggedIn, onLoginToggle }: D
     { key: 'ranking', title: 'ランキング一覧', subtitle: '#/ranking' },
     { key: 'favorites', title: 'お気に入り一覧', subtitle: '#/favorites' },
     { key: 'notice', title: 'お知らせ', subtitle: '#/notice' },
+    { key: 'noticeDetail', title: 'お知らせ詳細', subtitle: '#/notice-detail' },
+
+    { key: 'faq', title: 'よくある質問', subtitle: '#/faq' },
+    { key: 'contact', title: 'お問い合わせ', subtitle: '#/contact' },
 
     { key: 'purchase', title: '購入確認（有料動画課金）', subtitle: '#/purchase' },
     { key: 'comment', title: 'コメント投稿', subtitle: '#/comment' },

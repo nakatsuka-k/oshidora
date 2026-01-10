@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -19,6 +19,7 @@ type CastSearchScreenProps = {
   onPressTab: (key: TabKey) => void
   onOpenProfile: (cast: { id: string; name: string; role: string }) => void
   onOpenResults: (keyword: string) => void
+  onOpenNotice?: () => void
 }
 
 type Cast = {
@@ -57,7 +58,7 @@ function uniqueHistory(items: HistoryItem[]): HistoryItem[] {
   return out
 }
 
-export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpenResults }: CastSearchScreenProps) {
+export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpenResults, onOpenNotice }: CastSearchScreenProps) {
   const [tab, setTab] = useState<'name' | 'content'>('name')
 
   const [casts, setCasts] = useState<Cast[]>([])
@@ -180,7 +181,11 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
   }, [history, keyword, removeHistoryKeyword, tab])
 
   return (
-    <ScreenContainer footer={<TabBar active="cast" onPress={onPressTab} />}>
+    <ScreenContainer
+      title="キャスト"
+      headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+      footer={<TabBar active="cast" onPress={onPressTab} />}
+    >
       <View style={styles.root}>
         <View style={styles.topTabs}>
           <Pressable style={[styles.topTab, tab === 'name' ? styles.topTabActive : null]} onPress={() => setTab('name')}>
@@ -194,7 +199,7 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
 
         {tab === 'content' ? (
           <View style={styles.placeholderBox}>
-            <Text style={styles.placeholderTitle}>作品から探す（PH2以降）</Text>
+            <Text style={styles.placeholderTitle}>作品から探す</Text>
             <Text style={styles.placeholderText}>現時点では「名前から探す」のみ対応しています。</Text>
           </View>
         ) : (

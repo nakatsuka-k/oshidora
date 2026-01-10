@@ -57,12 +57,14 @@ export function PaidVideoPurchaseScreen({
   }
 
   return (
-    <ScreenContainer title="購入確認" onBack={onBack} scroll maxWidth={520}>
+    <ScreenContainer title="購入確認" onBack={onBack} scroll>
       <View style={styles.root}>
         {bannerError ? <Text style={styles.bannerError}>{bannerError}</Text> : null}
 
         <View style={styles.hero}>
-          <Image source={thumbnail ?? FALLBACK_THUMB} style={styles.thumb} resizeMode="cover" />
+          <View style={styles.thumbWrap}>
+            <Image source={thumbnail ?? FALLBACK_THUMB} style={styles.thumb} resizeMode="cover" />
+          </View>
           <View style={styles.badge}>
             <Text style={styles.badgeText}>{contentTypeLabel}</Text>
           </View>
@@ -139,9 +141,15 @@ const styles = StyleSheet.create({
     borderColor: THEME.outline,
     backgroundColor: THEME.card,
   },
-  thumb: {
+  thumbWrap: {
     width: '100%',
     aspectRatio: 16 / 9,
+    backgroundColor: THEME.card,
+    overflow: 'hidden',
+  },
+  thumb: {
+    width: '100%',
+    height: '100%',
   },
   badge: {
     position: 'absolute',

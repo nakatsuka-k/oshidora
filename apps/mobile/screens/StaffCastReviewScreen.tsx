@@ -61,7 +61,7 @@ export function StaffCastReviewScreen({ onBack, cast, initial, onSubmit, onDone 
   }, [canSend, cast.id, comment, onSubmit, rating])
 
   return (
-    <ScreenContainer title="評価" onBack={onBack} scroll maxWidth={520}>
+    <ScreenContainer title="評価" onBack={onBack} scroll>
       <View style={styles.root}>
         <View style={styles.targetCard}>
           <Text style={styles.targetName} numberOfLines={2} ellipsizeMode="tail">

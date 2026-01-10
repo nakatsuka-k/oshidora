@@ -8,7 +8,9 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native'
-import { PagedCarousel, ScreenContainer, TabBar, THEME } from '../components'
+import { NoticeBellButton, PagedCarousel, ScreenContainer, TabBar, THEME } from '../components'
+
+// NOTE: Notice bell is shared across screens via NoticeBellButton.
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -38,7 +40,9 @@ const FALLBACK_IMAGE = require('../assets/thumbnail-sample.png')
 
 export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, onOpenFavorites, onOpenNotice }: TopScreenProps) {
   const { width } = useWindowDimensions()
-  const bannerHeight = Math.round((width - 32) * (9 / 16))
+  const [contentWidth, setContentWidth] = useState<number | null>(null)
+  const bannerWidth = Math.max(1, contentWidth ?? (width - 32))
+  const bannerHeight = Math.round(bannerWidth * (9 / 16))
   const [bannerIndex, setBannerIndex] = useState(0)
 
   const mockData = useMemo<TopData>(
@@ -95,12 +99,20 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
   const favorites = data.favorites
 
   return (
-    <ScreenContainer footer={<TabBar active="home" onPress={onPressTab} />}>
-      <View style={styles.root}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>トップ</Text>
-        </View>
-
+    <ScreenContainer
+      title="トップ"
+      headerRight={<NoticeBellButton onPress={onOpenNotice} />}
+      maxWidth={828}
+      footer={<TabBar active="home" onPress={onPressTab} />}
+    >
+      <View
+        style={styles.root}
+        onLayout={(e) => {
+          const next = Math.round(e.nativeEvent.layout.width)
+          if (!Number.isFinite(next) || next <= 0) return
+          setContentWidth((prev) => (prev === next ? prev : next))
+        }}
+      >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* 1. ピックアップ */}
           <View style={styles.sectionTop}>
@@ -109,12 +121,13 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               index={bannerIndex}
               onIndexChange={setBannerIndex}
               height={bannerHeight + 44}
-              containerStyle={styles.bannerCarousel}
               dotsStyle={styles.bannerDots}
-              renderItem={(v) => (
+              renderItem={(v, _i, pageWidth) => {
+                const h = Math.round(pageWidth * (9 / 16))
+                return (
                 <Pressable
                   onPress={() => onOpenVideo(v.id)}
-                  style={[styles.bannerWrap, { width: width - 32, height: bannerHeight }]}
+                  style={[styles.bannerWrap, { width: pageWidth, height: h }]}
                 >
                   <Image source={FALLBACK_IMAGE} style={styles.bannerImage} resizeMode="cover" />
                   <View style={styles.bannerOverlay}>
@@ -123,7 +136,8 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
                     </Text>
                   </View>
                 </Pressable>
-              )}
+                )
+              }}
             />
           </View>
 
@@ -148,7 +162,9 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
               {data.ranking.slice(0, 4).map((v) => (
                 <Pressable key={v.id} style={styles.hCard} onPress={() => onOpenVideo(v.id)}>
-                  <Image source={FALLBACK_IMAGE} style={styles.hThumb} resizeMode="cover" />
+                  <View style={styles.hThumbWrap}>
+                    <Image source={FALLBACK_IMAGE} style={styles.hThumb} resizeMode="cover" />
+                  </View>
                   <Text style={styles.hTitle} numberOfLines={2} ellipsizeMode="tail">
                     {v.title}
                   </Text>
@@ -168,7 +184,9 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
                 {favorites.slice(0, 3).map((v) => (
                   <Pressable key={v.id} style={styles.hCard} onPress={() => onOpenVideo(v.id)}>
-                    <Image source={FALLBACK_IMAGE} style={styles.hThumb} resizeMode="cover" />
+                    <View style={styles.hThumbWrap}>
+                      <Image source={FALLBACK_IMAGE} style={styles.hThumb} resizeMode="cover" />
+                    </View>
                     <Text style={styles.hTitle} numberOfLines={2} ellipsizeMode="tail">
                       {v.title}
                     </Text>
@@ -190,10 +208,25 @@ const styles = StyleSheet.create({
   header: {
     paddingBottom: 8,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   headerTitle: {
     color: THEME.text,
     fontSize: 16,
     fontWeight: '800',
+  },
+  bellButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollContent: {
     paddingBottom: 16,
@@ -283,9 +316,15 @@ const styles = StyleSheet.create({
     borderColor: THEME.outline,
     overflow: 'hidden',
   },
+  hThumbWrap: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: THEME.card,
+    overflow: 'hidden',
+  },
   hThumb: {
     width: '100%',
-    height: 84,
+    height: '100%',
   },
   hTitle: {
     color: THEME.text,

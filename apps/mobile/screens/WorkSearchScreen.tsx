@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 
 type TabKey = 'home' | 'video' | 'cast' | 'work' | 'search' | 'mypage'
 
@@ -19,6 +19,7 @@ type WorkSearchScreenProps = {
   apiBaseUrl: string
   onPressTab: (key: TabKey) => void
   onOpenVideo: (id: string) => void
+  onOpenNotice?: () => void
 }
 
 type Work = {
@@ -60,7 +61,7 @@ function uniqueHistory(items: HistoryItem[]): HistoryItem[] {
   return out
 }
 
-export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo }: WorkSearchScreenProps) {
+export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNotice }: WorkSearchScreenProps) {
   const [keyword, setKeyword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -171,7 +172,11 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo }: WorkSe
   const showHistory = !showResults && history.length > 0
 
   return (
-    <ScreenContainer>
+    <ScreenContainer
+      title="作品"
+      headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+      footer={<TabBar active="search" onPress={(key) => onPressTab(key as TabKey)} />}
+    >
       <View style={styles.root}>
         {/* Search Bar */}
         <View style={styles.searchBox}>
@@ -202,14 +207,14 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo }: WorkSe
               renderItem={({ item }) => (
                 <RowItem
                   key={item.id}
-                  thumbnail={item.thumbnailUrl ? { uri: item.thumbnailUrl } : FALLBACK_VIDEO_IMAGE}
                   title={item.title}
                   subtitle={`★${item.ratingAvg} (${item.reviewCount})`}
-                  onPress={() => onOpenVideo(item.id)}
+                  actionLabel="詳細"
+                  onAction={() => onOpenVideo(item.id)}
                 />
               )}
             />
-            {busy && <ActivityIndicator size="large" color={THEME.primary} style={styles.loader} />}
+            {busy && <ActivityIndicator size="large" color={THEME.accent} style={styles.loader} />}
             {error && <Text style={styles.errorText}>{error}</Text>}
           </ScrollView>
         ) : showHistory ? (
@@ -237,10 +242,8 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo }: WorkSe
           </View>
         )}
 
-        {busy && <ActivityIndicator size="large" color={THEME.primary} style={styles.loaderOverlay} />}
+        {busy && <ActivityIndicator size="large" color={THEME.accent} style={styles.loaderOverlay} />}
 
-        {/* Tab Bar */}
-        <TabBar activeTab="work" onPressTab={onPressTab} />
       </View>
     </ScreenContainer>
   )
@@ -249,7 +252,6 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo }: WorkSe
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: THEME.bg,
   },
   searchBox: {
     flexDirection: 'row',
@@ -271,7 +273,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: THEME.primary,
+    backgroundColor: THEME.accent,
   },
   searchButtonText: {
     color: '#fff',
@@ -307,7 +309,7 @@ const styles = StyleSheet.create({
   },
   clearHistoryText: {
     fontSize: 12,
-    color: THEME.primary,
+    color: THEME.accent,
     fontWeight: '700',
   },
   historyItem: {
@@ -347,7 +349,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 12,
-    color: THEME.error,
+    color: THEME.danger,
     marginVertical: 12,
   },
   loader: {

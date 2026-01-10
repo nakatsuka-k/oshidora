@@ -1,11 +1,20 @@
-import { StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { THEME } from './theme'
 
 type ChipProps = {
   label: string
+  onPress?: () => void
 }
 
-export function Chip({ label }: ChipProps) {
+export function Chip({ label, onPress }: ChipProps) {
+  if (onPress) {
+    return (
+      <Pressable style={styles.chip} onPress={onPress} accessibilityRole="button">
+        <Text style={styles.text}>{label}</Text>
+      </Pressable>
+    )
+  }
+
   return (
     <View style={styles.chip}>
       <Text style={styles.text}>{label}</Text>

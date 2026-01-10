@@ -1,14 +1,15 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { CheckboxRow, PrimaryButton, ScreenContainer, TextLink, THEME } from '../components'
 
 type TermsScreenProps = {
-  onAgreeRegister: () => void
   onBack: () => void
-  onOpenPrivacyPolicy: () => void
+  readOnly?: boolean
+  onAgreeRegister?: () => void
+  onOpenPrivacyPolicy?: () => void
 }
 
-export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy }: TermsScreenProps) {
+export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy, readOnly }: TermsScreenProps) {
   const [checked, setChecked] = useState(false)
 
   const termsText =
@@ -74,34 +75,35 @@ export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy }: Te
     '附則\n' +
     '2026年1月5日 制定\n'
 
+  const footer = useMemo(() => {
+    if (readOnly) return undefined
+    return (
+      <View style={styles.footer}>
+        <View style={styles.footerInner}>
+          <CheckboxRow checked={checked} onToggle={() => setChecked((v) => !v)}>
+            <Text style={styles.checkboxText}>
+              利用規約と
+              <Text> </Text>
+              <TextLink label="プライバシーポリシー" onPress={onOpenPrivacyPolicy} />
+              <Text> </Text>
+              に同意します
+            </Text>
+          </CheckboxRow>
+
+          <View style={styles.footerButtons}>
+            <PrimaryButton label="同意して新規登録" onPress={onAgreeRegister} disabled={!checked} />
+          </View>
+        </View>
+      </View>
+    )
+  }, [checked, onAgreeRegister, onOpenPrivacyPolicy, readOnly])
+
   return (
     <ScreenContainer
       title="利用規約"
       onBack={onBack}
       scroll
-      maxWidth={520}
-      footer={
-        <View style={styles.footer}>
-          <View style={styles.footerInner}>
-            <CheckboxRow checked={checked} onToggle={() => setChecked((v) => !v)}>
-              <Text style={styles.checkboxText}>
-                利用規約と
-                <Text> </Text>
-                <TextLink
-                  label="プライバシーポリシー"
-                  onPress={onOpenPrivacyPolicy}
-                />
-                <Text> </Text>
-                に同意します
-              </Text>
-            </CheckboxRow>
-
-            <View style={styles.footerButtons}>
-              <PrimaryButton label="同意して新規登録" onPress={onAgreeRegister} disabled={!checked} />
-            </View>
-          </View>
-        </View>
-      }
+      footer={footer}
     >
       <View style={styles.root}>
         <View style={styles.termsBox}>
@@ -144,7 +146,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
     width: '100%',
-    maxWidth: 520,
+    maxWidth: 828,
     alignSelf: 'center',
   },
   footerButtons: {

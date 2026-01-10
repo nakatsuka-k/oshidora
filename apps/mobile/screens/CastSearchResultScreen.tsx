@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native'
-import { RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -10,6 +10,7 @@ type CastSearchResultScreenProps = {
   keyword: string
   onBack: () => void
   onOpenProfile: (cast: { id: string; name: string; role: string }) => void
+  onOpenNotice?: () => void
 }
 
 type Cast = {
@@ -21,7 +22,7 @@ type Cast = {
 
 type CastResponse = { items: Cast[] }
 
-export function CastSearchResultScreen({ apiBaseUrl, onPressTab, keyword, onBack, onOpenProfile }: CastSearchResultScreenProps) {
+export function CastSearchResultScreen({ apiBaseUrl, onPressTab, keyword, onBack, onOpenProfile, onOpenNotice }: CastSearchResultScreenProps) {
   const q = useMemo(() => keyword.trim(), [keyword])
 
   const [casts, setCasts] = useState<Cast[]>([])
@@ -51,7 +52,13 @@ export function CastSearchResultScreen({ apiBaseUrl, onPressTab, keyword, onBack
   }, [fetchResults])
 
   return (
-    <ScreenContainer title="検索結果" onBack={onBack} footer={<TabBar active="cast" onPress={onPressTab} />} maxWidth={520}>
+    <ScreenContainer
+      title="検索結果"
+      onBack={onBack}
+      headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+      footer={<TabBar active="cast" onPress={onPressTab} />}
+      maxWidth={828}
+    >
       <View style={styles.root}>
         <Text style={styles.keyword} numberOfLines={2}>
           {q ? `「${q}」の検索結果` : 'キーワードを入力してください'}

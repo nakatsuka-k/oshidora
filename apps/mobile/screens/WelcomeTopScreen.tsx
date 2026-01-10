@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
   },
   bgImage: {
     width: '100%',
-    maxWidth: 1440,
+    maxWidth: 828,
     height: '100%',
   },
   bgOverlayTopWrap: {
@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
   },
   bgOverlayTopInner: {
     width: '100%',
-    maxWidth: 1440,
+    maxWidth: 828,
     height: '100%',
     backgroundColor: THEME.card,
     opacity: 0.5,
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
   },
   bgOverlayBottomInner: {
     width: '100%',
-    maxWidth: 1440,
+    maxWidth: 828,
     height: '100%',
     backgroundColor: THEME.card,
     opacity: 0.65,
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   },
   content: {
     width: '100%',
-    maxWidth: 960,
+    maxWidth: 828,
     alignSelf: 'center',
     alignItems: 'center',
     paddingTop: 18,
@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     textAlign: 'center',
-    maxWidth: 520,
+    maxWidth: 828,
     marginBottom: 18,
   },
   cta: {
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
   },
   footerInner: {
     width: '100%',
-    maxWidth: 960,
+    maxWidth: 828,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'flex-start',

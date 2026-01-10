@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -11,6 +11,7 @@ type MyPageScreenProps = {
   userEmail?: string
   userType?: 'user' | 'cast' // 'user' = 一般、'cast' = キャスト
   onNavigate: (screen: string) => void
+  onOpenNotice?: () => void
 }
 
 type MenuItem = {
@@ -20,11 +21,16 @@ type MenuItem = {
   isCastOnly?: boolean
 }
 
-export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, userType, onNavigate }: MyPageScreenProps) {
+export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, userType, onNavigate, onOpenNotice }: MyPageScreenProps) {
   // If not logged in, redirect
   if (!loggedIn) {
     return (
-      <ScreenContainer title="マイページ" footer={<TabBar active="mypage" onPress={onPressTab} />} maxWidth={520}>
+      <ScreenContainer
+        title="マイページ"
+        headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+        footer={<TabBar active="mypage" onPress={onPressTab} />}
+        maxWidth={828}
+      >
         <View style={styles.root}>
           <Text style={styles.centerText}>ログインしてください</Text>
         </View>
@@ -43,6 +49,8 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
       { key: 'coinPurchase', title: 'コイン購入', subtitle: 'Stripe決済対応' },
       ...(isCastUser ? [{ key: 'coinExchange', title: 'コイン換金', subtitle: 'キャストのみ', isCastOnly: true }] : []),
       { key: 'settings', title: '設定', subtitle: '通知・ログアウト' },
+      { key: 'faq', title: 'よくある質問', subtitle: 'FAQ' },
+      { key: 'contact', title: 'お問い合わせ', subtitle: 'フォーム' },
       { key: 'terms', title: '利用規約', subtitle: '確認' },
     ],
     [isCastUser, userEmail]
@@ -61,16 +69,22 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
           onNavigate('favorites')
           break
         case 'watchHistory':
-          // TODO: 視聴履歴画面へ遷移
+          onNavigate('watchHistory')
           break
         case 'coinPurchase':
-          // TODO: コイン購入画面へ遷移
+          onNavigate('coinPurchase')
           break
         case 'coinExchange':
           // TODO: コイン換金画面へ遷移
           break
         case 'settings':
-          // TODO: 設定画面へ遷移
+          onNavigate('settings')
+          break
+        case 'faq':
+          onNavigate('faq')
+          break
+        case 'contact':
+          onNavigate('contact')
           break
         case 'terms':
           onNavigate('terms')
@@ -81,10 +95,14 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
   )
 
   return (
-    <ScreenContainer footer={<TabBar active="mypage" onPress={onPressTab} />} maxWidth={520}>
+    <ScreenContainer
+      title="マイページ"
+      headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+      footer={<TabBar active="mypage" onPress={onPressTab} />}
+      maxWidth={828}
+    >
       <View style={styles.root}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>マイページ</Text>
           {userEmail ? <Text style={styles.userLabel}>{userEmail}</Text> : null}
           {isCastUser ? <Text style={styles.castBadge}>キャスト</Text> : null}
         </View>
@@ -116,11 +134,6 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 16,
     paddingBottom: 8,
-  },
-  headerTitle: {
-    color: THEME.text,
-    fontSize: 18,
-    fontWeight: '800',
   },
   userLabel: {
     marginTop: 4,
