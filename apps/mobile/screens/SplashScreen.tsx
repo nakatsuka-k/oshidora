@@ -12,7 +12,6 @@ type Props = {
 
 export function SplashScreen({ videoUri, maxDurationMs = 3000, onDone }: Props) {
   const doneRef = useRef(false)
-  const videoRef = useRef<Video | null>(null)
 
   const finishOnce = () => {
     if (doneRef.current) return
@@ -54,34 +53,50 @@ export function SplashScreen({ videoUri, maxDurationMs = 3000, onDone }: Props) 
 
   return (
     <View style={styles.root}>
-      <View style={styles.videoWrap}>
-        <Video
-          ref={(el) => {
-            videoRef.current = el
-          }}
-          style={styles.video}
-          source={{ uri: videoUri }}
-          // Keep the full frame visible, centered within the container.
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay
-          isLooping={false}
-          useNativeControls={false}
-          isMuted={shouldMute}
-          volume={0}
-          // Web autoplay generally requires muted+inline.
-          // @ts-expect-error (web-only prop)
-          playsInline={Platform.OS === 'web'}
-          onPlaybackStatusUpdate={(status: any) => {
-            if (!status?.isLoaded) return
-            if (status.didJustFinish) {
+      <View style={[styles.videoWrap, Platform.OS === 'web' ? styles.videoWrapWeb : null]}>
+        {Platform.OS === 'web' ? (
+          // Use a native <video> on web to reliably center the content.
+          // react-native-web's style mapping doesn't always apply object-position to the <video> element.
+          <video
+            src={videoUri}
+            autoPlay
+            playsInline
+            muted={shouldMute}
+            controls={false}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              objectPosition: 'center center',
+              overflow: 'hidden',
+              display: 'block',
+            }}
+            onEnded={() => finishOnce()}
+            onError={() => finishOnce()}
+          />
+        ) : (
+          <Video
+            style={styles.video}
+            source={{ uri: videoUri }}
+            // Keep the full frame visible, centered within the container.
+            resizeMode={ResizeMode.CONTAIN}
+            shouldPlay
+            isLooping={false}
+            useNativeControls={false}
+            isMuted={shouldMute}
+            volume={0}
+            onPlaybackStatusUpdate={(status: any) => {
+              if (!status?.isLoaded) return
+              if (status.didJustFinish) {
+                finishOnce()
+              }
+            }}
+            onError={() => {
+              // If video fails, proceed to next screen (spec: do not block).
               finishOnce()
-            }
-          }}
-          onError={() => {
-            // If video fails, proceed to next screen (spec: do not block).
-            finishOnce()
-          }}
-        />
+            }}
+          />
+        )}
       </View>
     </View>
   )
@@ -96,8 +111,13 @@ const styles = StyleSheet.create({
   },
   videoWrap: {
     width: '100%',
+    flex: 1,
+  },
+  videoWrapWeb: {
     maxWidth: 828,
-    height: '100%',
+    alignSelf: 'center',
+    marginLeft: 'auto',
+    marginRight: 'auto',
   },
   video: {
     width: '100%',

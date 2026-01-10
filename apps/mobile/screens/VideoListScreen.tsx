@@ -188,6 +188,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
       title="作品一覧"
       headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
       footer={<TabBar active="video" onPress={onPressTab} />}
+      footerPaddingHorizontal={0}
     >
       <View style={styles.root}>
         {tag ? (

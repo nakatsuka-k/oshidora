@@ -96,6 +96,7 @@ export function VideoSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenP
       title="検索"
       headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
       footer={<TabBar active="search" onPress={onPressTab} />}
+      footerPaddingHorizontal={0}
     >
       <View style={styles.root}>
         <View style={styles.searchBox}>

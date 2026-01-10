@@ -176,6 +176,7 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNo
       title="作品"
       headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
       footer={<TabBar active="search" onPress={(key) => onPressTab(key as TabKey)} />}
+      footerPaddingHorizontal={0}
     >
       <View style={styles.root}>
         {/* Search Bar */}

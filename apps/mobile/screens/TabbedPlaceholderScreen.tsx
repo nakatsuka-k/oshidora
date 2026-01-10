@@ -16,6 +16,7 @@ export function TabbedPlaceholderScreen({ title, activeTab, onPressTab, onOpenNo
       title={title}
       headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
       footer={<TabBar active={activeTab} onPress={onPressTab} />}
+      footerPaddingHorizontal={0}
     >
       <View style={styles.root}>
         <View style={styles.body}>

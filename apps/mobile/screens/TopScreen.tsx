@@ -106,6 +106,7 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
       maxWidth={828}
       headerRight={<NoticeBellButton onPress={onOpenNotice} />}
       footer={<TabBar active="home" onPress={onPressTab} />}
+      footerPaddingHorizontal={0}
     >
       <View style={styles.root}>
         <ScrollView contentContainerStyle={styles.scrollContent}>

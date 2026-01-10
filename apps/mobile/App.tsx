@@ -67,6 +67,9 @@ import {
   CoinPurchaseScreen,
   CoinGrantScreen,
   CoinGrantCompleteScreen,
+  CoinExchangeDestScreen,
+  CoinExchangePayPayScreen,
+  CoinExchangeCompleteScreen,
   LogoutScreen,
   SplashScreen,
   SettingsScreen,
@@ -93,6 +96,8 @@ const FALLBACK_ALLOWED_IPS = [
 const AUTH_TOKEN_KEY = 'auth_token'
 const DEBUG_AUTH_BYPASS_KEY = 'debug_auth_bypass'
 const DEBUG_AUTH_AUTOFILL_KEY = 'debug_auth_autofill'
+const DEBUG_USER_TYPE_KEY = 'debug_user_type_v1'
+const DEBUG_PAYPAY_LINKED_KEY = 'debug_paypay_linked_v1'
 
 type Oshi = {
   id: string
@@ -143,6 +148,9 @@ type Screen =
   | 'coinPurchase'
   | 'coinGrant'
   | 'coinGrantComplete'
+  | 'coinExchangeDest'
+  | 'coinExchangePayPay'
+  | 'coinExchangeComplete'
   | 'comment'
   | 'signup'
   | 'emailVerify'
@@ -226,6 +234,12 @@ function screenToWebHash(screen: Screen): string {
       return '#/coin-grant'
     case 'coinGrantComplete':
       return '#/coin-grant-complete'
+    case 'coinExchangeDest':
+      return '#/coin-exchange'
+    case 'coinExchangePayPay':
+      return '#/coin-exchange/paypay'
+    case 'coinExchangeComplete':
+      return '#/coin-exchange/complete'
     case 'comment':
       return '#/comment'
     case 'signup':
@@ -335,6 +349,12 @@ function webHashToScreen(hash: string): Screen {
       return 'coinGrant'
     case '/coin-grant-complete':
       return 'coinGrantComplete'
+    case '/coin-exchange':
+      return 'coinExchangeDest'
+    case '/coin-exchange/paypay':
+      return 'coinExchangePayPay'
+    case '/coin-exchange/complete':
+      return 'coinExchangeComplete'
     case '/comment':
       return 'comment'
     case '/signup':
@@ -444,6 +464,12 @@ function screenToDocumentTitle(
       return `${base} | 推しポイント付与`
     case 'coinGrantComplete':
       return `${base} | コイン付与完了`
+    case 'coinExchangeDest':
+      return `${base} | コイン換金`
+    case 'coinExchangePayPay':
+      return `${base} | コイン換金`
+    case 'coinExchangeComplete':
+      return `${base} | コイン換金`
     case 'comment':
       return `${base} | コメント`
     case 'signup':
@@ -533,6 +559,23 @@ function defaultApiBaseUrl() {
   if (Platform.OS === 'web') return 'http://localhost:8787'
   if (Platform.OS === 'android') return 'http://10.0.2.2:8787'
   return 'http://127.0.0.1:8787'
+}
+
+function resolveShareAppBaseUrl(apiBaseUrl?: string): string | null {
+  // Prefer an explicit public web entrypoint when available.
+  const env = (process.env.EXPO_PUBLIC_WEB_BASE_URL || '').trim()
+  if (env) {
+    return env.split('#')[0].replace(/\/$/, '')
+  }
+
+  // For web builds, default to the current web origin (not the API origin).
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return `${window.location.origin}${window.location.pathname}`.replace(/\/$/, '')
+  }
+
+  // As a last resort (e.g., native dev), use the API base host but still use hash routes.
+  const fallback = (apiBaseUrl || '').trim().replace(/\/$/, '')
+  return fallback ? fallback : null
 }
 
 export default function App() {
@@ -677,6 +720,9 @@ export default function App() {
 
   const [debugAuthBypass, setDebugAuthBypass] = useState<boolean>(false)
   const [debugAuthAutofill, setDebugAuthAutofill] = useState<boolean>(false)
+  const [debugUserType, setDebugUserType] = useState<'user' | 'cast'>('user')
+  const [debugPaypayLinked, setDebugPaypayLinked] = useState<boolean>(false)
+  const [debugPaypayMaskedLabel] = useState<string>('********')
   const [debugEmailCode, setDebugEmailCode] = useState<string>('')
   const [debugSmsCode, setDebugSmsCode] = useState<string>('')
 
@@ -772,10 +818,12 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [token, bypass, autofill] = await Promise.all([
+        const [token, bypass, autofill, userTypeValue, paypayLinked] = await Promise.all([
           getString(AUTH_TOKEN_KEY),
           getBoolean(DEBUG_AUTH_BYPASS_KEY),
           getBoolean(DEBUG_AUTH_AUTOFILL_KEY),
+          getString(DEBUG_USER_TYPE_KEY),
+          getBoolean(DEBUG_PAYPAY_LINKED_KEY),
         ])
         if (token) {
           setAuthToken(token)
@@ -783,6 +831,10 @@ export default function App() {
         }
         setDebugAuthBypass(bypass)
         setDebugAuthAutofill(autofill)
+
+        const t = (userTypeValue || '').trim()
+        if (t === 'cast' || t === 'user') setDebugUserType(t)
+        setDebugPaypayLinked(paypayLinked)
       } catch {
         // ignore
       }
@@ -796,6 +848,14 @@ export default function App() {
   useEffect(() => {
     void setBoolean(DEBUG_AUTH_AUTOFILL_KEY, debugAuthAutofill)
   }, [debugAuthAutofill])
+
+  useEffect(() => {
+    void setString(DEBUG_USER_TYPE_KEY, debugUserType)
+  }, [debugUserType])
+
+  useEffect(() => {
+    void setBoolean(DEBUG_PAYPAY_LINKED_KEY, debugPaypayLinked)
+  }, [debugPaypayLinked])
 
   useEffect(() => {
     if (!authToken) return
@@ -824,10 +884,16 @@ export default function App() {
     setScreen('login')
   }, [])
 
+  const toggleDebugUserType = useCallback(() => {
+    setDebugUserType((prev) => (prev === 'cast' ? 'user' : 'cast'))
+  }, [])
+
   useEffect(() => {
     // Guard for direct navigation (e.g. web hash) to login-required screens.
     if (loggedIn || debugAuthBypass) return
     if (
+      screen !== 'cast' &&
+      screen !== 'castSearchResult' &&
       screen !== 'profile' &&
       screen !== 'castReview' &&
       screen !== 'favorites' &&
@@ -880,7 +946,9 @@ export default function App() {
                 ? 'search'
                 : 'mypage'
 
-    // Access control: videos are public, cast list is public; cast profile/review/comment are login-required.
+    // Access control: videos are public; cast/staff search/list is login-required (AXCMS-CS-001).
+
+    if (next === 'cast' && !requireLogin('cast')) return
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       window.location.hash = screenToWebHash(next)
@@ -889,7 +957,7 @@ export default function App() {
 
     setHistory([])
     setScreen(next)
-  }, [goTo, loggedIn])
+  }, [requireLogin])
 
   const [debugDotsIndex, setDebugDotsIndex] = useState<number>(0)
   const [debugSlideIndex, setDebugSlideIndex] = useState<number>(0)
@@ -1074,20 +1142,24 @@ export default function App() {
   }, [mockProfile.id, mockProfile.name])
 
   const shareUrlForWork = useCallback((contentId: string, videoIdNoSub: string, title: string) => {
-    const base = apiBaseUrl.replace(/\/$/, '')
     // Use Cloudflare Stream thumbnail (public) for OG image when available.
     const thumb = `https://videodelivery.net/${encodeURIComponent(videoIdNoSub)}/thumbnails/thumbnail.jpg?time=1s`
-    const u = new URL(`${base}/share/work/${encodeURIComponent(contentId)}`)
-    u.searchParams.set('thumb', thumb)
-    u.searchParams.set('title', title)
-    return u.toString()
+    const appBase = resolveShareAppBaseUrl(apiBaseUrl)
+    if (!appBase) return ''
+    const params = new URLSearchParams()
+    params.set('workId', contentId)
+    params.set('title', title)
+    params.set('thumb', thumb)
+    return `${appBase}#/work?${params.toString()}`
   }, [apiBaseUrl])
 
   const shareUrlForCast = useCallback((castId: string, castName: string) => {
-    const base = apiBaseUrl.replace(/\/$/, '')
-    const u = new URL(`${base}/share/cast/${encodeURIComponent(castId)}`)
-    u.searchParams.set('title', castName)
-    return u.toString()
+    const appBase = resolveShareAppBaseUrl(apiBaseUrl)
+    if (!appBase) return ''
+    const params = new URLSearchParams()
+    params.set('castId', castId)
+    params.set('title', castName)
+    return `${appBase}#/profile?${params.toString()}`
   }, [apiBaseUrl])
 
   const mockApprovedComments = useMemo(
@@ -1125,6 +1197,10 @@ export default function App() {
   const [coinGrantAmount, setCoinGrantAmount] = useState<number>(0)
   const [coinGrantAt, setCoinGrantAt] = useState<number>(0)
   const [coinGrantBalanceAfter, setCoinGrantBalanceAfter] = useState<number>(0)
+
+  const [coinExchangePendingCoins, setCoinExchangePendingCoins] = useState<number>(0)
+  const [coinExchangeLastCoinAmount, setCoinExchangeLastCoinAmount] = useState<number>(0)
+  const [coinExchangeLastPointAmount, setCoinExchangeLastPointAmount] = useState<number>(0)
 
   const [purchasedTargets, setPurchasedTargets] = useState<Set<string>>(() => new Set())
   const [purchaseTarget, setPurchaseTarget] = useState<
@@ -1369,11 +1445,31 @@ export default function App() {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return
 
     const syncFromHash = () => {
+      const raw = (window.location.hash || '').trim()
+      const hashBody = raw.startsWith('#') ? raw.slice(1) : raw
+      const queryIndex = hashBody.indexOf('?')
+      const queryString = queryIndex >= 0 ? hashBody.slice(queryIndex + 1) : ''
+      const params = new URLSearchParams(queryString)
+
       const next = webHashToScreen(window.location.hash)
       if (next === 'tutorial') {
         const parsed = parseTutorialIndexFromWebHash(window.location.hash)
         if (typeof parsed === 'number') setTutorialIndex(parsed)
       }
+
+      // Deep link hydration for share URLs.
+      if (next === 'workDetail') {
+        const workId = (params.get('workId') || '').trim()
+        if (workId) setSelectedWorkId(workId)
+      }
+      if (next === 'profile') {
+        const castId = (params.get('castId') || '').trim()
+        if (castId) {
+          const title = (params.get('title') || '').trim()
+          setSelectedCast({ id: castId, name: title || castId, roleLabel: '出演者' })
+        }
+      }
+
       setHistory([])
       setScreen(next)
     }
@@ -2015,7 +2111,7 @@ export default function App() {
           onPressTab={switchTab}
           loggedIn={loggedIn}
           userEmail={loginEmail || registerEmail}
-          userType="user"
+          userType={debugUserType}
           onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
           onNavigate={(screenKey) => {
             if (screenKey === 'coinPurchase') {
@@ -2026,6 +2122,69 @@ export default function App() {
               setTermsReadOnly(true)
             }
             goTo(screenKey as Screen)
+          }}
+        />
+      ) : null}
+
+      {screen === 'coinExchangeDest' ? (
+        <CoinExchangeDestScreen
+          ownedCoins={ownedCoins}
+          exchangeableCoins={Math.max(0, ownedCoins - coinExchangePendingCoins)}
+          paypayLinked={debugPaypayLinked}
+          paypayMaskedLabel={debugPaypayMaskedLabel}
+          onBack={goBack}
+          onCancel={() => {
+            setHistory([])
+            setScreen('mypage')
+          }}
+          onLinkPaypay={async () => {
+            await new Promise((r) => setTimeout(r, 350))
+            setDebugPaypayLinked(true)
+          }}
+          onUnlinkPaypay={async () => {
+            await new Promise((r) => setTimeout(r, 350))
+            setDebugPaypayLinked(false)
+          }}
+          onNext={() => {
+            goTo('coinExchangePayPay')
+          }}
+        />
+      ) : null}
+
+      {screen === 'coinExchangePayPay' ? (
+        <CoinExchangePayPayScreen
+          ownedCoins={ownedCoins}
+          exchangeableCoins={Math.max(0, ownedCoins - coinExchangePendingCoins)}
+          pendingCoins={coinExchangePendingCoins}
+          paypayLinked={debugPaypayLinked}
+          paypayMaskedLabel={debugPaypayMaskedLabel}
+          onBack={goBack}
+          onCancel={() => {
+            setHistory([])
+            setScreen('mypage')
+          }}
+          onChangeLink={() => {
+            goTo('coinExchangeDest')
+          }}
+          onSubmit={async ({ coinAmount, pointAmount }) => {
+            // NOTE: APIが整備されるまではモック。
+            await new Promise((r) => setTimeout(r, 400))
+            setCoinExchangePendingCoins(coinAmount)
+            setCoinExchangeLastCoinAmount(coinAmount)
+            setCoinExchangeLastPointAmount(pointAmount)
+            goTo('coinExchangeComplete')
+          }}
+        />
+      ) : null}
+
+      {screen === 'coinExchangeComplete' ? (
+        <CoinExchangeCompleteScreen
+          coinAmount={coinExchangeLastCoinAmount}
+          pointAmount={coinExchangeLastPointAmount}
+          paypayMaskedLabel={debugPaypayMaskedLabel}
+          onDone={() => {
+            setHistory([])
+            setScreen('mypage')
           }}
         />
       ) : null}
@@ -2351,6 +2510,8 @@ export default function App() {
           onLoginToggle={() => {
             void setLoggedInState(!loggedIn)
           }}
+          userType={debugUserType}
+          onUserTypeToggle={toggleDebugUserType}
         />
       ) : null}
 
@@ -2392,12 +2553,29 @@ export default function App() {
                 const castId = selectedCast?.id ?? mockProfile.id
                 const castName = selectedCast?.name ?? mockProfile.name
                 const url = shareUrlForCast(castId, castName)
+                const message = `${castName}\n${url}`
+
                 if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                  const nav: any = (window as any).navigator
+                  if (nav?.share) {
+                    try {
+                      await nav.share({ title: castName, text: message, url })
+                      return
+                    } catch {
+                      // fallthrough
+                    }
+                  }
                   window.open(url, '_blank', 'noopener,noreferrer')
                   return
                 }
-                const { Share } = await import('react-native')
-                await Share.share({ message: `${castName}\n${url}`, url })
+
+                try {
+                  const ShareLib = (await import('react-native-share')).default as any
+                  await ShareLib.open({ title: castName, message, url })
+                } catch {
+                  const { Share } = await import('react-native')
+                  await Share.share({ message, url })
+                }
               }}
             />
             <View style={styles.spacer} />
@@ -2492,12 +2670,26 @@ export default function App() {
         />
       ) : null}
 
+      {screen === 'castReview' && !selectedCast ? (
+        <ScreenContainer title="評価" onBack={goBack}>
+          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24 }}>
+            <Text style={styles.centerText}>対象のキャスト／スタッフが未選択です。{`\n`}プロフィールから「★」を押して開いてください。</Text>
+            <View style={{ height: 12 }} />
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
+              <SecondaryButton label="Developer" onPress={() => goTo('dev')} />
+              <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
+            </View>
+          </View>
+        </ScreenContainer>
+      ) : null}
+
       {screen === 'workDetail' ? (
         <ScreenContainer
           title="作品詳細"
           onBack={goBack}
           headerRight={loggedIn ? <NoticeBellButton onPress={() => goTo('notice')} /> : undefined}
           footer={<TabBar active="video" onPress={switchTab} />}
+          footerPaddingHorizontal={0}
           scroll
           maxWidth={828}
         >
@@ -2574,12 +2766,30 @@ export default function App() {
               label="↗"
               onPress={async () => {
                 const url = shareUrlForWork(workIdForDetail, playerVideoIdNoSub, workForDetail.title)
+                const title = workForDetail.title
+                const message = `${title}\n${url}`
+
                 if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                  const nav: any = (window as any).navigator
+                  if (nav?.share) {
+                    try {
+                      await nav.share({ title, text: message, url })
+                      return
+                    } catch {
+                      // fallthrough
+                    }
+                  }
                   window.open(url, '_blank', 'noopener,noreferrer')
                   return
                 }
-                const { Share } = await import('react-native')
-                await Share.share({ message: `${workForDetail.title}\n${url}`, url })
+
+                try {
+                  const ShareLib = (await import('react-native-share')).default as any
+                  await ShareLib.open({ title, message, url })
+                } catch {
+                  const { Share } = await import('react-native')
+                  await Share.share({ message, url })
+                }
               }}
             />
           </View>
@@ -2765,6 +2975,22 @@ export default function App() {
         />
       ) : null}
 
+      {screen === 'comment' && !commentTarget ? (
+        <ScreenContainer title="コメント" onBack={goBack}>
+          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24, alignItems: 'center' }}>
+            <View style={{ width: '100%', maxWidth: 420 }}>
+              <Text style={styles.centerText}>対象の作品が未選択です。{`\n`}作品詳細から「コメントを書く」を開いてください。</Text>
+              <View style={{ height: 16 }} />
+              <View style={{ width: '100%' }}>
+                <SecondaryButton label="Developer" onPress={() => goTo('dev')} />
+                <View style={{ height: 10 }} />
+                <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
+              </View>
+            </View>
+          </View>
+        </ScreenContainer>
+      ) : null}
+
       {screen === 'workReview' && workReviewTarget ? (
         <WorkReviewScreen
           onBack={goBack}
@@ -2782,6 +3008,19 @@ export default function App() {
             goTo('workDetail')
           }}
         />
+      ) : null}
+
+      {screen === 'workReview' && !workReviewTarget ? (
+        <ScreenContainer title="評価" onBack={goBack}>
+          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24 }}>
+            <Text style={styles.centerText}>対象の作品が未選択です。{`\n`}作品詳細から「☆」を押して開いてください。</Text>
+            <View style={{ height: 12 }} />
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
+              <SecondaryButton label="Developer" onPress={() => goTo('dev')} />
+              <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
+            </View>
+          </View>
+        </ScreenContainer>
       ) : null}
 
       {screen === 'purchase' && purchaseTarget ? (
@@ -3031,6 +3270,11 @@ export default function App() {
               <Text style={styles.devOverlayLabel}>ログイン状態</Text>
               <Switch value={loggedIn} onValueChange={(v) => void setLoggedInState(v)} />
             </View>
+
+            <View style={styles.devOverlayRow}>
+              <Text style={styles.devOverlayLabel}>キャストユーザ</Text>
+              <Switch value={debugUserType === 'cast'} onValueChange={toggleDebugUserType} />
+            </View>
           </Animated.View>
         )}
       </View>
@@ -3043,6 +3287,8 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+    backgroundColor: THEME.bg,
+    height: '100%',
   },
   devOverlayWrap: {
     position: 'absolute',

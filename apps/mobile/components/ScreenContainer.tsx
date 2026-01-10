@@ -10,12 +10,23 @@ type ScreenContainerProps = {
   headerRight?: ReactNode
   maxWidth?: number
   padding?: number
+  footerPaddingHorizontal?: number
   children: ReactNode
 }
 
 const DEFAULT_MAX_WIDTH = 828
 
-export function ScreenContainer({ title, onBack, scroll, footer, headerRight, maxWidth, padding = 16, children }: ScreenContainerProps) {
+export function ScreenContainer({
+  title,
+  onBack,
+  scroll,
+  footer,
+  headerRight,
+  maxWidth,
+  padding = 16,
+  footerPaddingHorizontal,
+  children,
+}: ScreenContainerProps) {
   const resolvedMaxWidth = maxWidth ?? DEFAULT_MAX_WIDTH
   const outerStyle = (opts?: { top?: number; bottom?: number }) => {
     if (padding === 16 && !opts) return styles.contentOuter
@@ -79,7 +90,15 @@ export function ScreenContainer({ title, onBack, scroll, footer, headerRight, ma
   )
 
   const footerNode = footer ? (
-    <View style={[styles.footerOuter, { paddingLeft: padding, paddingRight: padding }]}> 
+    <View
+      style={[
+        styles.footerOuter,
+        {
+          paddingLeft: typeof footerPaddingHorizontal === 'number' ? footerPaddingHorizontal : padding,
+          paddingRight: typeof footerPaddingHorizontal === 'number' ? footerPaddingHorizontal : padding,
+        },
+      ]}
+    >
       <View style={[styles.contentInner, { maxWidth: resolvedMaxWidth }]}>{footer}</View>
     </View>
   ) : null

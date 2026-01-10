@@ -33,8 +33,9 @@ type Cast = {
 type CastResponse = { items: Cast[] }
 
 type HistoryItem = {
-  type: 'name'
+  type: 'name' | 'content'
   keyword: string
+  targetId?: string
   savedAt: string
 }
 
@@ -49,7 +50,10 @@ function uniqueHistory(items: HistoryItem[]): HistoryItem[] {
   const seen = new Set<string>()
   const out: HistoryItem[] = []
   for (const it of items) {
-    const key = `${it.type}:${normalize(it.keyword)}`
+    const key =
+      it.type === 'content'
+        ? `${it.type}:${String(it.targetId || '').trim() || normalize(it.keyword)}`
+        : `${it.type}:${normalize(it.keyword)}`
     if (!it.keyword.trim()) continue
     if (seen.has(key)) continue
     seen.add(key)
@@ -57,6 +61,12 @@ function uniqueHistory(items: HistoryItem[]): HistoryItem[] {
     if (out.length >= HISTORY_MAX) break
   }
   return out
+}
+
+type Work = {
+  id: string
+  title: string
+  participantIds: string[]
 }
 
 export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpenResults, onOpenNotice }: CastSearchScreenProps) {
@@ -67,8 +77,10 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
   const [error, setError] = useState('')
 
   const [keyword, setKeyword] = useState('')
+  const [contentKeyword, setContentKeyword] = useState('')
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null)
+  const [selectedWorkId, setSelectedWorkId] = useState<string>('')
 
   const mockCasts = useMemo<Cast[]>(
     () => [
@@ -76,6 +88,15 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
       { id: 'a2', name: '櫻井拓馬', role: '出演者', genres: ['俳優'] },
       { id: 'a3', name: '監督太郎', role: '監督', genres: ['監督'] },
       { id: 'a4', name: 'Oshidora株式会社', role: '制作', genres: ['制作'] },
+    ],
+    []
+  )
+
+  const mockWorks = useMemo<Work[]>(
+    () => [
+      { id: 'content-1', title: 'ドウトコール', participantIds: ['a1', 'a2', 'a3'] },
+      { id: 'content-2', title: 'ミステリーX', participantIds: ['a1', 'a3'] },
+      { id: 'content-3', title: 'ラブストーリーY', participantIds: ['a2', 'a4'] },
     ],
     []
   )
@@ -101,20 +122,31 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
     }
   }, [])
 
-  const addHistoryKeyword = useCallback(
-    async (value: string) => {
-      const k = value.trim()
+  const addHistory = useCallback(
+    async (item: { type: HistoryItem['type']; keyword: string; targetId?: string }) => {
+      const k = item.keyword.trim()
       if (!k) return
       const now = new Date().toISOString()
-      await saveHistory([{ type: 'name', keyword: k, savedAt: now }, ...history])
+      await saveHistory([{ type: item.type, keyword: k, targetId: item.targetId, savedAt: now }, ...history])
     },
     [history, saveHistory]
   )
 
-  const removeHistoryKeyword = useCallback(
-    async (value: string) => {
-      const key = normalize(value)
-      await saveHistory(history.filter((h) => normalize(h.keyword) !== key))
+  const removeHistoryItem = useCallback(
+    async (item: Pick<HistoryItem, 'type' | 'keyword' | 'targetId'>) => {
+      const key =
+        item.type === 'content'
+          ? `${item.type}:${String(item.targetId || '').trim() || normalize(item.keyword)}`
+          : `${item.type}:${normalize(item.keyword)}`
+      await saveHistory(
+        history.filter((h) => {
+          const hKey =
+            h.type === 'content'
+              ? `${h.type}:${String(h.targetId || '').trim() || normalize(h.keyword)}`
+              : `${h.type}:${normalize(h.keyword)}`
+          return hKey !== key
+        })
+      )
     },
     [history, saveHistory]
   )
@@ -174,45 +206,78 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
   }, [casts])
 
   const renderHistory = useMemo(() => {
-    if (tab !== 'name') return null
-    if (keyword.trim()) return null
-    if (history.length === 0) return null
+    const isName = tab === 'name'
+    const inputEmpty = isName ? !keyword.trim() : !contentKeyword.trim()
+    if (!inputEmpty) return null
+
+    const items = history.filter((h) => h.type === (isName ? 'name' : 'content'))
+    if (items.length === 0) return null
 
     return (
       <View style={styles.sectionTop}>
         <Text style={styles.sectionTitle}>検索履歴</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.historyRow}>
-          {history.map((h) => (
-            <View key={h.savedAt + h.keyword} style={styles.historyChipWrap}>
-              <Pressable
-                style={styles.historyChip}
-                onPress={() => {
+        {items.map((h) => (
+          <View key={`${h.savedAt}:${h.type}:${h.targetId ?? ''}:${h.keyword}`} style={styles.historyRowItem}>
+            <Pressable
+              style={styles.historyRowMain}
+              onPress={() => {
+                if (h.type === 'name') {
                   setKeyword(h.keyword)
                   onOpenResults(h.keyword)
-                }}
-              >
-                <Text style={styles.historyChipText}>{h.keyword}</Text>
-              </Pressable>
-              <Pressable
-                style={styles.historyDelete}
-                onPress={() => {
-                  void removeHistoryKeyword(h.keyword)
-                }}
-              >
-                <Text style={styles.historyDeleteText}>×</Text>
-              </Pressable>
-            </View>
-          ))}
-        </ScrollView>
+                  return
+                }
+
+                const match =
+                  (h.targetId && mockWorks.find((w) => w.id === h.targetId)) ||
+                  mockWorks.find((w) => normalize(w.title) === normalize(h.keyword))
+                if (match) {
+                  setSelectedWorkId(match.id)
+                  setContentKeyword(match.title)
+                } else {
+                  setSelectedWorkId('')
+                  setContentKeyword(h.keyword)
+                }
+              }}
+            >
+              <Text style={styles.historyRowText}>{h.keyword}</Text>
+            </Pressable>
+            <Pressable
+              style={styles.historyRowDelete}
+              onPress={() => {
+                void removeHistoryItem({ type: h.type, keyword: h.keyword, targetId: h.targetId })
+              }}
+            >
+              <Text style={styles.historyRowDeleteText}>×</Text>
+            </Pressable>
+          </View>
+        ))}
       </View>
     )
-  }, [history, keyword, removeHistoryKeyword, tab])
+  }, [contentKeyword, history, keyword, mockWorks, onOpenResults, removeHistoryItem, tab])
+
+  const filteredWorks = useMemo(() => {
+    const q = normalize(contentKeyword)
+    if (!q) return mockWorks
+    return mockWorks.filter((w) => normalize(w.title).includes(q))
+  }, [contentKeyword, mockWorks])
+
+  const selectedWork = useMemo(() => {
+    if (!selectedWorkId) return null
+    return mockWorks.find((w) => w.id === selectedWorkId) ?? null
+  }, [mockWorks, selectedWorkId])
+
+  const participantCasts = useMemo(() => {
+    if (!selectedWork) return []
+    const ids = new Set(selectedWork.participantIds)
+    return casts.filter((c) => ids.has(c.id))
+  }, [casts, selectedWork])
 
   return (
     <ScreenContainer
       title="キャスト"
       headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
       footer={<TabBar active="cast" onPress={onPressTab} />}
+      footerPaddingHorizontal={0}
     >
       <View style={styles.root}>
         <View style={styles.topTabs}>
@@ -226,10 +291,80 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
         </View>
 
         {tab === 'content' ? (
-          <View style={styles.placeholderBox}>
-            <Text style={styles.placeholderTitle}>作品から探す</Text>
-            <Text style={styles.placeholderText}>現時点では「名前から探す」のみ対応しています。</Text>
-          </View>
+          <>
+            <View style={styles.searchBox}>
+              <TextInput
+                value={contentKeyword}
+                onChangeText={(v) => {
+                  setContentKeyword(v)
+                  if (selectedWorkId) setSelectedWorkId('')
+                }}
+                placeholder="作品名で検索"
+                placeholderTextColor={THEME.textMuted}
+                autoCapitalize="none"
+                style={styles.searchInput}
+                returnKeyType="search"
+              />
+              <Pressable
+                style={[styles.clearBtn, !contentKeyword.trim() ? styles.clearBtnDisabled : null]}
+                disabled={!contentKeyword.trim()}
+                onPress={() => {
+                  setContentKeyword('')
+                  setSelectedWorkId('')
+                }}
+              >
+                <Text style={styles.clearBtnText}>クリア</Text>
+              </Pressable>
+            </View>
+
+            {renderHistory}
+
+            {selectedWork ? (
+              <>
+                <Text style={styles.sectionTitle}>参加者一覧</Text>
+                <FlatList
+                  data={participantCasts}
+                  keyExtractor={(c) => c.id}
+                  contentContainerStyle={styles.listContent}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item }) => (
+                    <RowItem
+                      title={item.name}
+                      subtitle={item.role}
+                      actionLabel="詳しく"
+                      onAction={() => {
+                        onOpenProfile({ id: item.id, name: item.name, role: item.role })
+                      }}
+                    />
+                  )}
+                  ListEmptyComponent={<Text style={styles.emptyText}>参加者が見つかりません</Text>}
+                />
+              </>
+            ) : (
+              <>
+                <Text style={styles.sectionTitle}>作品を選択</Text>
+                <FlatList
+                  data={filteredWorks}
+                  keyExtractor={(w) => w.id}
+                  contentContainerStyle={styles.listContent}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item }) => (
+                    <RowItem
+                      title={item.title}
+                      subtitle=""
+                      actionLabel="選択"
+                      onAction={() => {
+                        setSelectedWorkId(item.id)
+                        setContentKeyword(item.title)
+                        void addHistory({ type: 'content', keyword: item.title, targetId: item.id })
+                      }}
+                    />
+                  )}
+                  ListEmptyComponent={<Text style={styles.emptyText}>該当する作品が見つかりません</Text>}
+                />
+              </>
+            )}
+          </>
         ) : (
           <>
             <View style={styles.searchBox}>
@@ -242,8 +377,8 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
                 style={styles.searchInput}
                 returnKeyType="search"
                 onSubmitEditing={() => {
-                  void addHistoryKeyword(keyword)
-                    onOpenResults(keyword)
+                  void addHistory({ type: 'name', keyword })
+                  onOpenResults(keyword)
                 }}
               />
               <Pressable
@@ -301,7 +436,6 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
                     subtitle={item.role}
                     actionLabel="詳しく"
                     onAction={() => {
-                      void addHistoryKeyword(keyword)
                       onOpenProfile({ id: item.id, name: item.name, role: item.role })
                     }}
                   />
@@ -398,6 +532,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
     marginBottom: 10,
+  },
+  historyRowItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  historyRowMain: {
+    flex: 1,
+  },
+  historyRowText: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  historyRowDelete: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    marginLeft: 10,
+  },
+  historyRowDeleteText: {
+    color: THEME.textMuted,
+    fontSize: 16,
+    fontWeight: '900',
+    lineHeight: 16,
   },
   historyRow: {
     gap: 10,

@@ -1,6 +1,7 @@
 import { ResizeMode, Video } from 'expo-av'
 import * as ScreenCapture from 'expo-screen-capture'
 import * as ScreenOrientation from 'expo-screen-orientation'
+import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 
@@ -53,6 +54,8 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   const { width, height } = useWindowDimensions()
   const isLandscape = width > height
 
+  const isWeb = Platform.OS === 'web'
+
   const canSubOn = Boolean(videoIdWithSub && videoIdWithSub.trim().length > 0)
 
   const [subOn, setSubOn] = useState(false)
@@ -62,6 +65,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   }, [canSubOn, subOn, videoIdNoSub, videoIdWithSub])
 
   const [hasStarted, setHasStarted] = useState(false)
+  const [fullscreenRequested, setFullscreenRequested] = useState(false)
 
   const [pendingResume, setPendingResume] = useState<{
     positionMillis: number
@@ -73,6 +77,30 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const videoRef = useRef<Video | null>(null)
+  const videoWrapRef = useRef<any>(null)
+
+  const requestFullscreen = useCallback(() => {
+    // Best-effort fullscreen. Web APIs require a user gesture.
+    if (Platform.OS === 'web') {
+      const el = videoWrapRef.current as any
+      const fn = el?.requestFullscreen || el?.webkitRequestFullscreen || el?.msRequestFullscreen
+      if (typeof fn === 'function') {
+        try {
+          void fn.call(el)
+        } catch {
+          // ignore
+        }
+      }
+      return
+    }
+
+    try {
+      // expo-av: present native fullscreen player (best-effort).
+      void (videoRef.current as any)?.presentFullscreenPlayer?.()
+    } catch {
+      // ignore
+    }
+  }, [])
 
   const load = useCallback(async () => {
     setPlayUrl(null)
@@ -131,20 +159,26 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   const showPrePlay = !hasStarted
 
   return (
-    <View style={styles.root}>
-      <View style={styles.videoWrap}>
+    <View style={[styles.root, isWeb ? { width, height } : null]}>
+      <StatusBar hidden />
+      <View ref={videoWrapRef} style={[styles.videoWrap, isWeb ? { width, height } : null]}>
         {playUrl ? (
           <Video
             key={`${selectedVideoId}:${playUrl}`}
             ref={(el) => {
               videoRef.current = el
             }}
-            style={StyleSheet.absoluteFill}
+            style={styles.video}
             source={{ uri: playUrl }}
             useNativeControls
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay={hasStarted}
             onPlaybackStatusUpdate={(status: any) => {
+              if (fullscreenRequested && status?.isLoaded) {
+                setFullscreenRequested(false)
+                requestFullscreen()
+              }
+
               if (!pendingResume) return
               if (!status?.isLoaded) return
 
@@ -172,12 +206,6 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
           <Pressable onPress={onBack} style={styles.topButton}>
             <Text style={styles.topButtonText}>戻る</Text>
           </Pressable>
-
-          <View style={styles.topRight}>
-            <Pressable onPress={toggleSub} style={[styles.topButton, !canSubOn ? styles.topButtonDisabled : null]}>
-              <Text style={styles.topButtonText}>{subOn ? '字幕あり' : '字幕なし'}</Text>
-            </Pressable>
-          </View>
         </View>
 
         {showPrePlay ? (
@@ -201,7 +229,14 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
               </View>
 
               <View style={styles.gapH} />
-              <PrimaryButton label="再生する" onPress={() => setHasStarted(true)} />
+              <PrimaryButton
+                label="再生する"
+                onPress={() => {
+                  setFullscreenRequested(true)
+                  setHasStarted(true)
+                  requestFullscreen()
+                }}
+              />
 
               {loadError ? (
                 <Text style={styles.warnText}>
@@ -209,13 +244,6 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
                 </Text>
               ) : null}
             </View>
-          </View>
-        ) : null}
-
-        {Platform.OS === 'web' ? (
-          <View style={[styles.hintBar, isLandscape ? styles.hintBarLandscape : null]}>
-            <Text style={styles.hintText}>回転で縦横に自動追従します</Text>
-            {playUrlKind ? <Text style={styles.hintText}>source: {playUrlKind}</Text> : null}
           </View>
         ) : null}
       </View>
@@ -227,10 +255,19 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: THEME.bg,
+    overflow: 'hidden',
   },
   videoWrap: {
     flex: 1,
     backgroundColor: THEME.bg,
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  video: {
+    width: '100%',
+    height: '100%',
   },
   loadingBox: {
     ...StyleSheet.absoluteFillObject,

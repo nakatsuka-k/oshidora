@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native'
 import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
@@ -29,6 +29,7 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
         title="マイページ"
         headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
         footer={<TabBar active="mypage" onPress={onPressTab} />}
+        footerPaddingHorizontal={0}
         maxWidth={828}
       >
         <View style={styles.root}>
@@ -75,7 +76,7 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
           onNavigate('coinPurchase')
           break
         case 'coinExchange':
-          // TODO: コイン換金画面へ遷移
+          onNavigate('coinExchangeDest')
           break
         case 'settings':
           onNavigate('settings')
@@ -99,6 +100,7 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
       title="マイページ"
       headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
       footer={<TabBar active="mypage" onPress={onPressTab} />}
+      footerPaddingHorizontal={0}
       maxWidth={828}
     >
       <View style={styles.root}>
@@ -110,9 +112,9 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
         <FlatList
           data={menuItems}
           keyExtractor={(item) => item.key}
+          style={{ flex: 1 }}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          scrollEnabled={false}
           renderItem={({ item }) => (
             <RowItem
               title={item.title}

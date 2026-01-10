@@ -113,17 +113,48 @@ export function UserProfileEditScreen({
     onBack()
   }, [hasChanges, onBack])
 
-  const openBirthDatePicker = useCallback(() => {
+  const openBirthDatePicker = useCallback((pressEvent?: any) => {
     if (busy) return
 
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const native = pressEvent?.nativeEvent
+      const pageX = typeof native?.pageX === 'number' ? native.pageX : null
+      const pageY = typeof native?.pageY === 'number' ? native.pageY : null
+      const clientX =
+        typeof native?.clientX === 'number'
+          ? native.clientX
+          : typeof pageX === 'number' && typeof window !== 'undefined'
+            ? pageX - (window.scrollX || 0)
+            : null
+      const clientY =
+        typeof native?.clientY === 'number'
+          ? native.clientY
+          : typeof pageY === 'number' && typeof window !== 'undefined'
+            ? pageY - (window.scrollY || 0)
+            : null
+
+      const anchorEl =
+        typeof document !== 'undefined' && typeof clientX === 'number' && typeof clientY === 'number'
+          ? document.elementFromPoint(clientX, clientY)
+          : null
+
+      const rect = (anchorEl as any)?.getBoundingClientRect?.() as
+        | { left: number; top: number; width: number; height: number }
+        | undefined
+
       const input = document.createElement('input')
       input.type = 'date'
       input.value = /^\d{4}-\d{2}-\d{2}$/.test(birthDate.trim()) ? birthDate.trim() : ''
       input.max = new Date().toISOString().slice(0, 10)
+      // Some browsers won't open a date picker for fully off-screen or display:none inputs.
       input.style.position = 'fixed'
-      input.style.left = '-9999px'
-      input.style.top = '0'
+      input.style.left = rect ? `${Math.max(0, Math.min(rect.left, (window.innerWidth || 1) - 1))}px` : '0'
+      input.style.top = rect ? `${Math.max(0, Math.min(rect.top, (window.innerHeight || 1) - 1))}px` : '0'
+      input.style.width = '1px'
+      input.style.height = '1px'
+      input.style.opacity = '0'
+      input.style.pointerEvents = 'none'
+      input.style.zIndex = '-1'
       input.onchange = () => {
         const v = input.value
         if (v) setBirthDate(v)
@@ -133,6 +164,8 @@ export function UserProfileEditScreen({
         setTimeout(() => input.remove(), 0)
       }
       document.body.appendChild(input)
+      input.focus()
+      ;(input as any).showPicker?.()
       input.click()
       return
     }
@@ -446,7 +479,7 @@ export function UserProfileEditScreen({
           <View style={styles.field}>
             <Text style={styles.label}>生年月日</Text>
             <Pressable
-              onPress={openBirthDatePicker}
+              onPress={(e) => openBirthDatePicker(e)}
               disabled={busy}
               style={[styles.input, busy ? styles.inputDisabled : null]}
               accessibilityRole="button"
