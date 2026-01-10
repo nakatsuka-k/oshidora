@@ -175,6 +175,29 @@ APIのURLを本番に向ける場合は、Pagesの Environment variables に `EX
 
 Web版は `apps/mobile/dist/_worker.js` を使って Cloudflare Pages へデプロイします。
 
+## 管理画面 (admin.oshidra.com)
+
+管理画面（CMS）のログイン画面は静的サイトとして [apps/admin/dist](apps/admin/dist) に配置しています。
+
+### Cloudflare Pages（別プロジェクト推奨）
+
+- Pages project name: `oshidora-admin`（例）
+- Build command: なし（または `echo ok`）
+- Build output directory: `apps/admin/dist`
+
+DNS:
+
+- `admin.oshidra.com` → Cloudflare Pages のカスタムドメインとして `oshidora-admin` に割り当て
+
+ローカルでファイル確認だけする場合は、静的ホスティング（任意）でOKです。
+
+CLIデプロイ例（wrangler利用）:
+
+```bash
+npm ci
+npm run deploy:admin
+```
+
 ## D1 (本番DB作成・適用)
 
 本番D1を作成して `apps/api/wrangler.toml` の `database_id` を埋めます。

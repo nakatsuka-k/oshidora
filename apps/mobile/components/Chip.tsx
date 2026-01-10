@@ -4,20 +4,25 @@ import { THEME } from './theme'
 type ChipProps = {
   label: string
   onPress?: () => void
+  selected?: boolean
 }
 
-export function Chip({ label, onPress }: ChipProps) {
+export function Chip({ label, onPress, selected }: ChipProps) {
   if (onPress) {
     return (
-      <Pressable style={styles.chip} onPress={onPress} accessibilityRole="button">
-        <Text style={styles.text}>{label}</Text>
+      <Pressable
+        style={[styles.chip, selected ? styles.chipSelected : null]}
+        onPress={onPress}
+        accessibilityRole="button"
+      >
+        <Text style={[styles.text, selected ? styles.textSelected : null]}>{label}</Text>
       </Pressable>
     )
   }
 
   return (
-    <View style={styles.chip}>
-      <Text style={styles.text}>{label}</Text>
+    <View style={[styles.chip, selected ? styles.chipSelected : null]}>
+      <Text style={[styles.text, selected ? styles.textSelected : null]}>{label}</Text>
     </View>
   )
 }
@@ -31,8 +36,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     backgroundColor: THEME.card,
   },
+  chipSelected: {
+    borderColor: THEME.accent,
+  },
   text: {
     color: THEME.text,
     fontSize: 12,
+  },
+  textSelected: {
+    color: THEME.text,
+    fontWeight: '800',
   },
 })

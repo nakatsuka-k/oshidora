@@ -1,6 +1,7 @@
 export { Chip } from './Chip'
 export { IconButton } from './IconButton'
 export { PrimaryButton, SecondaryButton } from './Buttons'
+export { ConfirmDialog } from './ConfirmDialog'
 export { RowItem } from './RowItem'
 export { Section } from './Section'
 export { ScreenContainer } from './ScreenContainer'

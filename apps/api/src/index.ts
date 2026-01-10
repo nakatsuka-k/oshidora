@@ -7,6 +7,7 @@ type Env = {
     AUTH_JWT_SECRET?: string
     AUTH_CODE_PEPPER?: string
     ALLOW_DEBUG_RETURN_CODES?: string
+    ADMIN_API_KEY?: string
     TWILIO_ACCOUNT_SID?: string
     TWILIO_AUTH_TOKEN?: string
     TWILIO_FROM?: string
@@ -108,7 +109,7 @@ app.use(
   cors({
     origin: '*',
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Key'],
     maxAge: 86400,
   })
 )
@@ -357,6 +358,19 @@ async function requireAuth(c: any) {
   const stage = typeof payload.stage === 'string' ? payload.stage : ''
   if (!userId) return { ok: false, status: 401, error: 'Unauthorized' as const }
   return { ok: true, userId, stage, payload } as const
+}
+
+async function requireAdmin(c: any) {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return auth
+
+  const expected = (c.env.ADMIN_API_KEY ?? '').trim()
+  if (!expected) return { ok: false, status: 500, error: 'ADMIN_API_KEY is not configured' as const }
+
+  const provided = (c.req.header('x-admin-key') ?? '').trim()
+  if (!provided || provided !== expected) return { ok: false, status: 403, error: 'Forbidden' as const }
+
+  return auth
 }
 
 async function awsV4SigningKey(secretAccessKey: string, dateStamp: string, region: string, service: string) {
@@ -780,27 +794,38 @@ app.post('/v1/stream/direct-upload', async (c) => {
 })
 
 app.get('/v1/top', (c) => {
+  const toItem = (w: MockWork) => ({
+    id: w.id,
+    title: w.title,
+    thumbnailUrl: w.thumbnailUrl ?? '',
+  })
+
+  const byViewsSorted = [...MOCK_WORKS].sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
+  const byRatingSorted = [...MOCK_WORKS].sort((a, b) => (b.ratingAvg ?? 0) - (a.ratingAvg ?? 0))
+
+  const maxViews = Math.max(1, ...MOCK_WORKS.map((w) => w.viewCount ?? 0))
+  const maxPurchasers = Math.max(1, ...MOCK_WORKS.map((w) => w.purchaserCount ?? 0))
+  const maxRevenue = Math.max(1, ...MOCK_WORKS.map((w) => w.revenueCoin ?? 0))
+  const maxRating = 5
+
+  const scoreOverall = (w: MockWork) => {
+    const views = (w.viewCount ?? 0) / maxViews
+    const rating = (w.ratingAvg ?? 0) / maxRating
+    const purchasers = (w.purchaserCount ?? 0) / maxPurchasers
+    const revenue = (w.revenueCoin ?? 0) / maxRevenue
+    return views * 3 + rating * 3 + purchasers * 3 + revenue * 1
+  }
+
+  const overallSorted = [...MOCK_WORKS].sort((a, b) => scoreOverall(b) - scoreOverall(a))
+
   return c.json({
-    pickup: [
-      { id: 'p1', title: 'ピックアップ：ダウトコール 第01話', thumbnailUrl: '' },
-      { id: 'p2', title: 'ピックアップ：ダウトコール 第02話', thumbnailUrl: '' },
-      { id: 'p3', title: 'ピックアップ：ダウトコール 第03話', thumbnailUrl: '' },
-    ],
-    notice: {
-      id: 'n1',
-      body: '本日より新機能を追加しました。より快適に視聴できるよう改善しています。詳細はアプリ内のお知らせをご確認ください。',
+    pickup: MOCK_WORKS.slice(0, 6).map(toItem),
+    recommended: byRatingSorted.slice(0, 6).map(toItem),
+    rankings: {
+      byViews: byViewsSorted.slice(0, 5).map(toItem),
+      byRating: byRatingSorted.slice(0, 5).map(toItem),
+      overall: overallSorted.slice(0, 5).map(toItem),
     },
-    ranking: [
-      { id: 'r1', title: 'ランキング 1位：ダウトコール', thumbnailUrl: '' },
-      { id: 'r2', title: 'ランキング 2位：ミステリーX', thumbnailUrl: '' },
-      { id: 'r3', title: 'ランキング 3位：ラブストーリーY', thumbnailUrl: '' },
-      { id: 'r4', title: 'ランキング 4位：コメディZ', thumbnailUrl: '' },
-    ],
-    favorites: [
-      { id: 'f1', title: 'お気に入り：ダウトコール', thumbnailUrl: '' },
-      { id: 'f2', title: 'お気に入り：ミステリーX', thumbnailUrl: '' },
-      { id: 'f3', title: 'お気に入り：ラブストーリーY', thumbnailUrl: '' },
-    ],
   })
 })
 
@@ -868,6 +893,7 @@ type MockCast = {
   id: string
   name: string
   role: string
+  genres: string[]
   thumbnailUrl?: string
 }
 
@@ -882,13 +908,16 @@ type MockVideo = {
   castIds: string[]
   categoryId: string
   tags: string[]
+  viewCount?: number
+  purchaserCount?: number
+  revenueCoin?: number
 }
 
 const MOCK_CASTS: MockCast[] = [
-  { id: 'a1', name: '松岡美沙', role: '出演者', thumbnailUrl: '' },
-  { id: 'a2', name: '櫻井拓馬', role: '出演者', thumbnailUrl: '' },
-  { id: 'a3', name: '監督太郎', role: '監督', thumbnailUrl: '' },
-  { id: 'a4', name: 'Oshidora株式会社', role: '制作', thumbnailUrl: '' },
+  { id: 'a1', name: '松岡美沙', role: '出演者', genres: ['女優'], thumbnailUrl: '' },
+  { id: 'a2', name: '櫻井拓馬', role: '出演者', genres: ['俳優'], thumbnailUrl: '' },
+  { id: 'a3', name: '監督太郎', role: '監督', genres: ['監督'], thumbnailUrl: '' },
+  { id: 'a4', name: 'Oshidora株式会社', role: '制作', genres: ['制作'], thumbnailUrl: '' },
 ]
 
 const MOCK_VIDEOS: MockVideo[] = [
@@ -898,6 +927,9 @@ const MOCK_VIDEOS: MockVideo[] = [
     description: '事件の幕開け。主人公が真相へ迫る。',
     ratingAvg: 4.7,
     reviewCount: 128,
+    viewCount: 12800,
+    purchaserCount: 420,
+    revenueCoin: 0,
     priceCoin: 0,
     thumbnailUrl: '',
     castIds: ['a1', 'a2', 'a3'],
@@ -910,6 +942,9 @@ const MOCK_VIDEOS: MockVideo[] = [
     description: '新たな証言と裏切り。疑いは深まる。',
     ratingAvg: 4.6,
     reviewCount: 94,
+    viewCount: 9400,
+    purchaserCount: 310,
+    revenueCoin: 9300,
     priceCoin: 30,
     thumbnailUrl: '',
     castIds: ['a1', 'a2', 'a3'],
@@ -922,6 +957,9 @@ const MOCK_VIDEOS: MockVideo[] = [
     description: '見えない敵。真実はどこにあるのか。',
     ratingAvg: 4.8,
     reviewCount: 156,
+    viewCount: 15600,
+    purchaserCount: 520,
+    revenueCoin: 15600,
     priceCoin: 30,
     thumbnailUrl: '',
     castIds: ['a1', 'a2', 'a3'],
@@ -934,6 +972,9 @@ const MOCK_VIDEOS: MockVideo[] = [
     description: '不可解な失踪事件。密室の謎に挑む。',
     ratingAvg: 4.4,
     reviewCount: 61,
+    viewCount: 6100,
+    purchaserCount: 150,
+    revenueCoin: 0,
     priceCoin: 0,
     thumbnailUrl: '',
     castIds: ['a2', 'a3'],
@@ -946,13 +987,148 @@ const MOCK_VIDEOS: MockVideo[] = [
     description: '偶然の出会い。少しずつ距離が近づく。',
     ratingAvg: 4.2,
     reviewCount: 43,
+    viewCount: 4300,
+    purchaserCount: 180,
+    revenueCoin: 1800,
     priceCoin: 10,
     thumbnailUrl: '',
     castIds: ['a1'],
     categoryId: 'c3',
     tags: ['Romance'],
   },
+  {
+    id: 'v6',
+    title: 'コメディZ 第01話',
+    description: '笑いと涙のドタバタ劇。',
+    ratingAvg: 4.1,
+    reviewCount: 22,
+    viewCount: 5200,
+    purchaserCount: 90,
+    revenueCoin: 0,
+    priceCoin: 0,
+    thumbnailUrl: '',
+    castIds: ['a2'],
+    categoryId: 'c4',
+    tags: ['Comedy'],
+  },
+  {
+    id: 'v7',
+    title: 'アクションW 第01話',
+    description: '息をのむ追跡劇が始まる。',
+    ratingAvg: 4.3,
+    reviewCount: 37,
+    viewCount: 7000,
+    purchaserCount: 210,
+    revenueCoin: 4200,
+    priceCoin: 20,
+    thumbnailUrl: '',
+    castIds: ['a1', 'a3'],
+    categoryId: 'c5',
+    tags: ['Action'],
+  },
 ]
+
+type MockWork = {
+  id: string
+  title: string
+  ratingAvg: number
+  reviewCount: number
+  priceCoin?: number
+  thumbnailUrl?: string
+  categoryId: string
+  tags: string[]
+  viewCount?: number
+  purchaserCount?: number
+  revenueCoin?: number
+}
+
+const WORK_ID_BY_TITLE: Record<string, string> = {
+  'ダウトコール': 'content-1',
+  'ミステリーX': 'content-2',
+  'ラブストーリーY': 'content-3',
+  'コメディZ': 'content-4',
+  'アクションW': 'content-5',
+}
+
+function workTitleFromVideoTitle(title: string) {
+  const t = String(title ?? '').trim()
+  const idx = t.indexOf(' 第')
+  if (idx <= 0) return t
+  return t.slice(0, idx).trim()
+}
+
+function buildMockWorksFromVideos(videos: MockVideo[]): MockWork[] {
+  const groups = new Map<string, MockVideo[]>()
+  for (const v of videos) {
+    const key = workTitleFromVideoTitle(v.title)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(v)
+  }
+
+  const works: MockWork[] = []
+  for (const [workTitle, eps] of groups.entries()) {
+    const reviewCount = eps.reduce((acc, it) => acc + (Number.isFinite(it.reviewCount) ? it.reviewCount : 0), 0)
+    const ratingSum = eps.reduce((acc, it) => {
+      const r = Number.isFinite(it.ratingAvg) ? it.ratingAvg : 0
+      const w = Number.isFinite(it.reviewCount) ? it.reviewCount : 0
+      return acc + r * w
+    }, 0)
+    const ratingAvg = reviewCount > 0 ? Math.round((ratingSum / reviewCount) * 10) / 10 : 0
+
+    const priceCoin = Math.max(0, ...eps.map((it) => (typeof it.priceCoin === 'number' ? it.priceCoin : 0)))
+    const thumbnailUrl = eps.find((it) => (it.thumbnailUrl ?? '').trim())?.thumbnailUrl ?? ''
+
+    const categoryCount = new Map<string, number>()
+    for (const it of eps) {
+      const cid = String(it.categoryId ?? '').trim()
+      if (!cid) continue
+      categoryCount.set(cid, (categoryCount.get(cid) ?? 0) + 1)
+    }
+    const categoryId = Array.from(categoryCount.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'c1'
+
+    const tags = Array.from(
+      new Set(
+        eps
+          .flatMap((it) => (Array.isArray(it.tags) ? it.tags : []))
+          .map((t) => String(t ?? '').trim())
+          .filter((t) => t)
+      )
+    )
+
+    const viewCount = eps.reduce((acc, it) => acc + (Number.isFinite(it.viewCount) ? (it.viewCount ?? 0) : 0), 0)
+    const purchaserCount = eps.reduce(
+      (acc, it) => acc + (Number.isFinite(it.purchaserCount) ? (it.purchaserCount ?? 0) : 0),
+      0
+    )
+    const revenueCoin = eps.reduce((acc, it) => acc + (Number.isFinite(it.revenueCoin) ? (it.revenueCoin ?? 0) : 0), 0)
+
+    works.push({
+      id: WORK_ID_BY_TITLE[workTitle] ?? workTitle,
+      title: workTitle,
+      ratingAvg,
+      reviewCount,
+      priceCoin,
+      thumbnailUrl,
+      categoryId,
+      tags,
+      viewCount,
+      purchaserCount,
+      revenueCoin,
+    })
+  }
+
+  const order = ['ダウトコール', 'ミステリーX', 'ラブストーリーY', 'コメディZ', 'アクションW']
+  return works.sort((a, b) => {
+    const ai = order.indexOf(a.title)
+    const bi = order.indexOf(b.title)
+    if (ai === -1 && bi === -1) return a.title.localeCompare(b.title)
+    if (ai === -1) return 1
+    if (bi === -1) return -1
+    return ai - bi
+  })
+}
+
+const MOCK_WORKS: MockWork[] = buildMockWorksFromVideos(MOCK_VIDEOS)
 
 function normalizeQuery(value: string) {
   return value.trim().toLowerCase()
@@ -961,17 +1137,177 @@ function normalizeQuery(value: string) {
 app.get('/v1/cast', (c) => {
   const qRaw = c.req.query('q') ?? ''
   const q = normalizeQuery(qRaw)
+  const genreRaw = c.req.query('genre') ?? ''
+  const genre = normalizeQuery(genreRaw)
   const items = !q
     ? MOCK_CASTS
     : MOCK_CASTS.filter((cast) => {
         const nameHit = normalizeQuery(cast.name).includes(q)
         const roleHit = normalizeQuery(cast.role).includes(q)
-        return nameHit || roleHit
+        const genreHit = (cast.genres ?? []).some((g) => normalizeQuery(g).includes(q))
+        return nameHit || roleHit || genreHit
       })
+
+  const filteredByGenre = genre
+    ? items.filter((cast) => (cast.genres ?? []).some((g) => normalizeQuery(g) === genre))
+    : items
+
   return c.json({
-    items,
+    items: filteredByGenre,
   })
 })
+
+async function handleCreateWithdrawalRequest(c: any) {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { email?: unknown; reason?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = String(body.email ?? '').trim()
+  const reason = String(body.reason ?? '').trim()
+
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (email.length > 200) return c.json({ error: 'email is too long' }, 400)
+  if (reason.length > 500) return c.json({ error: 'reason is too long (max 500)' }, 400)
+
+  const id = (globalThis as any).crypto?.randomUUID
+    ? crypto.randomUUID()
+    : `wr_${Date.now()}_${Math.random().toString(16).slice(2)}`
+  const createdAt = new Date().toISOString()
+
+  try {
+    await c.env.DB.prepare(
+      'INSERT INTO withdrawal_requests (id, user_id, email, reason, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    )
+      .bind(id, auth.userId, email, reason, 'pending', createdAt)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true, id, status: 'pending', createdAt })
+}
+
+async function handleAdminListWithdrawalRequests(c: any) {
+  const admin = await requireAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  const statusRaw = String(c.req.query('status') ?? '').trim().toLowerCase()
+  const limitRaw = String(c.req.query('limit') ?? '').trim()
+  const offsetRaw = String(c.req.query('offset') ?? '').trim()
+
+  const limitParsed = limitRaw ? Number.parseInt(limitRaw, 10) : 50
+  const offsetParsed = offsetRaw ? Number.parseInt(offsetRaw, 10) : 0
+  const limit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 200) : 50
+  const offset = Number.isFinite(offsetParsed) ? Math.max(offsetParsed, 0) : 0
+
+  const allowedStatuses = new Set(['pending', 'approved', 'rejected'])
+  if (statusRaw && !allowedStatuses.has(statusRaw)) {
+    return c.json({ error: 'invalid status' }, 400)
+  }
+
+  const baseSql =
+    'SELECT id, user_id, email, reason, status, created_at, decided_at, decided_by, decision_note FROM withdrawal_requests'
+  const sql = statusRaw
+    ? `${baseSql} WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    : `${baseSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+
+  let rows: any[] = []
+  try {
+    const stmt = db.prepare(sql)
+    const res = statusRaw ? await stmt.bind(statusRaw, limit, offset).all() : await stmt.bind(limit, offset).all()
+    rows = (res.results ?? []) as any[]
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows.map((r) => ({
+    id: String(r.id ?? ''),
+    userId: String(r.user_id ?? ''),
+    email: String(r.email ?? ''),
+    reason: String(r.reason ?? ''),
+    status: String(r.status ?? ''),
+    createdAt: String(r.created_at ?? ''),
+    decidedAt: r.decided_at == null ? null : String(r.decided_at),
+    decidedBy: r.decided_by == null ? null : String(r.decided_by),
+    decisionNote: r.decision_note == null ? null : String(r.decision_note),
+  }))
+
+  return c.json({ items, limit, offset })
+}
+
+async function handleAdminDecideWithdrawalRequest(c: any) {
+  const admin = await requireAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { decision?: unknown; note?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const decision = String(body.decision ?? '').trim().toLowerCase()
+  const note = String(body.note ?? '').trim()
+
+  if (decision !== 'approve' && decision !== 'reject') {
+    return c.json({ error: "decision must be 'approve' or 'reject'" }, 400)
+  }
+  if (note.length > 500) return c.json({ error: 'note is too long (max 500)' }, 400)
+
+  const nextStatus = decision === 'approve' ? 'approved' : 'rejected'
+  const decidedAt = new Date().toISOString()
+  const decidedBy = String((admin as any).userId ?? '')
+
+  try {
+    const existing = await db.prepare('SELECT id, status FROM withdrawal_requests WHERE id = ?').bind(id).first<any>()
+    if (!existing) return c.json({ error: 'not_found' }, 404)
+    const currentStatus = String(existing.status ?? '')
+    if (currentStatus !== 'pending') {
+      return c.json({ error: 'already_decided', status: currentStatus }, 409)
+    }
+
+    await db.prepare(
+      'UPDATE withdrawal_requests SET status = ?, decided_at = ?, decided_by = ?, decision_note = ? WHERE id = ?'
+    )
+      .bind(nextStatus, decidedAt, decidedBy, note, id)
+      .run()
+
+    const row = await db.prepare(
+      'SELECT id, user_id, email, reason, status, created_at, decided_at, decided_by, decision_note FROM withdrawal_requests WHERE id = ?'
+    )
+      .bind(id)
+      .first<any>()
+
+    return c.json({
+      ok: true,
+      item: {
+        id: String(row?.id ?? ''),
+        userId: String(row?.user_id ?? ''),
+        email: String(row?.email ?? ''),
+        reason: String(row?.reason ?? ''),
+        status: String(row?.status ?? ''),
+        createdAt: String(row?.created_at ?? ''),
+        decidedAt: row?.decided_at == null ? null : String(row.decided_at),
+        decidedBy: row?.decided_by == null ? null : String(row.decided_by),
+        decisionNote: row?.decision_note == null ? null : String(row.decision_note),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+}
+
+app.post('/v1/withdrawal-requests', (c) => handleCreateWithdrawalRequest(c))
+
+app.get('/v1/admin/withdrawal-requests', (c) => handleAdminListWithdrawalRequests(c))
+app.post('/v1/admin/withdrawal-requests/:id/decision', (c) => handleAdminDecideWithdrawalRequest(c))
 
 async function handleGetFavoriteCasts(c: any) {
   const auth = await requireAuth(c)
@@ -1045,7 +1381,6 @@ app.delete('/v1/favorites/casts', handleDeleteFavoriteCasts)
 // Design-doc compatibility (docs/アプリ/* use /api/...)
 app.get('/api/favorites/casts', handleGetFavoriteCasts)
 app.delete('/api/favorites/casts', handleDeleteFavoriteCasts)
-
 app.get('/v1/videos', (c) => {
   const categoryId = String(c.req.query('category_id') ?? '').trim()
   const tag = normalizeQuery(String(c.req.query('tag') ?? ''))
@@ -1188,9 +1523,9 @@ app.get('/v1/reviews/cast', (c) => {
   const castId = String(c.req.query('cast_id') ?? '').trim()
   if (!castId) return c.json({ error: 'cast_id is required' }, 400)
   const items = Array.isArray(CAST_REVIEWS[castId]) ? CAST_REVIEWS[castId] : []
-  const fallback = MOCK_CAST_REVIEW_SUMMARY[castId] ?? { ratingAvg: 0, reviewCount: 0 }
+  const fallback = MOCK_CAST_REVIEW_SUMMARY[castId] ?? { ratingAvg: 4.5, reviewCount: 0 }
   const summary = buildSummaryFromItems(items, fallback)
-  return c.json({ summary, items: items.slice(0, 20) })
+  return c.json({ summary })
 })
 
 app.post('/v1/reviews/cast', async (c) => {
@@ -1217,11 +1552,10 @@ app.post('/v1/reviews/cast', async (c) => {
 
 app.post('/v1/comments', async (c) => {
   type Body = { contentId?: string; episodeId?: string; author?: string; body?: string }
-  const body = await c.req.json<Body>().catch((): Body => ({}))
-
-  const contentId = (body.contentId ?? '').trim()
-  const episodeId = (body.episodeId ?? '').trim()
-  const author = (body.author ?? '').trim()
+  const body = (await c.req.json().catch((): Body => ({}))) as Body
+  const contentId = String(body.contentId ?? '').trim()
+  const episodeId = String(body.episodeId ?? '').trim()
+  const author = String(body.author ?? '').trim()
   const text = String(body.body ?? '')
   const trimmed = text.trim()
 
@@ -1244,6 +1578,43 @@ app.post('/v1/comments', async (c) => {
     .run()
 
   return c.json({ id, contentId, episodeId: episodeId || null, status, createdAt }, 201)
+})
+
+app.get('/v1/works', (c) => {
+  const q = normalizeQuery(String(c.req.query('q') ?? ''))
+  const categoryId = String(c.req.query('category_id') ?? '').trim()
+  const tag = normalizeQuery(String(c.req.query('tag') ?? ''))
+
+  const limit = Math.max(1, Math.min(100, Number(c.req.query('limit') ?? 20) || 20))
+  const cursorRaw = String(c.req.query('cursor') ?? '').trim()
+  const offset = cursorRaw ? Math.max(0, Number(cursorRaw) || 0) : 0
+
+  let items = MOCK_WORKS
+  if (q) {
+    items = items.filter((w) => normalizeQuery(w.title).includes(q))
+  }
+  if (categoryId) {
+    items = items.filter((w) => w.categoryId === categoryId)
+  }
+  if (tag) {
+    items = items.filter((w) => w.tags.some((t) => normalizeQuery(t) === tag))
+  }
+
+  const page = items.slice(offset, offset + limit)
+  const nextCursor = offset + limit < items.length ? String(offset + limit) : null
+
+  return c.json({
+    items: page.map((w) => ({
+      id: w.id,
+      title: w.title,
+      ratingAvg: w.ratingAvg,
+      reviewCount: w.reviewCount,
+      priceCoin: w.priceCoin,
+      thumbnailUrl: w.thumbnailUrl,
+      tags: w.tags,
+    })),
+    nextCursor,
+  })
 })
 
 app.get('/v1/search', (c) => {

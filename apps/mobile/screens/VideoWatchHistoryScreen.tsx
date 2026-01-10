@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Platform, Pressable, StyleSheet, Text, View, Alert } from 'react-native'
-import { IconButton, PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
+import Svg, { Path } from 'react-native-svg'
+import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
 import { clearWatchHistory, loadWatchHistory, removeWatchHistoryItem, saveWatchHistory, WatchHistoryItem } from '../utils/watchHistory'
 
 type Props = {
@@ -44,6 +45,24 @@ function confirmAction(message: string): Promise<boolean> {
       { text: 'OK', style: 'destructive', onPress: () => resolve(true) },
     ])
   })
+}
+
+function TrashIconButton({ onPress }: { onPress: (e?: any) => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="削除"
+      onPress={onPress}
+      style={styles.iconBtn}
+    >
+      <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+        <Path
+          d="M9 3h6l1 2h5v2H3V5h5l1-2Zm1 7h2v9h-2v-9Zm4 0h2v9h-2v-9ZM7 10h2v9H7v-9Zm-1 12h12a2 2 0 0 0 2-2V9H4v11a2 2 0 0 0 2 2Z"
+          fill={THEME.accent}
+        />
+      </Svg>
+    </Pressable>
+  )
 }
 
 export function VideoWatchHistoryScreen({ userKey, onBack, onOpenVideo, onGoVideos }: Props) {
@@ -183,7 +202,12 @@ export function VideoWatchHistoryScreen({ userKey, onBack, onOpenVideo, onGoVide
                 </View>
 
                 <View style={styles.rowActions}>
-                  <IconButton label="削" onPress={() => void deleteOne(item.id)} />
+                  <TrashIconButton
+                    onPress={(e) => {
+                      ;(e as any)?.stopPropagation?.()
+                      void deleteOne(item.id)
+                    }}
+                  />
                 </View>
               </Pressable>
             )}
@@ -232,6 +256,16 @@ const styles = StyleSheet.create({
   headerRight: {
     width: 40,
     height: 40,
+  },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   error: {
     color: THEME.danger,

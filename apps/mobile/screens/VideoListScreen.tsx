@@ -48,11 +48,11 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
 
   const mockVideos = useMemo<Video[]>(
     () => [
-      { id: 'v1', title: 'ダウトコール 第01話', ratingAvg: 4.7, reviewCount: 128, priceCoin: 0, tags: ['Drama', 'Mystery'] },
-      { id: 'v2', title: 'ダウトコール 第02話', ratingAvg: 4.6, reviewCount: 94, priceCoin: 30, tags: ['Drama', 'Mystery'] },
-      { id: 'v3', title: 'ダウトコール 第03話', ratingAvg: 4.8, reviewCount: 156, priceCoin: 30, tags: ['Drama', 'Mystery'] },
-      { id: 'v4', title: 'ミステリーX 第01話', ratingAvg: 4.4, reviewCount: 61, priceCoin: 0, tags: ['Mystery'] },
-      { id: 'v5', title: 'ラブストーリーY 第01話', ratingAvg: 4.2, reviewCount: 43, priceCoin: 10, tags: ['Romance'] },
+      { id: 'content-1', title: 'ダウトコール', ratingAvg: 4.7, reviewCount: 128, priceCoin: 30, tags: ['Drama', 'Mystery'] },
+      { id: 'content-2', title: 'ミステリーX', ratingAvg: 4.4, reviewCount: 61, priceCoin: 30, tags: ['Mystery', 'Drama'] },
+      { id: 'content-3', title: 'ラブストーリーY', ratingAvg: 4.2, reviewCount: 43, priceCoin: 10, tags: ['Romance', 'Drama'] },
+      { id: 'content-4', title: 'コメディZ', ratingAvg: 4.1, reviewCount: 22, priceCoin: 10, tags: ['Comedy'] },
+      { id: 'content-5', title: 'アクションW', ratingAvg: 4.3, reviewCount: 37, priceCoin: 20, tags: ['Action'] },
     ],
     []
   )
@@ -83,7 +83,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
   }, [apiBaseUrl, mockCategories])
 
   const buildVideosUrl = useCallback((opts: { categoryId: string; tag?: string | null; cursor?: string | null }) => {
-    const u = new URL(`${apiBaseUrl}/v1/videos`)
+    const u = new URL(`${apiBaseUrl}/v1/works`)
     if (opts.categoryId && opts.categoryId !== 'all') u.searchParams.set('category_id', opts.categoryId)
     if (opts.tag) u.searchParams.set('tag', opts.tag)
     u.searchParams.set('limit', String(PAGE_SIZE))
@@ -185,7 +185,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
 
   return (
     <ScreenContainer
-      title="動画"
+      title="作品一覧"
       headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
       footer={<TabBar active="video" onPress={onPressTab} />}
     >
@@ -243,7 +243,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
               void fetchVideos('more')
             }}
             ListHeaderComponent={
-              videosError ? <Text style={styles.loadNote}>動画取得に失敗しました（モック表示）</Text> : null
+              videosError ? <Text style={styles.loadNote}>作品取得に失敗しました（モック表示）</Text> : null
             }
             ListFooterComponent={
               busyMore ? (

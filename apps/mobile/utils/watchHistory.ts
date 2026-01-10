@@ -1,6 +1,6 @@
 import { getString, setString } from './storage'
 
-export type WatchHistoryKind = 'ショート' | '映画'
+export type WatchHistoryKind = 'ショート' | '映画' | 'エピソード'
 export type WatchHistoryStatus = '視聴中' | '視聴済み'
 
 export type WatchHistoryItem = {
@@ -36,7 +36,10 @@ export async function loadWatchHistory(userKey: string): Promise<WatchHistoryIte
         id: String(v.id ?? ''),
         contentId: String(v.contentId ?? ''),
         title: String(v.title ?? ''),
-        kind: (v.kind === 'ショート' ? 'ショート' : '映画') as WatchHistoryKind,
+        kind:
+          v.kind === 'ショート' || v.kind === '映画' || v.kind === 'エピソード'
+            ? (v.kind as WatchHistoryKind)
+            : ('映画' as WatchHistoryKind),
         durationSeconds: Number.isFinite(v.durationSeconds) ? Number(v.durationSeconds) : 0,
         thumbnailUrl: typeof v.thumbnailUrl === 'string' ? v.thumbnailUrl : undefined,
         lastPlayedAt: Number.isFinite(v.lastPlayedAt) ? Number(v.lastPlayedAt) : 0,

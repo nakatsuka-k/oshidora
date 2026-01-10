@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
 
 type StaffCastReviewScreenProps = {
@@ -64,10 +64,19 @@ export function StaffCastReviewScreen({ onBack, cast, initial, onSubmit, onDone 
     <ScreenContainer title="評価" onBack={onBack} scroll>
       <View style={styles.root}>
         <View style={styles.targetCard}>
-          <Text style={styles.targetName} numberOfLines={2} ellipsizeMode="tail">
-            {cast.name}
-          </Text>
-          {cast.roleLabel ? <Text style={styles.targetRole}>{cast.roleLabel}</Text> : null}
+          <View style={styles.targetRow}>
+            {cast.profileImageUrl ? (
+              <Image source={{ uri: cast.profileImageUrl }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder} />
+            )}
+            <View style={styles.targetText}>
+              <Text style={styles.targetName} numberOfLines={2} ellipsizeMode="tail">
+                {cast.name}
+              </Text>
+              {cast.roleLabel ? <Text style={styles.targetRole}>{cast.roleLabel}</Text> : null}
+            </View>
+          </View>
         </View>
 
         {done ? (
@@ -135,6 +144,30 @@ const styles = StyleSheet.create({
     borderColor: THEME.outline,
     borderRadius: 16,
     padding: 12,
+  },
+  targetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.bg,
+  },
+  avatarPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.bg,
+  },
+  targetText: {
+    flex: 1,
   },
   targetName: {
     color: THEME.text,

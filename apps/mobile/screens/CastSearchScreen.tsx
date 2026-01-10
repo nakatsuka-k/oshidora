@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { Chip, NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -26,6 +26,7 @@ type Cast = {
   id: string
   name: string
   role: string
+  genres?: string[]
   thumbnailUrl?: string
 }
 
@@ -67,13 +68,14 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
 
   const [keyword, setKeyword] = useState('')
   const [history, setHistory] = useState<HistoryItem[]>([])
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null)
 
   const mockCasts = useMemo<Cast[]>(
     () => [
-      { id: 'a1', name: '松岡美沙', role: '出演者' },
-      { id: 'a2', name: '櫻井拓馬', role: '出演者' },
-      { id: 'a3', name: '監督太郎', role: '監督' },
-      { id: 'a4', name: 'Oshidora株式会社', role: '制作' },
+      { id: 'a1', name: '松岡美沙', role: '出演者', genres: ['女優'] },
+      { id: 'a2', name: '櫻井拓馬', role: '出演者', genres: ['俳優'] },
+      { id: 'a3', name: '監督太郎', role: '監督', genres: ['監督'] },
+      { id: 'a4', name: 'Oshidora株式会社', role: '制作', genres: ['制作'] },
     ],
     []
   )
@@ -141,9 +143,35 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
 
   const filtered = useMemo(() => {
     const q = normalize(keyword)
-    if (!q) return casts
-    return casts.filter((c) => normalize(c.name).includes(q) || normalize(c.role).includes(q))
-  }, [casts, keyword])
+    const byKeyword = !q
+      ? casts
+      : casts.filter((c) => {
+          const nameHit = normalize(c.name).includes(q)
+          const roleHit = normalize(c.role).includes(q)
+          const genresHit = Array.isArray(c.genres) && c.genres.some((g) => normalize(g).includes(q))
+          return nameHit || roleHit || genresHit
+        })
+
+    if (!selectedGenre) return byKeyword
+    const g = normalize(selectedGenre)
+    return byKeyword.filter((c) => Array.isArray(c.genres) && c.genres.some((x) => normalize(x) === g))
+  }, [casts, keyword, selectedGenre])
+
+  const availableGenres = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const c of casts) {
+      const gs = Array.isArray(c.genres) ? c.genres : []
+      for (const g of gs) {
+        const key = normalize(g)
+        if (!key) continue
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(g)
+      }
+    }
+    return out
+  }, [casts])
 
   const renderHistory = useMemo(() => {
     if (tab !== 'name') return null
@@ -208,7 +236,7 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
               <TextInput
                 value={keyword}
                 onChangeText={setKeyword}
-                placeholder="名前で検索"
+                placeholder="名前・役割・ジャンルで検索"
                 placeholderTextColor={THEME.textMuted}
                 autoCapitalize="none"
                 style={styles.searchInput}
@@ -226,6 +254,31 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
                 <Text style={styles.clearBtnText}>クリア</Text>
               </Pressable>
             </View>
+
+            {availableGenres.length > 0 ? (
+              <View style={styles.sectionTop}>
+                <Text style={styles.sectionTitle}>ジャンル</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.genreRow}>
+                  <Chip
+                    label="すべて"
+                    selected={!selectedGenre}
+                    onPress={() => {
+                      setSelectedGenre(null)
+                    }}
+                  />
+                  {availableGenres.map((g) => (
+                    <Chip
+                      key={g}
+                      label={g}
+                      selected={normalize(selectedGenre ?? '') === normalize(g)}
+                      onPress={() => {
+                        setSelectedGenre((prev) => (normalize(prev ?? '') === normalize(g) ? null : g))
+                      }}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
 
             {renderHistory}
 
@@ -347,6 +400,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   historyRow: {
+    gap: 10,
+    paddingBottom: 2,
+  },
+  genreRow: {
     gap: 10,
     paddingBottom: 2,
   },

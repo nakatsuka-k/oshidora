@@ -12,7 +12,7 @@ type TabBarProps = {
 export function TabBar({ active, onPress }: TabBarProps) {
   const tabs: Array<{ key: TabKey; label: string }> = [
     { key: 'home', label: 'ホーム' },
-    { key: 'video', label: '動画' },
+    { key: 'video', label: '作品' },
     { key: 'cast', label: 'キャスト' },
     { key: 'search', label: '検索' },
     { key: 'mypage', label: 'マイページ' },

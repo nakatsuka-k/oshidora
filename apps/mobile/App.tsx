@@ -20,6 +20,7 @@ import {
 
 import {
   Chip,
+  ConfirmDialog,
   IconButton,
   NoticeBellButton,
   PaginationDots,
@@ -69,6 +70,7 @@ import {
   LogoutScreen,
   SplashScreen,
   SettingsScreen,
+  WithdrawalRequestScreen,
   NoticeListScreen,
   NoticeDetailScreen,
   ContactScreen,
@@ -110,13 +112,14 @@ type WorkDetailWork = {
   staff: Array<{ role: string; name: string }>
 }
 
-type WorkKey = 'doutcall' | 'mysteryX' | 'romanceY' | 'comedyZ'
+type WorkKey = 'doutcall' | 'mysteryX' | 'romanceY' | 'comedyZ' | 'actionW'
 
 const WORK_ID_ALIASES: Record<WorkKey, string[]> = {
   doutcall: ['content-1', 'p1', 'p2', 'p3', 'r1', 'f1', 'v1', 'v2', 'v3'],
   mysteryX: ['content-2', 'r2', 'f2', 'v4'],
   romanceY: ['content-3', 'r3', 'f3', 'v5'],
   comedyZ: ['content-4', 'r4'],
+  actionW: ['content-5', 'v7'],
 }
 
 function resolveWorkKeyById(id: string): WorkKey {
@@ -174,6 +177,7 @@ type Screen =
   | 'workDetail'
   | 'videoPlayer'
   | 'settings'
+  | 'withdrawalRequest'
   | 'logout'
 
 const WEB_DEFAULT_SCREEN: Screen = 'splash'
@@ -250,6 +254,8 @@ function screenToWebHash(screen: Screen): string {
       return '#/watch-history'
     case 'settings':
       return '#/settings'
+    case 'withdrawalRequest':
+      return '#/withdrawal'
     case 'logout':
       return '#/logout'
     case 'notice':
@@ -377,6 +383,8 @@ function webHashToScreen(hash: string): Screen {
       return 'watchHistory'
     case '/settings':
       return 'settings'
+    case '/withdrawal':
+      return 'withdrawalRequest'
     case '/logout':
       return 'logout'
     case '/notice':
@@ -480,6 +488,8 @@ function screenToDocumentTitle(
       return `${base} | 視聴履歴`
     case 'settings':
       return `${base} | 設定`
+    case 'withdrawalRequest':
+      return `${base} | 退会申請`
     case 'logout':
       return `${base} | ログアウト`
     case 'notice':
@@ -848,6 +858,7 @@ export default function App() {
   const [approvedComments, setApprovedComments] = useState<ApprovedComment[]>([])
   const [commentsBusy, setCommentsBusy] = useState(false)
   const [commentsError, setCommentsError] = useState('')
+  const [commentsExpanded, setCommentsExpanded] = useState(false)
 
   const [workReviewSummary, setWorkReviewSummary] = useState<{ ratingAvg: number; reviewCount: number } | null>(null)
   const [workReviewError, setWorkReviewError] = useState('')
@@ -1006,6 +1017,27 @@ export default function App() {
           { role: '制作プロダクション', name: 'Oshidora株式会社' },
         ],
       },
+      actionW: {
+        id: 'content-5',
+        title: 'アクションW',
+        subtitle: '止まらない追跡、迫るタイムリミット。',
+        tags: ['Action'],
+        rating: 4.3,
+        reviews: 37,
+        story:
+          'ある任務をきっかけに、主人公は巨大な陰謀へ巻き込まれていく。\n\n逃げるほど追われ、近づくほど危険になる。\nそれでも、真実を掴むために走り続ける。',
+        episodes: [
+          { id: '01', title: '第01話', priceCoin: 0 },
+          { id: '02', title: '第02話', priceCoin: 20 },
+          { id: '03', title: '第03話', priceCoin: 20 },
+        ],
+        staff: [
+          { role: '出演者', name: 'キャストW1' },
+          { role: '出演者', name: 'キャストW2' },
+          { role: '監督', name: '監督W' },
+          { role: '制作プロダクション', name: 'Oshidora株式会社' },
+        ],
+      },
     }),
     [mockWork]
   )
@@ -1106,26 +1138,17 @@ export default function App() {
     | null
   >(null)
 
-  const withdrawalUrl = useMemo(() => {
-    const env = process.env.EXPO_PUBLIC_WITHDRAWAL_URL
-    return env && env.trim().length > 0 ? env.trim() : ''
-  }, [])
-
-  const openWithdrawal = useCallback(async () => {
-    if (!withdrawalUrl) {
-      Alert.alert('退会申請', '退会申請リンクが未設定です。')
-      return
-    }
-    try {
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.open(withdrawalUrl, '_blank', 'noopener,noreferrer')
-        return
+  const [episodePurchaseDialog, setEpisodePurchaseDialog] = useState<
+    | {
+        episodeId: string
+        title: string
+        requiredCoins: number
       }
-      await Linking.openURL(withdrawalUrl)
-    } catch {
-      Alert.alert('退会申請', 'リンクを開けませんでした。')
-    }
-  }, [withdrawalUrl])
+    | null
+  >(null)
+  const [episodePurchaseBusy, setEpisodePurchaseBusy] = useState(false)
+  const [episodePurchaseError, setEpisodePurchaseError] = useState('')
+
 
   const purchaseEpisode = useCallback(
     async (episodeId: string, requiredCoins: number) => {
@@ -1149,41 +1172,23 @@ export default function App() {
       const key = `episode:${episodeId}`
       if (purchasedTargets.has(key)) return
 
-      if (ownedCoins < requiredCoins) {
-        Alert.alert('コインが不足しています', `必要コイン：${requiredCoins}\n所持コイン：${ownedCoins}`, [
-          { text: 'キャンセル', style: 'cancel' },
-          {
-            text: 'コイン購入へ',
-            onPress: () => {
-              setCoinGrantPrimaryReturnTo('workDetail')
-              setCoinGrantPrimaryLabel('動画を購入する')
-              goTo('coinPurchase')
-            },
-          },
-        ])
-        return
-      }
-
-      const after = ownedCoins - requiredCoins
-      Alert.alert('購入確認', `${title}\n\n必要コイン：${requiredCoins}\n所持コイン：${ownedCoins}\n購入後：${after}`, [
-        { text: 'キャンセル', style: 'cancel' },
-        {
-          text: '購入する',
-          onPress: () => {
-            void purchaseEpisode(episodeId, requiredCoins).catch((e) => {
-              Alert.alert('購入に失敗しました', e instanceof Error ? e.message : String(e))
-            })
-          },
-        },
-      ])
+      setEpisodePurchaseError('')
+      setEpisodePurchaseDialog({ episodeId, title, requiredCoins })
     },
-    [ownedCoins, purchaseEpisode, purchasedTargets]
+    [purchasedTargets]
   )
 
   const truncateCommentBody = useCallback((value: string) => {
     const v = String(value ?? '')
     if (v.length <= 50) return v
     return `${v.slice(0, 50)}...`
+  }, [])
+
+  const commentStarRating = useCallback((c: { id: string; author: string; body: string }): number => {
+    const seed = `${c.id}|${c.author}|${c.body}`
+    let sum = 0
+    for (let i = 0; i < seed.length; i++) sum = (sum + seed.charCodeAt(i) * (i + 1)) % 100000
+    return (sum % 5) + 1
   }, [])
 
   const [loginEmail, setLoginEmail] = useState<string>('')
@@ -1294,15 +1299,25 @@ export default function App() {
 
   useEffect(() => {
     if (screen !== 'workDetail') return
+    setCommentsExpanded(false)
     void fetchApprovedComments(workIdForDetail)
     void fetchWorkReviewSummary(workIdForDetail)
   }, [fetchApprovedComments, fetchWorkReviewSummary, screen, workIdForDetail])
 
   useEffect(() => {
     if (screen !== 'profile') return
-    if (!selectedCast) return
+    if (!selectedCast) {
+      setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
+      return
+    }
     void fetchCastReviewSummary(selectedCast.id)
-  }, [fetchCastReviewSummary, screen, selectedCast])
+  }, [fetchCastReviewSummary, mockProfile.id, mockProfile.name, screen, selectedCast])
+
+  useEffect(() => {
+    if (screen !== 'castReview') return
+    if (selectedCast) return
+    setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
+  }, [mockProfile.id, mockProfile.name, screen, selectedCast])
 
   const loadOshi = useCallback(async () => {
     setError('')
@@ -2052,7 +2067,20 @@ export default function App() {
             goTo('logout')
           }}
           onOpenWithdraw={() => {
-            void openWithdrawal()
+            if (!requireLogin('withdrawalRequest')) return
+            goTo('withdrawalRequest')
+          }}
+        />
+      ) : null}
+
+      {screen === 'withdrawalRequest' ? (
+        <WithdrawalRequestScreen
+          apiBaseUrl={apiBaseUrl}
+          authToken={authToken}
+          initialEmail={(userProfile.email || loginEmail || registerEmail || '').trim()}
+          onBack={goBack}
+          onDone={() => {
+            goTo('settings')
           }}
         />
       ) : null}
@@ -2377,6 +2405,9 @@ export default function App() {
               label="★"
               onPress={() => {
                 if (!requireLogin('castReview')) return
+                if (!selectedCast) {
+                  setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
+                }
                 goTo('castReview')
               }}
             />
@@ -2435,7 +2466,7 @@ export default function App() {
       {screen === 'castReview' && selectedCast ? (
         <StaffCastReviewScreen
           onBack={goBack}
-          cast={{ id: selectedCast.id, name: selectedCast.name, roleLabel: selectedCast.roleLabel }}
+          cast={{ id: selectedCast.id, name: selectedCast.name, roleLabel: selectedCast.roleLabel, profileImageUrl: null }}
           initial={{ rating: selectedCastReview?.rating ?? null, comment: selectedCastReview?.comment ?? null }}
           onSubmit={async ({ castId, rating, comment }) => {
             try {
@@ -2596,7 +2627,18 @@ export default function App() {
                       })
                       return
                     }
-                    // TODO: 再生処理（未実装）
+                    void upsertWatchHistory(watchHistoryUserKey, {
+                      id: `content:${workIdForDetail}:episode:${e.id}`,
+                      contentId: workIdForDetail,
+                      title: `${workForDetail.title} ${e.title}`,
+                      kind: 'エピソード',
+                      durationSeconds: 10 * 60,
+                      thumbnailUrl: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s`,
+                      lastPlayedAt: Date.now(),
+                    })
+                    setPlayerVideoIdNoSub(streamSampleVideoId)
+                    setPlayerVideoIdWithSub(null)
+                    goTo('videoPlayer')
                   }}
                 />
                   )
@@ -2651,17 +2693,22 @@ export default function App() {
 
               {commentsError ? <Text style={styles.loadNote}>取得に失敗しました（モック表示）</Text> : null}
 
-              {(commentsError ? mockApprovedComments : approvedComments).slice(0, 10).map((c) => (
+              {(commentsExpanded
+                ? (commentsError ? mockApprovedComments : approvedComments)
+                : (commentsError ? mockApprovedComments : approvedComments).slice(0, 10)
+              ).map((c) => (
                 <View key={c.id} style={styles.commentItem}>
                   <Text style={styles.commentAuthor} numberOfLines={1} ellipsizeMode="tail">
-                    {c.author}
+                    {c.author}  ★{commentStarRating(c)}
                   </Text>
                   <Text style={styles.commentBody}>{truncateCommentBody(c.body)}</Text>
                 </View>
               ))}
 
-              {(commentsError ? mockApprovedComments : approvedComments).length > 10 ? (
-                <Text style={styles.moreLink}>もっと見る</Text>
+              {!commentsExpanded && (commentsError ? mockApprovedComments : approvedComments).length > 10 ? (
+                <Pressable onPress={() => setCommentsExpanded(true)}>
+                  <Text style={styles.moreLink}>もっと見る</Text>
+                </Pressable>
               ) : null}
             </View>
 
@@ -2877,6 +2924,66 @@ export default function App() {
           onBack={goBack}
         />
       ) : null}
+
+      <ConfirmDialog
+        visible={!!episodePurchaseDialog}
+        title={ownedCoins < (episodePurchaseDialog?.requiredCoins ?? 0) ? 'コインが不足しています' : '購入確認'}
+        message={(() => {
+          if (!episodePurchaseDialog) return ''
+          const required = episodePurchaseDialog.requiredCoins
+          const after = ownedCoins - required
+          if (ownedCoins < required) {
+            return `${episodePurchaseDialog.title}\n\n必要コイン：${required}\n所持コイン：${ownedCoins}`
+          }
+          return `${episodePurchaseDialog.title}\n\n必要コイン：${required}\n所持コイン：${ownedCoins}\n購入後：${after}`
+        })()}
+        error={episodePurchaseError}
+        onRequestClose={() => {
+          if (episodePurchaseBusy) return
+          setEpisodePurchaseError('')
+          setEpisodePurchaseDialog(null)
+        }}
+        secondary={{
+          label: 'キャンセル',
+          disabled: episodePurchaseBusy,
+          onPress: () => {
+            setEpisodePurchaseError('')
+            setEpisodePurchaseDialog(null)
+          },
+        }}
+        primary={{
+          label:
+            ownedCoins < (episodePurchaseDialog?.requiredCoins ?? 0)
+              ? 'コイン購入へ'
+              : '購入する',
+          disabled: episodePurchaseBusy,
+          onPress: () => {
+            if (!episodePurchaseDialog) return
+            const required = episodePurchaseDialog.requiredCoins
+            if (ownedCoins < required) {
+              setEpisodePurchaseError('')
+              setEpisodePurchaseDialog(null)
+              setCoinGrantPrimaryReturnTo('workDetail')
+              setCoinGrantPrimaryLabel('動画を購入する')
+              goTo('coinPurchase')
+              return
+            }
+
+            void (async () => {
+              setEpisodePurchaseBusy(true)
+              setEpisodePurchaseError('')
+              try {
+                await purchaseEpisode(episodePurchaseDialog.episodeId, required)
+                setEpisodePurchaseDialog(null)
+              } catch (e) {
+                setEpisodePurchaseError(e instanceof Error ? e.message : String(e))
+              } finally {
+                setEpisodePurchaseBusy(false)
+              }
+            })()
+          },
+        }}
+      />
 
       <View pointerEvents="box-none" style={styles.devOverlayWrap}>
         {debugOverlayHidden ? null : (
