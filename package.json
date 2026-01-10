@@ -11,7 +11,7 @@
     "db:migrate:local": "npm --prefix apps/api run db:migrate:local",
     "db:migrate:remote": "npm --prefix apps/api run db:migrate:remote",
     "build:web": "npm -w apps/mobile run export:web",
-    "build:admin": "node -e \"console.log('No build for admin (static)')\"",
+    "build:admin": "npm --prefix apps/admin run export:web",
     "deploy:admin": "./apps/api/node_modules/.bin/wrangler pages deploy apps/admin/dist --project-name oshidora-admin --branch main --commit-dirty=true --commit-message \"Deploy admin\""
   }
 }

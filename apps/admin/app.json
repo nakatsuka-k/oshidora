@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "admin",
+    "slug": "admin",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "icon": "../mobile/assets/icon.png",
+    "splash": {
+      "image": "../mobile/assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "web": {
+      "favicon": "../mobile/assets/favicon.png"
+    }
+  }
+}

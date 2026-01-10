@@ -177,12 +177,12 @@ Web版は `apps/mobile/dist/_worker.js` を使って Cloudflare Pages へデプ�
 
 ## 管理画面 (admin.oshidra.com)
 
-管理画面（CMS）のログイン画面は静的サイトとして [apps/admin/dist](apps/admin/dist) に配置しています。
+管理画面（CMS）は Expo（React Native Web）で実装し、`expo export` の静的出力を [apps/admin/dist](apps/admin/dist) に生成します。
 
 ### Cloudflare Pages（別プロジェクト推奨）
 
 - Pages project name: `oshidora-admin`（例）
-- Build command: なし（または `echo ok`）
+- Build command: `npm ci && npm run build:admin`
 - Build output directory: `apps/admin/dist`
 
 DNS:
@@ -195,6 +195,7 @@ CLIデプロイ例（wrangler利用）:
 
 ```bash
 npm ci
+npm run build:admin
 npm run deploy:admin
 ```
 
