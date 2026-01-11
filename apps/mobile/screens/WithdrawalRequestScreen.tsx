@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type Props = {
   apiBaseUrl: string
@@ -29,7 +30,7 @@ export function WithdrawalRequestScreen({ apiBaseUrl, authToken, initialEmail, o
     setError('')
     setBusy(true)
     try {
-      const res = await fetch(`${apiBaseUrl}/v1/withdrawal-requests`, {
+      const res = await apiFetch(`${apiBaseUrl}/v1/withdrawal-requests`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',

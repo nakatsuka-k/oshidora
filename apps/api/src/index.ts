@@ -104,12 +104,37 @@ async function makeStreamSignedToken(params: {
 
 const app = new Hono<Env>()
 
+// In local dev we sometimes don't set AUTH_JWT_SECRET. When debug codes are enabled, we fall back to
+// an in-memory secret so login can proceed (tokens become invalid after server restart).
+const DEV_FALLBACK_JWT_SECRET = crypto.randomUUID()
+
+function isMockRequest(c: any) {
+  // Safety: only allow mock mode when explicitly enabled for debugging.
+  if (!shouldReturnDebugCodes(c.env)) return false
+  const h = String(c.req.header('x-mock') ?? '').trim().toLowerCase()
+  if (h === '1' || h === 'true') return true
+  const q = String(c.req.query('mock') ?? '').trim().toLowerCase()
+  return q === '1' || q === 'true'
+}
+
+function getAuthJwtSecret(env: Env['Bindings']): string | null {
+  const explicit = String(env.AUTH_JWT_SECRET ?? '').trim()
+  if (explicit) return explicit
+  if (shouldReturnDebugCodes(env)) return DEV_FALLBACK_JWT_SECRET
+  return null
+}
+
+const MOCK_CMS_FEATURED_SLOTS: Record<string, string[]> = {
+  recommend: [],
+  pickup: [],
+}
+
 app.use(
   '*',
   cors({
     origin: '*',
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Key'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Key', 'X-Mock'],
     maxAge: 86400,
   })
 )
@@ -119,6 +144,19 @@ app.get('/health', (c) => c.text('ok'))
 // ---- CMS (Admin) ----
 
 app.post('/cms/auth/login', async (c) => {
+  if (isMockRequest(c)) {
+    const token = await makeJwtHs256(DEV_FALLBACK_JWT_SECRET, {
+      kind: 'cms',
+      role: 'Admin',
+      adminId: 'mock-admin',
+      email: 'mock-admin@example.com',
+      name: 'Mock Admin',
+      stage: 'cms',
+      userId: 'mock-admin',
+    })
+    return c.json({ token, mock: true })
+  }
+
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
   const db = c.env.DB as D1Database
 
@@ -147,7 +185,7 @@ app.post('/cms/auth/login', async (c) => {
   const ok = await verifyPassword(password, String(row.password_salt ?? ''), String(row.password_hash ?? ''))
   if (!ok) return c.json({ error: 'メールアドレスまたはパスワードが違います' }, 401)
 
-  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  const secret = getAuthJwtSecret(c.env)
   if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
 
   const token = await makeJwtHs256(secret, {
@@ -297,6 +335,789 @@ app.put('/cms/tags/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// Notices (CMS)
+app.get('/cms/notices', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: [
+        { id: 'N0001', subject: 'メンテナンスのお知らせ', body: '本文', sentAt: '2026-01-12 03:00', status: 'scheduled', push: true, createdAt: '', updatedAt: '' },
+        { id: 'N0002', subject: '新作公開', body: '本文', sentAt: '2026-01-10 12:00', status: 'sent', push: false, createdAt: '', updatedAt: '' },
+      ],
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(
+      db,
+      `SELECT id, subject, body, sent_at, status, push, created_at, updated_at
+       FROM notices
+       ORDER BY (sent_at = '') ASC, sent_at DESC, created_at DESC`
+    )
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        subject: String(r.subject ?? ''),
+        body: String(r.body ?? ''),
+        sentAt: String(r.sent_at ?? ''),
+        status: String(r.status ?? 'draft'),
+        push: Number(r.push ?? 0) === 1,
+        createdAt: String(r.created_at ?? ''),
+        updatedAt: String(r.updated_at ?? ''),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/cms/notices/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ item: { id, subject: `(${id}) お知らせ件名`, body: '', sentAt: '', status: 'draft', push: false } })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(db, 'SELECT id, subject, body, sent_at, status, push, created_at, updated_at FROM notices WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        subject: String((row as any).subject ?? ''),
+        body: String((row as any).body ?? ''),
+        sentAt: String((row as any).sent_at ?? ''),
+        status: String((row as any).status ?? 'draft'),
+        push: Number((row as any).push ?? 0) === 1,
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/notices', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { subject?: unknown; body?: unknown; sentAt?: unknown; status?: unknown; push?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const subject = clampText(body.subject, 120)
+  const text = body.body === undefined ? '' : String(body.body ?? '')
+  const sentAt = body.sentAt === undefined ? '' : clampText(body.sentAt, 40)
+  const status = body.status === undefined ? 'draft' : clampText(body.status, 20)
+  const push = body.push === undefined ? 0 : parseBool01(body.push)
+  if (!subject) return c.json({ error: 'subject is required' }, 400)
+
+  const db = c.env.DB as D1Database
+  const id = uuidOrFallback('notice')
+  const now = nowIso()
+  try {
+    await db
+      .prepare('INSERT INTO notices (id, subject, body, sent_at, status, push, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, subject, text, sentAt, status, push, now, now)
+      .run()
+    return c.json({ ok: true, id })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.put('/cms/notices/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { subject?: unknown; body?: unknown; sentAt?: unknown; status?: unknown; push?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const subject = body.subject === undefined ? null : clampText(body.subject, 120)
+  const text = body.body === undefined ? null : String(body.body ?? '')
+  const sentAt = body.sentAt === undefined ? null : clampText(body.sentAt, 40)
+  const status = body.status === undefined ? null : clampText(body.status, 20)
+  const push = body.push === undefined ? null : parseBool01(body.push)
+  const updatedAt = nowIso()
+
+  try {
+    await db
+      .prepare(
+        'UPDATE notices SET subject = COALESCE(?, subject), body = COALESCE(?, body), sent_at = COALESCE(?, sent_at), status = COALESCE(?, status), push = COALESCE(?, push), updated_at = ? WHERE id = ?'
+      )
+      .bind(subject, text, sentAt, status, push, updatedAt, id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Coin settings (CMS)
+app.get('/cms/coin-settings', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: [
+        { id: 'COIN001', priceYen: 480, place: 'アプリ', target: '全ユーザー', period: '常時', createdAt: '', updatedAt: '' },
+        { id: 'COIN002', priceYen: 1200, place: 'アプリ', target: '全ユーザー', period: '常時', createdAt: '', updatedAt: '' },
+      ],
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(db, 'SELECT id, price_yen, place, target, period, created_at, updated_at FROM coin_settings ORDER BY price_yen ASC, created_at DESC')
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        priceYen: Number(r.price_yen ?? 0),
+        place: String(r.place ?? ''),
+        target: String(r.target ?? ''),
+        period: String(r.period ?? ''),
+        createdAt: String(r.created_at ?? ''),
+        updatedAt: String(r.updated_at ?? ''),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/cms/coin-settings/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ item: { id, priceYen: 480, place: 'アプリ', target: '全ユーザー', period: '常時' } })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(db, 'SELECT id, price_yen, place, target, period, created_at, updated_at FROM coin_settings WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        priceYen: Number((row as any).price_yen ?? 0),
+        place: String((row as any).place ?? ''),
+        target: String((row as any).target ?? ''),
+        period: String((row as any).period ?? ''),
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/coin-settings', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { priceYen?: unknown; place?: unknown; target?: unknown; period?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const priceYen = Math.max(0, Math.floor(Number(body.priceYen ?? 0)))
+  const place = clampText(body.place, 40)
+  const target = clampText(body.target, 40)
+  const period = clampText(body.period, 80)
+  if (!Number.isFinite(priceYen) || priceYen <= 0) return c.json({ error: 'priceYen is required' }, 400)
+
+  const id = uuidOrFallback('coin')
+  const now = nowIso()
+  try {
+    await db
+      .prepare('INSERT INTO coin_settings (id, price_yen, place, target, period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, priceYen, place || '', target || '', period || '', now, now)
+      .run()
+    return c.json({ ok: true, id })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.put('/cms/coin-settings/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { priceYen?: unknown; place?: unknown; target?: unknown; period?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const priceYen = body.priceYen === undefined ? null : Math.max(0, Math.floor(Number(body.priceYen ?? 0)))
+  const place = body.place === undefined ? null : clampText(body.place, 40)
+  const target = body.target === undefined ? null : clampText(body.target, 40)
+  const period = body.period === undefined ? null : clampText(body.period, 80)
+  const updatedAt = nowIso()
+
+  try {
+    await db
+      .prepare('UPDATE coin_settings SET price_yen = COALESCE(?, price_yen), place = COALESCE(?, place), target = COALESCE(?, target), period = COALESCE(?, period), updated_at = ? WHERE id = ?')
+      .bind(priceYen, place, target, period, updatedAt, id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Admin accounts (CMS)
+app.get('/cms/admins', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ items: [{ id: 'A0001', name: '運営管理者', email: 'admin@example.com', role: 'Admin', disabled: false, createdAt: '', updatedAt: '' }] })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(db, 'SELECT id, email, name, role, disabled, created_at, updated_at FROM cms_admins ORDER BY created_at DESC')
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        email: String(r.email ?? ''),
+        name: String(r.name ?? ''),
+        role: String(r.role ?? 'Admin'),
+        disabled: Number(r.disabled ?? 0) === 1,
+        createdAt: String(r.created_at ?? ''),
+        updatedAt: String(r.updated_at ?? ''),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/cms/admins/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ item: { id, name: '運営管理者', email: 'admin@example.com', role: 'Admin', disabled: false } })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(db, 'SELECT id, email, name, role, disabled, created_at, updated_at FROM cms_admins WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        email: String((row as any).email ?? ''),
+        name: String((row as any).name ?? ''),
+        role: String((row as any).role ?? 'Admin'),
+        disabled: Number((row as any).disabled ?? 0) === 1,
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/admins', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { email?: unknown; name?: unknown; role?: unknown; password?: unknown; disabled?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = clampText(body.email, 120)
+  const name = clampText(body.name, 80)
+  const role = body.role === undefined ? 'Admin' : clampText(body.role, 30)
+  const password = clampText(body.password, 200)
+  const disabled = body.disabled === undefined ? 0 : parseBool01(body.disabled)
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (!name) return c.json({ error: 'name is required' }, 400)
+  if (!password) return c.json({ error: 'password is required' }, 400)
+
+  const { saltB64, hashB64 } = await hashPasswordForStorage(password)
+  const id = uuidOrFallback('admin')
+  const now = nowIso()
+  try {
+    await c.env.DB
+      .prepare('INSERT INTO cms_admins (id, email, name, role, password_hash, password_salt, disabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, email, name, role || 'Admin', hashB64, saltB64, disabled, now, now)
+      .run()
+    return c.json({ ok: true, id })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.put('/cms/admins/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { email?: unknown; name?: unknown; role?: unknown; password?: unknown; disabled?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = body.email === undefined ? null : clampText(body.email, 120)
+  const name = body.name === undefined ? null : clampText(body.name, 80)
+  const role = body.role === undefined ? null : clampText(body.role, 30)
+  const disabled = body.disabled === undefined ? null : parseBool01(body.disabled)
+  const password = body.password === undefined ? null : clampText(body.password, 200)
+  const updatedAt = nowIso()
+
+  try {
+    if (password) {
+      const { saltB64, hashB64 } = await hashPasswordForStorage(password)
+      await db
+        .prepare(
+          'UPDATE cms_admins SET email = COALESCE(?, email), name = COALESCE(?, name), role = COALESCE(?, role), disabled = COALESCE(?, disabled), password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?'
+        )
+        .bind(email, name, role, disabled, hashB64, saltB64, updatedAt, id)
+        .run()
+    } else {
+      await db
+        .prepare('UPDATE cms_admins SET email = COALESCE(?, email), name = COALESCE(?, name), role = COALESCE(?, role), disabled = COALESCE(?, disabled), updated_at = ? WHERE id = ?')
+        .bind(email, name, role, disabled, updatedAt, id)
+        .run()
+    }
+
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Users (CMS)
+app.get('/cms/users', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  const q = normalizeQuery(String(c.req.query('q') ?? ''))
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: [
+        { id: 'U0001', email: 'usera@example.com', emailVerified: true, phone: '', phoneVerified: false, createdAt: '2026-01-10T00:00:00.000Z' },
+        { id: 'U0002', email: 'castb@example.com', emailVerified: false, phone: '', phoneVerified: false, createdAt: '2026-01-09T00:00:00.000Z' },
+      ].filter((u) => (!q ? true : normalizeQuery(u.email).includes(q))),
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = q
+      ? await d1All(
+          db,
+          `SELECT id, email, email_verified, phone, phone_verified, created_at, updated_at
+           FROM users
+           WHERE lower(email) LIKE ?
+           ORDER BY created_at DESC
+           LIMIT 200`,
+          [`%${q}%`]
+        )
+      : await d1All(
+          db,
+          `SELECT id, email, email_verified, phone, phone_verified, created_at, updated_at
+           FROM users
+           ORDER BY created_at DESC
+           LIMIT 200`
+        )
+
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        email: String(r.email ?? ''),
+        emailVerified: Number(r.email_verified ?? 0) === 1,
+        phone: r.phone === null || r.phone === undefined ? '' : String(r.phone ?? ''),
+        phoneVerified: Number(r.phone_verified ?? 0) === 1,
+        createdAt: String(r.created_at ?? ''),
+        updatedAt: String(r.updated_at ?? ''),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/cms/users/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ item: { id, email: 'user@example.com', emailVerified: true, phone: '', phoneVerified: false, createdAt: '', updatedAt: '' } })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(db, 'SELECT id, email, email_verified, phone, phone_verified, created_at, updated_at FROM users WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        email: String((row as any).email ?? ''),
+        emailVerified: Number((row as any).email_verified ?? 0) === 1,
+        phone: (row as any).phone === null || (row as any).phone === undefined ? '' : String((row as any).phone ?? ''),
+        phoneVerified: Number((row as any).phone_verified ?? 0) === 1,
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Comments moderation (CMS)
+app.get('/cms/comments', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  const status = String(c.req.query('status') ?? '').trim()
+
+  if (isMockRequest(c) || !c.env.DB) {
+    const base = [
+      { id: 'C0001', contentId: 'content-1', contentTitle: '作品A', episodeId: '1', author: '匿名', body: 'めちゃくちゃ続きが気になる…！', createdAt: '2026-01-10T12:00:00.000Z', status: 'pending', deleted: false },
+      { id: 'C0009', contentId: 'content-2', contentTitle: '作品B', episodeId: '2', author: 'ユーザーB', body: 'ラストの展開が予想外で鳥肌…！！！', createdAt: '2026-01-09T10:15:00.000Z', status: 'approved', deleted: false },
+    ]
+    return c.json({ items: status ? base.filter((c) => c.status === status) : base })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const binds: any[] = []
+    let where = 'WHERE c.deleted = 0'
+    if (status) {
+      where += ' AND c.status = ?'
+      binds.push(status)
+    }
+
+    const rows = await d1All(
+      db,
+      `SELECT c.id, c.content_id, c.episode_id, c.author, c.body, c.status, c.created_at, c.approved_at, c.deleted, c.moderation_note, c.moderated_at,
+              COALESCE(w.title, '') AS content_title
+       FROM comments c
+       LEFT JOIN works w ON w.id = c.content_id
+       ${where}
+       ORDER BY c.created_at DESC
+       LIMIT 200`,
+      binds
+    )
+
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        contentId: String(r.content_id ?? ''),
+        contentTitle: String(r.content_title ?? ''),
+        episodeId: r.episode_id === null || r.episode_id === undefined ? '' : String(r.episode_id ?? ''),
+        author: String(r.author ?? ''),
+        body: String(r.body ?? ''),
+        status: String(r.status ?? ''),
+        createdAt: String(r.created_at ?? ''),
+        approvedAt: r.approved_at === null || r.approved_at === undefined ? null : String(r.approved_at ?? ''),
+        deleted: Number(r.deleted ?? 0) === 1,
+        moderationNote: String(r.moderation_note ?? ''),
+        moderatedAt: r.moderated_at === null || r.moderated_at === undefined ? null : String(r.moderated_at ?? ''),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/cms/comments/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ item: { id, contentId: 'content-1', contentTitle: '作品A', episodeId: '1', author: '匿名', body: '本文', status: 'pending', createdAt: '', moderationNote: '' } })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(
+      db,
+      `SELECT c.id, c.content_id, c.episode_id, c.author, c.body, c.status, c.created_at, c.approved_at, c.deleted, c.moderation_note, c.moderated_at,
+              COALESCE(w.title, '') AS content_title
+       FROM comments c
+       LEFT JOIN works w ON w.id = c.content_id
+       WHERE c.id = ?
+       LIMIT 1`,
+      [id]
+    )
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        contentId: String((row as any).content_id ?? ''),
+        contentTitle: String((row as any).content_title ?? ''),
+        episodeId: (row as any).episode_id === null || (row as any).episode_id === undefined ? '' : String((row as any).episode_id ?? ''),
+        author: String((row as any).author ?? ''),
+        body: String((row as any).body ?? ''),
+        status: String((row as any).status ?? ''),
+        createdAt: String((row as any).created_at ?? ''),
+        approvedAt: (row as any).approved_at === null || (row as any).approved_at === undefined ? null : String((row as any).approved_at ?? ''),
+        deleted: Number((row as any).deleted ?? 0) === 1,
+        moderationNote: String((row as any).moderation_note ?? ''),
+        moderatedAt: (row as any).moderated_at === null || (row as any).moderated_at === undefined ? null : String((row as any).moderated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/comments/:id/approve', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { note?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const note = body.note === undefined ? '' : clampText(body.note, 500)
+  const now = nowIso()
+  try {
+    await c.env.DB
+      .prepare("UPDATE comments SET status = 'approved', approved_at = ?, moderation_note = ?, moderated_at = ?, moderated_by_admin_id = ? WHERE id = ?")
+      .bind(now, note, now, (admin as any).adminId ?? '', id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/comments/:id/reject', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { note?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const note = body.note === undefined ? '' : clampText(body.note, 500)
+  const now = nowIso()
+  try {
+    await c.env.DB
+      .prepare("UPDATE comments SET status = 'rejected', approved_at = NULL, moderation_note = ?, moderated_at = ?, moderated_by_admin_id = ? WHERE id = ?")
+      .bind(note, now, (admin as any).adminId ?? '', id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.put('/cms/comments/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { status?: unknown; deleted?: unknown; note?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const status = body.status === undefined ? null : clampText(body.status, 20)
+  const deleted = body.deleted === undefined ? null : parseBool01(body.deleted)
+  const note = body.note === undefined ? null : clampText(body.note, 500)
+  const now = nowIso()
+
+  try {
+    await c.env.DB
+      .prepare(
+        'UPDATE comments SET status = COALESCE(?, status), deleted = COALESCE(?, deleted), moderation_note = COALESCE(?, moderation_note), moderated_at = ?, moderated_by_admin_id = ? WHERE id = ?'
+      )
+      .bind(status, deleted, note, now, (admin as any).adminId ?? '', id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Inquiries (CMS)
+app.get('/cms/inquiries', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ items: [{ id: 'IQ0001', subject: 'お問い合わせ（サンプル）', status: 'open', createdAt: '2026-01-10T00:00:00.000Z' }] })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(db, 'SELECT id, subject, status, created_at, updated_at FROM inquiries ORDER BY created_at DESC LIMIT 200')
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        subject: String(r.subject ?? ''),
+        status: String(r.status ?? 'open'),
+        createdAt: String(r.created_at ?? ''),
+        updatedAt: String(r.updated_at ?? ''),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/cms/inquiries/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ item: { id, subject: 'お問い合わせ（サンプル）', body: '本文', status: 'open', createdAt: '', updatedAt: '' } })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(db, 'SELECT id, subject, body, status, created_at, updated_at FROM inquiries WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        subject: String((row as any).subject ?? ''),
+        body: String((row as any).body ?? ''),
+        status: String((row as any).status ?? 'open'),
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.put('/cms/inquiries/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { status?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const status = body.status === undefined ? null : clampText(body.status, 20)
+  const updatedAt = nowIso()
+  try {
+    await c.env.DB.prepare('UPDATE inquiries SET status = COALESCE(?, status), updated_at = ? WHERE id = ?').bind(status, updatedAt, id).run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Settings (CMS)
+app.get('/cms/settings', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ maintenanceMode: false, maintenanceMessage: '' })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(db, 'SELECT key, value FROM app_settings')
+    const map = new Map<string, string>()
+    for (const r of rows) map.set(String((r as any).key ?? ''), String((r as any).value ?? ''))
+    return c.json({
+      maintenanceMode: map.get('maintenance_mode') === '1',
+      maintenanceMessage: map.get('maintenance_message') ?? '',
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.put('/cms/settings', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { maintenanceMode?: unknown; maintenanceMessage?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const maintenanceMode = body.maintenanceMode === undefined ? null : parseBool01(body.maintenanceMode)
+  const maintenanceMessage = body.maintenanceMessage === undefined ? null : clampText(body.maintenanceMessage, 500)
+  const now = nowIso()
+
+  try {
+    if (maintenanceMode !== null) {
+      await db
+        .prepare(
+          'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+        )
+        .bind('maintenance_mode', maintenanceMode ? '1' : '0', now)
+        .run()
+    }
+    if (maintenanceMessage !== null) {
+      await db
+        .prepare(
+          'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+        )
+        .bind('maintenance_message', maintenanceMessage, now)
+        .run()
+    }
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
 // Casts
 app.get('/cms/casts', async (c) => {
   const admin = await requireCmsAdmin(c)
@@ -321,6 +1142,96 @@ app.get('/cms/casts', async (c) => {
     updatedAt: String(r.updated_at ?? ''),
   }))
   return c.json({ items })
+})
+
+app.get('/cms/casts/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  let row: any = null
+  try {
+    row = await d1First(db, 'SELECT id, name, role, thumbnail_url, created_at, updated_at FROM casts WHERE id = ?', [id])
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  if (!row) return c.json({ error: 'not_found' }, 404)
+
+  let favoritesCount = 0
+  let worksCount = 0
+  let videosCount = 0
+  let works: any[] = []
+  let videos: any[] = []
+
+  try {
+    const [favRow, workCountRow, videoCountRow, workRows, videoRows] = await Promise.all([
+      d1First(db, 'SELECT COUNT(*) AS cnt FROM favorite_casts WHERE cast_id = ?', [id]),
+      d1First(db, 'SELECT COUNT(*) AS cnt FROM work_casts WHERE cast_id = ?', [id]),
+      d1First(db, 'SELECT COUNT(*) AS cnt FROM video_casts WHERE cast_id = ?', [id]),
+      d1All(
+        db,
+        `SELECT w.id, w.title, wc.role_name
+         FROM work_casts wc
+         JOIN works w ON w.id = wc.work_id
+         WHERE wc.cast_id = ?
+         ORDER BY wc.sort_order ASC, w.created_at DESC
+         LIMIT 50`,
+        [id]
+      ),
+      d1All(
+        db,
+        `SELECT v.id, v.title, v.work_id, COALESCE(w.title, '') AS work_title, vc.role_name
+         FROM video_casts vc
+         JOIN videos v ON v.id = vc.video_id
+         LEFT JOIN works w ON w.id = v.work_id
+         WHERE vc.cast_id = ?
+         ORDER BY vc.sort_order ASC, v.created_at DESC
+         LIMIT 50`,
+        [id]
+      ),
+    ])
+
+    favoritesCount = Number((favRow as any)?.cnt ?? 0)
+    worksCount = Number((workCountRow as any)?.cnt ?? 0)
+    videosCount = Number((videoCountRow as any)?.cnt ?? 0)
+    works = Array.isArray(workRows) ? workRows : []
+    videos = Array.isArray(videoRows) ? videoRows : []
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({
+    item: {
+      id: String(row.id ?? ''),
+      name: String(row.name ?? ''),
+      role: String(row.role ?? ''),
+      thumbnailUrl: String(row.thumbnail_url ?? ''),
+      createdAt: String(row.created_at ?? ''),
+      updatedAt: String(row.updated_at ?? ''),
+    },
+    stats: {
+      favoritesCount,
+      worksCount,
+      videosCount,
+    },
+    works: works.map((r) => ({
+      id: String(r.id ?? ''),
+      title: String(r.title ?? ''),
+      roleName: String(r.role_name ?? ''),
+    })),
+    videos: videos.map((r) => ({
+      id: String(r.id ?? ''),
+      title: String(r.title ?? ''),
+      workId: String(r.work_id ?? ''),
+      workTitle: String(r.work_title ?? ''),
+      roleName: String(r.role_name ?? ''),
+    })),
+  })
 })
 
 app.post('/cms/casts', async (c) => {
@@ -770,6 +1681,225 @@ app.put('/cms/videos/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// ---- CMS: Featured videos (Recommend/Pickup slots) ----
+
+function isValidFeaturedSlot(slot: string) {
+  if (!slot) return false
+  if (slot.length > 40) return false
+  return /^[a-z0-9_-]+$/i.test(slot)
+}
+
+app.get('/cms/featured/videos', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  const slot = String(c.req.query('slot') ?? '').trim().toLowerCase()
+  if (!isValidFeaturedSlot(slot)) return c.json({ error: 'slot is required' }, 400)
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(
+      db,
+      `SELECT
+         fv.video_id AS id,
+         fv.sort_order AS sort_order,
+         v.work_id AS work_id,
+         COALESCE(w.title, '') AS work_title,
+         v.title AS title,
+         v.thumbnail_url AS thumbnail_url,
+         COALESCE((SELECT group_concat(DISTINCT c.name)
+                   FROM video_casts vc
+                   JOIN casts c ON c.id = vc.cast_id
+                   WHERE vc.video_id = v.id), '') AS cast_names,
+         COALESCE((SELECT group_concat(DISTINCT cat.name)
+                   FROM video_categories vcat
+                   JOIN categories cat ON cat.id = vcat.category_id
+                   WHERE vcat.video_id = v.id), '') AS category_names,
+         COALESCE((SELECT group_concat(DISTINCT t.name)
+                   FROM video_tags vt
+                   JOIN tags t ON t.id = vt.tag_id
+                   WHERE vt.video_id = v.id), '') AS tag_names
+       FROM cms_featured_videos fv
+       JOIN videos v ON v.id = fv.video_id
+       LEFT JOIN works w ON w.id = v.work_id
+       WHERE fv.slot = ?
+       ORDER BY fv.sort_order ASC, fv.created_at ASC`,
+      [slot]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({
+    slot,
+    items: rows.map((r) => ({
+      id: String(r.id ?? ''),
+      sortOrder: Number(r.sort_order ?? 0),
+      workId: String(r.work_id ?? ''),
+      workTitle: String(r.work_title ?? ''),
+      title: String(r.title ?? ''),
+      thumbnailUrl: String(r.thumbnail_url ?? ''),
+      castNames: String(r.cast_names ?? ''),
+      categoryNames: String(r.category_names ?? ''),
+      tagNames: String(r.tag_names ?? ''),
+    })),
+  })
+})
+
+app.post('/cms/featured/videos', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  const slot = String(c.req.query('slot') ?? '').trim().toLowerCase()
+  if (!isValidFeaturedSlot(slot)) return c.json({ error: 'slot is required' }, 400)
+
+  type Body = { videoIds?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  if (!Array.isArray(body.videoIds)) return c.json({ error: 'videoIds must be an array' }, 400)
+
+  const videoIds = Array.from(
+    new Set(
+      body.videoIds
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean)
+    )
+  )
+
+  if (videoIds.length > 200) return c.json({ error: 'too_many_items' }, 400)
+
+  const createdAt = nowIso()
+  try {
+    await db.prepare('DELETE FROM cms_featured_videos WHERE slot = ?').bind(slot).run()
+    for (let i = 0; i < videoIds.length; i++) {
+      const vid = videoIds[i]
+      await db
+        .prepare('INSERT INTO cms_featured_videos (slot, video_id, sort_order, created_at) VALUES (?, ?, ?, ?)')
+        .bind(slot, vid, i, createdAt)
+        .run()
+    }
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true, slot, count: videoIds.length })
+})
+
+// Search videos by title / cast / category / tag
+app.get('/cms/videos/search', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  const q = String(c.req.query('q') ?? '').trim()
+  const cast = String(c.req.query('cast') ?? '').trim()
+  const category = String(c.req.query('category') ?? '').trim()
+  const tag = String(c.req.query('tag') ?? '').trim()
+
+  const limitRaw = String(c.req.query('limit') ?? '').trim()
+  const limitParsed = limitRaw ? Number.parseInt(limitRaw, 10) : 50
+  const limit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 200) : 50
+
+  const where: string[] = ['1=1']
+  const binds: any[] = []
+
+  if (q) {
+    const like = `%${q}%`
+    where.push('(v.title LIKE ? OR w.title LIKE ?)')
+    binds.push(like, like)
+  }
+  if (cast) {
+    const like = `%${cast}%`
+    where.push(
+      `EXISTS (
+         SELECT 1
+         FROM video_casts vc
+         JOIN casts c ON c.id = vc.cast_id
+         WHERE vc.video_id = v.id AND c.name LIKE ?
+       )`
+    )
+    binds.push(like)
+  }
+  if (category) {
+    const like = `%${category}%`
+    where.push(
+      `EXISTS (
+         SELECT 1
+         FROM video_categories vcat
+         JOIN categories cat ON cat.id = vcat.category_id
+         WHERE vcat.video_id = v.id AND cat.name LIKE ?
+       )`
+    )
+    binds.push(like)
+  }
+  if (tag) {
+    const like = `%${tag}%`
+    where.push(
+      `EXISTS (
+         SELECT 1
+         FROM video_tags vt
+         JOIN tags t ON t.id = vt.tag_id
+         WHERE vt.video_id = v.id AND t.name LIKE ?
+       )`
+    )
+    binds.push(like)
+  }
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(
+      db,
+      `SELECT
+         v.id AS id,
+         v.work_id AS work_id,
+         COALESCE(w.title, '') AS work_title,
+         v.title AS title,
+         v.thumbnail_url AS thumbnail_url,
+         COALESCE((SELECT group_concat(DISTINCT c.name)
+                   FROM video_casts vc
+                   JOIN casts c ON c.id = vc.cast_id
+                   WHERE vc.video_id = v.id), '') AS cast_names,
+         COALESCE((SELECT group_concat(DISTINCT cat.name)
+                   FROM video_categories vcat
+                   JOIN categories cat ON cat.id = vcat.category_id
+                   WHERE vcat.video_id = v.id), '') AS category_names,
+         COALESCE((SELECT group_concat(DISTINCT t.name)
+                   FROM video_tags vt
+                   JOIN tags t ON t.id = vt.tag_id
+                   WHERE vt.video_id = v.id), '') AS tag_names
+       FROM videos v
+       LEFT JOIN works w ON w.id = v.work_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY v.created_at DESC
+       LIMIT ?`,
+      [...binds, limit]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({
+    items: rows.map((r) => ({
+      id: String(r.id ?? ''),
+      workId: String(r.work_id ?? ''),
+      workTitle: String(r.work_title ?? ''),
+      title: String(r.title ?? ''),
+      thumbnailUrl: String(r.thumbnail_url ?? ''),
+      castNames: String(r.cast_names ?? ''),
+      categoryNames: String(r.category_names ?? ''),
+      tagNames: String(r.tag_names ?? ''),
+    })),
+    limit,
+  })
+})
+
 // ---- CMS: Unapproved videos (future workflow; implemented minimally) ----
 
 app.get('/cms/videos/unapproved', async (c) => {
@@ -801,6 +1931,148 @@ app.get('/cms/videos/unapproved', async (c) => {
   }))
 
   return c.json({ items })
+})
+
+// ---- CMS: Unapproved cast profile requests (individual actor registration review) ----
+app.get('/cms/cast-profiles/unapproved', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: [
+        {
+          id: 'CPR0001',
+          name: '俳優 太郎',
+          email: 'actor@example.com',
+          submittedAt: '2026-01-10T00:00:00.000Z',
+          status: 'pending',
+        },
+      ],
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(
+      db,
+      "SELECT id, name, email, submitted_at, status FROM cast_profile_requests WHERE status = 'pending' ORDER BY submitted_at DESC LIMIT 200"
+    )
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        name: String(r.name ?? ''),
+        email: String(r.email ?? ''),
+        submittedAt: String(r.submitted_at ?? ''),
+        status: String(r.status ?? 'pending'),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/cms/cast-profiles/unapproved/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      item: {
+        id,
+        name: '俳優 太郎',
+        email: 'actor@example.com',
+        submittedAt: '2026-01-10T00:00:00.000Z',
+        status: 'pending',
+        draft: { genres: ['俳優'], affiliation: 'フリー', biography: '', representativeWorks: '', socialLinks: [], selfPr: '' },
+        rejectionReason: '',
+      },
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(
+      db,
+      'SELECT id, name, email, draft_json, submitted_at, status, rejection_reason FROM cast_profile_requests WHERE id = ? LIMIT 1',
+      [id]
+    )
+    if (!row) return c.json({ error: 'not_found' }, 404)
+
+    let draft: unknown = null
+    try {
+      draft = (row as any).draft_json ? JSON.parse(String((row as any).draft_json)) : null
+    } catch {
+      draft = null
+    }
+
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        name: String((row as any).name ?? ''),
+        email: String((row as any).email ?? ''),
+        submittedAt: String((row as any).submitted_at ?? ''),
+        status: String((row as any).status ?? 'pending'),
+        draft,
+        rejectionReason: String((row as any).rejection_reason ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/cast-profiles/unapproved/:id/approve', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  const now = nowIso()
+  try {
+    await c.env.DB
+      .prepare(
+        "UPDATE cast_profile_requests SET status = 'approved', decided_at = ?, decided_by_admin_id = ?, rejection_reason = '' WHERE id = ? AND status = 'pending'"
+      )
+      .bind(now, (admin as any).adminId ?? '', id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/cast-profiles/unapproved/:id/reject', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { reason?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const reason = body.reason === undefined ? '' : clampText(body.reason, 500)
+  if (!reason.trim()) return c.json({ error: 'reason is required' }, 400)
+
+  const now = nowIso()
+  try {
+    await c.env.DB
+      .prepare(
+        "UPDATE cast_profile_requests SET status = 'rejected', decided_at = ?, decided_by_admin_id = ?, rejection_reason = ? WHERE id = ? AND status = 'pending'"
+      )
+      .bind(now, (admin as any).adminId ?? '', reason.trim(), id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
 app.get('/cms/videos/unapproved/:id', async (c) => {
@@ -1131,6 +2403,22 @@ async function sendEmailViaMailChannels(env: Env['Bindings'], to: string, subjec
 }
 
 async function requireAuth(c: any) {
+  // In debug mock mode, allow calls without authentication.
+  if (isMockRequest(c)) {
+    return {
+      ok: true as const,
+      userId: 'mock-user' as const,
+      stage: 'mock' as const,
+      payload: {
+        userId: 'mock-user',
+        stage: 'mock',
+        kind: 'cms',
+        role: 'Admin',
+        adminId: 'mock-admin',
+      },
+    } as const
+  }
+
   const auth = c.req.header('authorization') || ''
   const m = auth.match(/^Bearer\s+(.+)$/i)
   const token = m?.[1] || ''
@@ -1139,7 +2427,7 @@ async function requireAuth(c: any) {
   // This keeps public/unauthenticated calls from failing just because the secret isn't configured.
   if (!token) return { ok: false as const, status: 401 as const, error: 'Unauthorized' as const }
 
-  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  const secret = getAuthJwtSecret(c.env)
   if (!secret) return { ok: false as const, status: 500 as const, error: 'AUTH_JWT_SECRET is not configured' as const }
   const payload = await verifyJwtHs256(secret, token)
   if (!payload) return { ok: false as const, status: 401 as const, error: 'Unauthorized' as const }
@@ -1163,6 +2451,26 @@ async function requireAdmin(c: any) {
 }
 
 async function requireCmsAdmin(c: any) {
+  if (isMockRequest(c)) {
+    return {
+      ok: true as const,
+      userId: 'mock-user',
+      stage: 'cms',
+      payload: {
+        kind: 'cms',
+        role: 'Admin',
+        adminId: 'mock-admin',
+        email: 'mock-admin@example.com',
+        name: 'Mock Admin',
+        stage: 'cms',
+        userId: 'mock-admin',
+      },
+      adminId: 'mock-admin',
+      role: 'Admin' as const,
+      kind: 'cms' as const,
+    } as const
+  }
+
   const auth = await requireAuth(c)
   if (!auth.ok) return auth
   const role = typeof auth.payload?.role === 'string' ? String(auth.payload.role) : ''
@@ -1679,40 +2987,106 @@ app.post('/v1/stream/direct-upload', async (c) => {
   })
 })
 
-app.get('/v1/top', (c) => {
-  const toItem = (w: MockWork) => ({
-    id: w.id,
-    title: w.title,
-    thumbnailUrl: w.thumbnailUrl ?? '',
-  })
+app.get('/v1/top', async (c) => {
+  if (isMockRequest(c) || !c.env.DB) {
+    const toItem = (w: MockWork) => ({
+      id: w.id,
+      title: w.title,
+      thumbnailUrl: w.thumbnailUrl ?? '',
+    })
 
-  const byViewsSorted = [...MOCK_WORKS].sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
-  const byRatingSorted = [...MOCK_WORKS].sort((a, b) => (b.ratingAvg ?? 0) - (a.ratingAvg ?? 0))
+    const byViewsSorted = [...MOCK_WORKS].sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
+    const byRatingSorted = [...MOCK_WORKS].sort((a, b) => (b.ratingAvg ?? 0) - (a.ratingAvg ?? 0))
 
-  const maxViews = Math.max(1, ...MOCK_WORKS.map((w) => w.viewCount ?? 0))
-  const maxPurchasers = Math.max(1, ...MOCK_WORKS.map((w) => w.purchaserCount ?? 0))
-  const maxRevenue = Math.max(1, ...MOCK_WORKS.map((w) => w.revenueCoin ?? 0))
-  const maxRating = 5
+    const maxViews = Math.max(1, ...MOCK_WORKS.map((w) => w.viewCount ?? 0))
+    const maxPurchasers = Math.max(1, ...MOCK_WORKS.map((w) => w.purchaserCount ?? 0))
+    const maxRevenue = Math.max(1, ...MOCK_WORKS.map((w) => w.revenueCoin ?? 0))
+    const maxRating = 5
 
-  const scoreOverall = (w: MockWork) => {
-    const views = (w.viewCount ?? 0) / maxViews
-    const rating = (w.ratingAvg ?? 0) / maxRating
-    const purchasers = (w.purchaserCount ?? 0) / maxPurchasers
-    const revenue = (w.revenueCoin ?? 0) / maxRevenue
-    return views * 3 + rating * 3 + purchasers * 3 + revenue * 1
+    const scoreOverall = (w: MockWork) => {
+      const views = (w.viewCount ?? 0) / maxViews
+      const rating = (w.ratingAvg ?? 0) / maxRating
+      const purchasers = (w.purchaserCount ?? 0) / maxPurchasers
+      const revenue = (w.revenueCoin ?? 0) / maxRevenue
+      return views * 3 + rating * 3 + purchasers * 3 + revenue * 1
+    }
+
+    const overallSorted = [...MOCK_WORKS].sort((a, b) => scoreOverall(b) - scoreOverall(a))
+
+    return c.json({
+      pickup: MOCK_WORKS.slice(0, 6).map(toItem),
+      recommended: byRatingSorted.slice(0, 6).map(toItem),
+      rankings: {
+        byViews: byViewsSorted.slice(0, 5).map(toItem),
+        byRating: byRatingSorted.slice(0, 5).map(toItem),
+        overall: overallSorted.slice(0, 5).map(toItem),
+      },
+    })
   }
 
-  const overallSorted = [...MOCK_WORKS].sort((a, b) => scoreOverall(b) - scoreOverall(a))
+  const db = c.env.DB as D1Database
 
-  return c.json({
-    pickup: MOCK_WORKS.slice(0, 6).map(toItem),
-    recommended: byRatingSorted.slice(0, 6).map(toItem),
-    rankings: {
-      byViews: byViewsSorted.slice(0, 5).map(toItem),
-      byRating: byRatingSorted.slice(0, 5).map(toItem),
-      overall: overallSorted.slice(0, 5).map(toItem),
-    },
+  const toVideoItem = (r: any) => ({
+    id: String(r.id ?? ''),
+    title: String(r.title ?? ''),
+    thumbnailUrl: String(r.thumbnail_url ?? ''),
   })
+
+  try {
+    const pickupRows = await d1All(
+      db,
+      `
+      SELECT v.id, v.title, v.thumbnail_url
+      FROM cms_featured_videos fv
+      JOIN videos v ON v.id = fv.video_id
+      WHERE fv.slot = ? AND v.published = 1
+      ORDER BY fv.sort_order ASC, fv.created_at ASC
+      LIMIT 6
+    `,
+      ['pickup']
+    )
+
+    const recommendRows = await d1All(
+      db,
+      `
+      SELECT v.id, v.title, v.thumbnail_url
+      FROM cms_featured_videos fv
+      JOIN videos v ON v.id = fv.video_id
+      WHERE fv.slot = ? AND v.published = 1
+      ORDER BY fv.sort_order ASC, fv.created_at ASC
+      LIMIT 6
+    `,
+      ['recommend']
+    )
+
+    const latestRows = await d1All(
+      db,
+      `
+      SELECT id, title, thumbnail_url
+      FROM videos
+      WHERE published = 1
+      ORDER BY created_at DESC
+      LIMIT 5
+    `
+    )
+
+    const pickup = pickupRows.length ? pickupRows.map(toVideoItem) : latestRows.slice(0, 6).map(toVideoItem)
+    const recommended = recommendRows.length ? recommendRows.map(toVideoItem) : latestRows.slice(0, 6).map(toVideoItem)
+    const rankings = latestRows.map(toVideoItem)
+
+    return c.json({
+      pickup,
+      recommended,
+      rankings: {
+        byViews: rankings,
+        byRating: rankings,
+        overall: rankings,
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
 type MockNotice = {
@@ -1742,37 +3116,134 @@ const MOCK_NOTICES: MockNotice[] = [
   },
 ]
 
-app.get('/v1/notices', (c) => {
-  return c.json({
-    items: MOCK_NOTICES.map(({ bodyHtml: _bodyHtml, ...rest }) => rest),
-  })
+app.get('/v1/notices', async (c) => {
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: MOCK_NOTICES.map(({ bodyHtml: _bodyHtml, ...rest }) => rest),
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(
+      db,
+      `
+      SELECT id, subject, body, sent_at, status, created_at
+      FROM notices
+      WHERE (sent_at IS NOT NULL AND sent_at != '')
+        AND (status IS NULL OR status != 'draft')
+      ORDER BY sent_at DESC, created_at DESC
+      LIMIT 100
+    `
+    )
+
+    return c.json({
+      items: rows.map((r: any) => {
+        const body = String(r.body ?? '')
+        const excerpt = body.replace(/\s+/g, ' ').trim().slice(0, 80)
+        return {
+          id: String(r.id ?? ''),
+          title: String(r.subject ?? ''),
+          publishedAt: String(r.sent_at ?? r.created_at ?? ''),
+          excerpt,
+        }
+      }),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
-app.get('/v1/notices/:id', (c) => {
+app.get('/v1/notices/:id', async (c) => {
   const id = c.req.param('id')
-  const item = MOCK_NOTICES.find((n) => n.id === id) ?? null
-  return c.json({ item })
+  if (isMockRequest(c) || !c.env.DB) {
+    const item = MOCK_NOTICES.find((n) => n.id === id) ?? null
+    return c.json({ item })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(
+      db,
+      `
+      SELECT id, subject, body, sent_at, status, created_at
+      FROM notices
+      WHERE id = ?
+      LIMIT 1
+    `,
+      [id]
+    )
+
+    if (!row) return c.json({ item: null })
+
+    return c.json({
+      item: {
+        id: String(row.id ?? ''),
+        title: String(row.subject ?? ''),
+        publishedAt: String(row.sent_at ?? row.created_at ?? ''),
+        bodyHtml: String(row.body ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
 app.post('/v1/inquiries', async (c) => {
-  // NOTE: モック。実運用ではDB保存＋管理者通知（メール等）を行う。
   const body = (await c.req.json().catch(() => null)) as any
   if (!body || typeof body.subject !== 'string' || typeof body.body !== 'string') {
     return c.json({ error: 'Invalid payload' }, 400)
   }
-  return c.json({ ok: true })
+
+  const subject = String(body.subject ?? '').trim()
+  const text = String(body.body ?? '').trim()
+  if (!subject) return c.json({ error: 'subject is required' }, 400)
+  if (!text) return c.json({ error: 'body is required' }, 400)
+  if (subject.length > 120) return c.json({ error: 'subject is too long' }, 400)
+  if (text.length > 2000) return c.json({ error: 'body is too long' }, 400)
+
+  // Mock mode or DB-less environments fall back to a no-op.
+  if (isMockRequest(c) || !c.env.DB) return c.json({ ok: true })
+
+  const id = crypto.randomUUID()
+  const now = nowIso()
+  try {
+    await c.env.DB.prepare('INSERT INTO inquiries (id, subject, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(id, subject, text, 'open', now, now)
+      .run()
+    return c.json({ ok: true, id })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
-app.get('/v1/categories', (c) => {
-  return c.json({
-    items: [
-      { id: 'c1', name: 'ドラマ' },
-      { id: 'c2', name: 'ミステリー' },
-      { id: 'c3', name: '恋愛' },
-      { id: 'c4', name: 'コメディ' },
-      { id: 'c5', name: 'アクション' },
-    ],
-  })
+app.get('/v1/categories', async (c) => {
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: [
+        { id: 'c1', name: 'ドラマ' },
+        { id: 'c2', name: 'ミステリー' },
+        { id: 'c3', name: '恋愛' },
+        { id: 'c4', name: 'コメディ' },
+        { id: 'c5', name: 'アクション' },
+      ],
+    })
+  }
+
+  const db = c.env.DB as D1Database
+
+  try {
+    const rows = await d1All(db, 'SELECT id, name FROM categories WHERE enabled = 1 ORDER BY name ASC')
+    return c.json({
+      items: rows.map((r: any) => ({ id: String(r.id ?? ''), name: String(r.name ?? '') })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
 type MockCast = {
@@ -2020,27 +3491,67 @@ function normalizeQuery(value: string) {
   return value.trim().toLowerCase()
 }
 
-app.get('/v1/cast', (c) => {
+app.get('/v1/cast', async (c) => {
   const qRaw = c.req.query('q') ?? ''
   const q = normalizeQuery(qRaw)
   const genreRaw = c.req.query('genre') ?? ''
   const genre = normalizeQuery(genreRaw)
-  const items = !q
-    ? MOCK_CASTS
-    : MOCK_CASTS.filter((cast) => {
-        const nameHit = normalizeQuery(cast.name).includes(q)
-        const roleHit = normalizeQuery(cast.role).includes(q)
-        const genreHit = (cast.genres ?? []).some((g) => normalizeQuery(g).includes(q))
-        return nameHit || roleHit || genreHit
-      })
 
-  const filteredByGenre = genre
-    ? items.filter((cast) => (cast.genres ?? []).some((g) => normalizeQuery(g) === genre))
-    : items
+  if (isMockRequest(c) || !c.env.DB) {
+    const items = !q
+      ? MOCK_CASTS
+      : MOCK_CASTS.filter((cast) => {
+          const nameHit = normalizeQuery(cast.name).includes(q)
+          const roleHit = normalizeQuery(cast.role).includes(q)
+          const genreHit = (cast.genres ?? []).some((g) => normalizeQuery(g).includes(q))
+          return nameHit || roleHit || genreHit
+        })
 
-  return c.json({
-    items: filteredByGenre,
-  })
+    const filteredByGenre = genre
+      ? items.filter((cast) => (cast.genres ?? []).some((g) => normalizeQuery(g) === genre))
+      : items
+
+    return c.json({
+      items: filteredByGenre,
+    })
+  }
+
+  const db = c.env.DB as D1Database
+
+  try {
+    const where: string[] = []
+    const binds: any[] = []
+
+    if (q) {
+      where.push('(lower(name) LIKE ? OR lower(role) LIKE ?)')
+      binds.push(`%${q}%`, `%${q}%`)
+    }
+    if (genre) {
+      where.push('lower(role) = ?')
+      binds.push(genre)
+    }
+
+    const sql = `
+      SELECT id, name, role, thumbnail_url
+      FROM casts
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY name ASC
+    `
+
+    const rows = await d1All(db, sql, binds)
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        name: String(r.name ?? ''),
+        role: String(r.role ?? ''),
+        genres: [String(r.role ?? '')].filter(Boolean),
+        thumbnailUrl: String(r.thumbnail_url ?? ''),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
 async function handleCreateWithdrawalRequest(c: any) {
@@ -2300,11 +3811,19 @@ app.get('/v1/comments', async (c) => {
 
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
 
-  const { results } = await c.env.DB.prepare(
-    "SELECT id, author, body, episode_id, created_at FROM comments WHERE content_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT ?"
-  )
-    .bind(contentId, limit)
-    .all()
+  let results: any[] = []
+  try {
+    const out = await c.env.DB
+      .prepare(
+        "SELECT id, author, body, episode_id, created_at FROM comments WHERE content_id = ? AND status = 'approved' AND deleted = 0 ORDER BY created_at DESC LIMIT ?"
+      )
+      .bind(contentId, limit)
+      .all()
+    results = (out as any).results ?? []
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 
   return c.json({
     items: (results ?? []).map((r: any) => ({
@@ -2466,7 +3985,7 @@ app.post('/v1/comments', async (c) => {
   return c.json({ id, contentId, episodeId: episodeId || null, status, createdAt }, 201)
 })
 
-app.get('/v1/works', (c) => {
+app.get('/v1/works', async (c) => {
   const q = normalizeQuery(String(c.req.query('q') ?? ''))
   const categoryId = String(c.req.query('category_id') ?? '').trim()
   const tag = normalizeQuery(String(c.req.query('tag') ?? ''))
@@ -2475,41 +3994,173 @@ app.get('/v1/works', (c) => {
   const cursorRaw = String(c.req.query('cursor') ?? '').trim()
   const offset = cursorRaw ? Math.max(0, Number(cursorRaw) || 0) : 0
 
-  let items = MOCK_WORKS
+  if (isMockRequest(c) || !c.env.DB) {
+    let items = MOCK_WORKS
+    if (q) {
+      items = items.filter((w) => normalizeQuery(w.title).includes(q))
+    }
+    if (categoryId) {
+      items = items.filter((w) => w.categoryId === categoryId)
+    }
+    if (tag) {
+      items = items.filter((w) => w.tags.some((t) => normalizeQuery(t) === tag))
+    }
+
+    const page = items.slice(offset, offset + limit)
+    const nextCursor = offset + limit < items.length ? String(offset + limit) : null
+
+    return c.json({
+      items: page.map((w) => ({
+        id: w.id,
+        title: w.title,
+        ratingAvg: w.ratingAvg,
+        reviewCount: w.reviewCount,
+        priceCoin: w.priceCoin,
+        thumbnailUrl: w.thumbnailUrl,
+        tags: w.tags,
+      })),
+      nextCursor,
+    })
+  }
+
+  const db = c.env.DB as D1Database
+
+  const where: string[] = ['w.published = 1']
+  const binds: any[] = []
+
   if (q) {
-    items = items.filter((w) => normalizeQuery(w.title).includes(q))
+    where.push('lower(w.title) LIKE ?')
+    binds.push(`%${q}%`)
   }
   if (categoryId) {
-    items = items.filter((w) => w.categoryId === categoryId)
+    where.push(
+      `EXISTS (SELECT 1 FROM work_categories wc WHERE wc.work_id = w.id AND wc.category_id = ?)`
+    )
+    binds.push(categoryId)
   }
   if (tag) {
-    items = items.filter((w) => w.tags.some((t) => normalizeQuery(t) === tag))
+    where.push(
+      `EXISTS (
+        SELECT 1
+        FROM work_tags wt2
+        JOIN tags t2 ON t2.id = wt2.tag_id
+        WHERE wt2.work_id = w.id AND lower(t2.name) = ?
+      )`
+    )
+    binds.push(tag)
   }
 
-  const page = items.slice(offset, offset + limit)
-  const nextCursor = offset + limit < items.length ? String(offset + limit) : null
+  const sql = `
+    SELECT
+      w.id,
+      w.title,
+      w.thumbnail_url,
+      COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS tag_names
+    FROM works w
+    LEFT JOIN work_tags wt ON wt.work_id = w.id
+    LEFT JOIN tags t ON t.id = wt.tag_id
+    WHERE ${where.join(' AND ')}
+    GROUP BY w.id
+    ORDER BY w.created_at DESC
+    LIMIT ? OFFSET ?
+  `
 
-  return c.json({
-    items: page.map((w) => ({
-      id: w.id,
-      title: w.title,
-      ratingAvg: w.ratingAvg,
-      reviewCount: w.reviewCount,
-      priceCoin: w.priceCoin,
-      thumbnailUrl: w.thumbnailUrl,
-      tags: w.tags,
-    })),
-    nextCursor,
-  })
+  try {
+    const rows = await d1All(db, sql, [...binds, limit, offset])
+    const items = rows.map((r: any) => {
+      const raw = String(r.tag_names ?? '').trim()
+      const tags = raw
+        ? raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : []
+
+      return {
+        id: String(r.id ?? ''),
+        title: String(r.title ?? ''),
+        ratingAvg: 0,
+        reviewCount: 0,
+        priceCoin: 0,
+        thumbnailUrl: String(r.thumbnail_url ?? ''),
+        tags,
+      }
+    })
+
+    const nextCursor = items.length < limit ? null : String(offset + limit)
+    return c.json({ items, nextCursor })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
-app.get('/v1/search', (c) => {
+app.get('/v1/search', async (c) => {
   const qRaw = c.req.query('q') ?? ''
   const q = normalizeQuery(qRaw)
   const limit = Math.max(1, Math.min(50, Number(c.req.query('limit') ?? 20) || 20))
 
   if (!q) {
     return c.json({ videos: [], casts: [] })
+  }
+
+  if (!isMockRequest(c) && c.env.DB) {
+    const db = c.env.DB as D1Database
+    try {
+      const casts = await d1All(
+        db,
+        `
+        SELECT id, name, role, thumbnail_url
+        FROM casts
+        WHERE lower(name) LIKE ? OR lower(role) LIKE ?
+        ORDER BY name ASC
+        LIMIT ?
+      `,
+        [`%${q}%`, `%${q}%`, limit]
+      )
+
+      const videos = await d1All(
+        db,
+        `
+        SELECT v.id, v.title, v.thumbnail_url
+        FROM videos v
+        WHERE v.published = 1
+          AND (
+            lower(v.title) LIKE ?
+            OR lower(v.description) LIKE ?
+            OR EXISTS (
+              SELECT 1
+              FROM video_casts vc
+              JOIN casts c ON c.id = vc.cast_id
+              WHERE vc.video_id = v.id AND lower(c.name) LIKE ?
+            )
+          )
+        ORDER BY v.created_at DESC
+        LIMIT ?
+      `,
+        [`%${q}%`, `%${q}%`, `%${q}%`, limit]
+      )
+
+      return c.json({
+        videos: videos.map((r: any) => ({
+          id: String(r.id ?? ''),
+          title: String(r.title ?? ''),
+          ratingAvg: 0,
+          reviewCount: 0,
+          priceCoin: 0,
+          thumbnailUrl: String(r.thumbnail_url ?? ''),
+        })),
+        casts: casts.map((r: any) => ({
+          id: String(r.id ?? ''),
+          name: String(r.name ?? ''),
+          role: String(r.role ?? ''),
+          thumbnailUrl: String(r.thumbnail_url ?? ''),
+        })),
+      })
+    } catch (err) {
+      if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+      throw err
+    }
   }
 
   const casts = MOCK_CASTS.filter((cast) => normalizeQuery(cast.name).includes(q))
@@ -2763,7 +4414,7 @@ app.post('/v1/auth/signup/email/verify', async (c) => {
     .bind(nowIso, String(user.id))
     .run()
 
-  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  const secret = getAuthJwtSecret(c.env)
   if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
   const token = await makeJwtHs256(secret, { userId: String(user.id), stage: 'needs_phone' }, 60 * 30)
   return c.json({ ok: true, token, stage: 'needs_phone' })
@@ -2790,7 +4441,7 @@ app.post('/v1/auth/login/start', async (c) => {
   const passOk = await verifyPassword(password, String(user.password_salt), String(user.password_hash))
   if (!passOk) return c.json({ error: 'invalid_credentials' }, 401)
 
-  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  const secret = getAuthJwtSecret(c.env)
   if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
   const stage = 'needs_sms'
   const token = await makeJwtHs256(secret, { userId: String(user.id), stage }, 60 * 30)
@@ -2883,7 +4534,7 @@ app.post('/v1/auth/sms/verify', async (c) => {
     .bind(phoneDigits, nowIso, auth.userId)
     .run()
 
-  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  const secret = getAuthJwtSecret(c.env)
   if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
   const token = await makeJwtHs256(secret, { userId: auth.userId, stage: 'full' })
   return c.json({ ok: true, token, stage: 'full' })

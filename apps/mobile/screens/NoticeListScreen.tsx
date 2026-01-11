@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type NoticeListScreenProps = {
   apiBaseUrl: string
@@ -52,7 +53,7 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, onBack, onOpenDetail }:
       setLoading(true)
       setError('')
       try {
-        const res = await fetch(`${apiBaseUrl}/v1/notices`)
+        const res = await apiFetch(`${apiBaseUrl}/v1/notices`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = (await res.json()) as NoticeListResponse
         if (!cancelled) setItems(Array.isArray(json.items) ? json.items : [])

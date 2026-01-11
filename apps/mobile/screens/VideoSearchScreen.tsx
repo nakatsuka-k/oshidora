@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native'
 import { IconButton, NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -75,7 +76,7 @@ export function VideoSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenP
     try {
       const u = new URL(`${apiBaseUrl}/v1/search`)
       u.searchParams.set('q', q)
-      const res = await fetch(u.toString())
+      const res = await apiFetch(u.toString())
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as SearchResponse
       setVideos(Array.isArray(json.videos) ? json.videos : [])

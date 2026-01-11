@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type Props = {
   apiBaseUrl: string
@@ -31,7 +32,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props)
       setLoading(true)
       setError('')
       try {
-        const res = await fetch(`${apiBaseUrl}/v1/top`)
+        const res = await apiFetch(`${apiBaseUrl}/v1/top`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = (await res.json()) as TopData
         const list = Array.isArray(json?.favorites) ? json.favorites : []

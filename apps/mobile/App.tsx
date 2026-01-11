@@ -80,6 +80,7 @@ import {
   FaqScreen,
 } from './screens'
 
+import { apiFetch, DEBUG_MOCK_KEY } from './utils/api'
 import { getBoolean, setBoolean, getString, setString } from './utils/storage'
 import { useIpAddress } from './utils/useIpAddress'
 import { upsertWatchHistory } from './utils/watchHistory'
@@ -729,6 +730,7 @@ export default function App() {
   const [debugAuthAutofill, setDebugAuthAutofill] = useState<boolean>(false)
   const [debugUserType, setDebugUserType] = useState<'user' | 'cast'>('user')
   const [debugPaypayLinked, setDebugPaypayLinked] = useState<boolean>(false)
+  const [debugMock, setDebugMock] = useState<boolean>(true)
   const [debugPaypayMaskedLabel] = useState<string>('********')
   const [debugEmailCode, setDebugEmailCode] = useState<string>('')
   const [debugSmsCode, setDebugSmsCode] = useState<string>('')
@@ -825,12 +827,13 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [token, bypass, autofill, userTypeValue, paypayLinked] = await Promise.all([
+        const [token, bypass, autofill, userTypeValue, paypayLinked, mock] = await Promise.all([
           getString(AUTH_TOKEN_KEY),
           getBoolean(DEBUG_AUTH_BYPASS_KEY),
           getBoolean(DEBUG_AUTH_AUTOFILL_KEY),
           getString(DEBUG_USER_TYPE_KEY),
           getBoolean(DEBUG_PAYPAY_LINKED_KEY),
+          getBoolean(DEBUG_MOCK_KEY),
         ])
         if (token) {
           setAuthToken(token)
@@ -842,6 +845,7 @@ export default function App() {
         const t = (userTypeValue || '').trim()
         if (t === 'cast' || t === 'user') setDebugUserType(t)
         setDebugPaypayLinked(paypayLinked)
+        setDebugMock(mock)
       } catch {
         // ignore
       }
@@ -863,6 +867,10 @@ export default function App() {
   useEffect(() => {
     void setBoolean(DEBUG_PAYPAY_LINKED_KEY, debugPaypayLinked)
   }, [debugPaypayLinked])
+
+  useEffect(() => {
+    void setBoolean(DEBUG_MOCK_KEY, debugMock)
+  }, [debugMock])
 
   useEffect(() => {
     if (!authToken) return
@@ -1406,7 +1414,7 @@ export default function App() {
     setError('')
     setApiBusy(true)
     try {
-      const res = await fetch(`${apiBaseUrl}/v1/oshi`)
+      const res = await apiFetch(`${apiBaseUrl}/v1/oshi`)
       const json = (await res.json()) as { items: Oshi[] }
       setItems(Array.isArray(json.items) ? json.items : [])
     } catch (e) {
@@ -1423,7 +1431,7 @@ export default function App() {
     setError('')
     setApiBusy(true)
     try {
-      const res = await fetch(`${apiBaseUrl}/v1/oshi`, {
+      const res = await apiFetch(`${apiBaseUrl}/v1/oshi`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
@@ -1546,7 +1554,7 @@ export default function App() {
         return
       }
 
-      const res = await fetch(`${apiBaseUrl}/v1/auth/login/start`, {
+      const res = await apiFetch(`${apiBaseUrl}/v1/auth/login/start`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -1605,7 +1613,7 @@ export default function App() {
           setPhoneBannerError('認証セッションが切れました。最初からやり直してください。')
           return
         }
-        const res = await fetch(`${apiBaseUrl}/v1/auth/sms/send`, {
+        const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/send`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -1695,7 +1703,7 @@ export default function App() {
           setOtpBannerError('認証セッションが切れました。最初からやり直してください。')
           return
         }
-        const res = await fetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
+        const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -1889,7 +1897,7 @@ export default function App() {
               }
               setDebugEmailCode('')
             } else {
-              const res = await fetch(`${apiBaseUrl}/v1/auth/signup/start`, {
+              const res = await apiFetch(`${apiBaseUrl}/v1/auth/signup/start`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ email, password }),
@@ -1919,7 +1927,7 @@ export default function App() {
               await new Promise((r) => setTimeout(r, 250))
               return
             }
-            const res = await fetch(`${apiBaseUrl}/v1/auth/signup/email/resend`, {
+            const res = await apiFetch(`${apiBaseUrl}/v1/auth/signup/email/resend`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ email: registerEmail }),
@@ -1933,7 +1941,7 @@ export default function App() {
               await new Promise((r) => setTimeout(r, 250))
               if (code === '000000') throw new Error('認証コードが正しくありません')
             } else {
-              const res = await fetch(`${apiBaseUrl}/v1/auth/signup/email/verify`, {
+              const res = await apiFetch(`${apiBaseUrl}/v1/auth/signup/email/verify`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ email: registerEmail, code }),
@@ -1959,7 +1967,7 @@ export default function App() {
               return
             }
             if (!authPendingToken) throw new Error('認証セッションが切れました')
-            const res = await fetch(`${apiBaseUrl}/v1/auth/sms/send`, {
+            const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/send`, {
               method: 'POST',
               headers: {
                 'content-type': 'application/json',
@@ -1978,7 +1986,7 @@ export default function App() {
               return
             }
             if (!authPendingToken) throw new Error('認証セッションが切れました')
-            const res = await fetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
+            const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
               method: 'POST',
               headers: {
                 'content-type': 'application/json',
@@ -2519,6 +2527,8 @@ export default function App() {
           }}
           userType={debugUserType}
           onUserTypeToggle={toggleDebugUserType}
+          mock={debugMock}
+          onMockToggle={() => setDebugMock((v) => !v)}
         />
       ) : null}
 
@@ -2655,7 +2665,7 @@ export default function App() {
           initial={{ rating: selectedCastReview?.rating ?? null, comment: selectedCastReview?.comment ?? null }}
           onSubmit={async ({ castId, rating, comment }) => {
             try {
-              const res = await fetch(`${apiBaseUrl}/v1/reviews/cast`, {
+              const res = await apiFetch(`${apiBaseUrl}/v1/reviews/cast`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ castId, rating, comment }),
@@ -2965,7 +2975,7 @@ export default function App() {
             if (!trimmed) throw new Error('コメントを入力してください')
 
             const safeAuthor = (userProfile.displayName || '').trim().slice(0, 50) || '匿名'
-            const res = await fetch(`${apiBaseUrl}/v1/comments`, {
+            const res = await apiFetch(`${apiBaseUrl}/v1/comments`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ contentId: workId, episodeId: '', author: safeAuthor, body: trimmed }),
@@ -3003,7 +3013,7 @@ export default function App() {
           onBack={goBack}
           work={workReviewTarget}
           onSubmit={async ({ contentId, rating, comment }) => {
-            const res = await fetch(`${apiBaseUrl}/v1/reviews/work`, {
+            const res = await apiFetch(`${apiBaseUrl}/v1/reviews/work`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ contentId, rating, comment }),
@@ -3076,7 +3086,7 @@ export default function App() {
             // NOTE: APIが整備されるまでは「購入開始→即時付与」のモック。
             // 将来的には /api/stripe/checkout/coin-pack を呼び出し、決済完了Webhook後に残高再取得する。
             const tryCheckout = async () => {
-              const res = await fetch(`${apiBaseUrl}/api/stripe/checkout/coin-pack`, {
+              const res = await apiFetch(`${apiBaseUrl}/api/stripe/checkout/coin-pack`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ packId }),

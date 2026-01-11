@@ -30,6 +30,8 @@ type RouteId =
   | 'video-upload'
   | 'unapproved-videos'
   | 'unapproved-video-detail'
+  | 'unapproved-actor-accounts'
+  | 'unapproved-actor-account-detail'
   | 'recommend'
   | 'pickup'
   // 作品管理
@@ -70,6 +72,8 @@ type RouteId =
   | 'admin-new'
   // その他
   | 'castStaff'
+  | 'castStaff-detail'
+  | 'castStaff-new'
   | 'inquiries'
   | 'inquiry-detail'
   | 'settings'
@@ -84,10 +88,12 @@ const STORAGE_DEV_MODE_KEY = 'oshidra_admin_dev_mode_v1'
 const STORAGE_API_OVERRIDE_KEY = 'oshidra_admin_api_base_override_v1'
 const STORAGE_DEV_POS_KEY = 'oshidra_admin_dev_pos_v1'
 const STORAGE_DEBUG_OVERLAY_POS_KEY = 'oshidra_admin_debug_overlay_pos_v1'
+const STORAGE_MOCK_KEY = 'oshidra_admin_mock_v1'
 
 type CmsApiConfig = {
   apiBase: string
   token: string
+  mock: boolean
 }
 
 const CmsApiContext = createContext<CmsApiConfig | null>(null)
@@ -115,6 +121,7 @@ async function cmsFetchJson<T>(cfg: CmsApiConfig, path: string, init?: RequestIn
     headers: {
       ...(init?.headers || {}),
       authorization: `Bearer ${cfg.token}`,
+      ...(cfg.mock ? { 'X-Mock': '1' } : {}),
     },
   })
   const json = (await res.json().catch(() => ({}))) as any
@@ -167,12 +174,20 @@ function getRouteFromHash(): RouteId {
       return 'unapproved-videos'
     case 'unapproved-video-detail':
       return 'unapproved-video-detail'
+    case 'unapproved-actor-accounts':
+      return 'unapproved-actor-accounts'
+    case 'unapproved-actor-account-detail':
+      return 'unapproved-actor-account-detail'
     case 'recommend':
       return 'recommend'
     case 'pickup':
       return 'pickup'
     case 'caststaff':
       return 'castStaff'
+    case 'caststaff-detail':
+      return 'castStaff-detail'
+    case 'caststaff-new':
+      return 'castStaff-new'
     case 'comments-pending':
       return 'comments-pending'
     case 'comment-approve':
@@ -270,12 +285,20 @@ function getRouteFromPathname(): RouteId | null {
       return 'unapproved-videos'
     case 'unapproved-video-detail':
       return 'unapproved-video-detail'
+    case 'unapproved-actor-accounts':
+      return 'unapproved-actor-accounts'
+    case 'unapproved-actor-account-detail':
+      return 'unapproved-actor-account-detail'
     case 'recommend':
       return 'recommend'
     case 'pickup':
       return 'pickup'
     case 'caststaff':
       return 'castStaff'
+    case 'caststaff-detail':
+      return 'castStaff-detail'
+    case 'caststaff-new':
+      return 'castStaff-new'
     case 'comments-pending':
       return 'comments-pending'
     case 'comment-approve':
@@ -472,6 +495,8 @@ function sidebarActiveRoute(route: RouteId): RouteId {
       return 'videos'
     case 'unapproved-video-detail':
       return 'unapproved-videos'
+    case 'unapproved-actor-account-detail':
+      return 'unapproved-actor-accounts'
     case 'work-detail':
     case 'work-new':
       return 'works'
@@ -519,6 +544,10 @@ type ActivityItem = {
 }
 
 function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) {
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+
   const kpis = useMemo<KPIItem[]>(
     () => [
       { id: 'users_total', label: '総ユーザー数', value: '—', route: 'users' },
@@ -531,22 +560,17 @@ function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) 
     []
   )
 
-  const activities = useMemo<ActivityItem[]>(
-    () => [
-      { id: 'a_comments_new', label: '新規投稿されたコメント', detail: '最新5件', pendingCount: 0, route: 'comments' },
-      { id: 'a_comments_report', label: 'コメント通報', detail: '未対応', pendingCount: 0, route: 'comments' },
-      { id: 'a_cast_staff', label: 'キャスト・スタッフ新規登録', detail: '直近', pendingCount: 0, route: 'castStaff' },
-      { id: 'a_coin_withdraw', label: 'コイン換金申請', detail: '未処理', pendingCount: 0, route: 'coin' },
-      { id: 'a_inquiries', label: 'お問い合わせ', detail: '未対応', pendingCount: 0, route: 'inquiries' },
-    ],
-    []
-  )
+  const [activities, setActivities] = useState<ActivityItem[]>(() => [
+    { id: 'a_unapproved_videos', label: '未承認動画', detail: '承認待ち', pendingCount: 0, route: 'unapproved-videos' },
+    { id: 'a_unapproved_comments', label: '未承認コメント', detail: '承認待ち', pendingCount: 0, route: 'comments-pending' },
+    { id: 'a_unapproved_actors', label: '未承認俳優アカウント', detail: '審査待ち', pendingCount: 0, route: 'unapproved-actor-accounts' },
+  ])
 
   const shortcuts = useMemo<Array<{ id: string; label: string; route: RouteId }>>(
     () => [
       { id: 's_add_work', label: '作品を追加', route: 'works' },
       { id: 's_add_video', label: '動画を追加', route: 'videos' },
-      { id: 's_comment_approve', label: 'コメント承認', route: 'comments' },
+      { id: 's_comment_approve', label: 'コメント承認', route: 'comments-pending' },
       { id: 's_cast_register', label: 'キャスト登録', route: 'castStaff' },
       { id: 's_coin_withdraw', label: 'コイン換金処理', route: 'coin' },
       { id: 's_inquiries', label: 'お問い合わせ確認', route: 'inquiries' },
@@ -554,9 +578,63 @@ function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) 
     []
   )
 
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const [videos, comments, actors] = await Promise.all([
+          cmsFetchJson<{ items: any[] }>(cfg, '/cms/videos/unapproved'),
+          cmsFetchJson<{ items: any[] }>(cfg, '/cms/comments?status=pending'),
+          cmsFetchJson<{ items: any[] }>(cfg, '/cms/cast-profiles/unapproved'),
+        ])
+        if (!mounted) return
+        setActivities([
+          {
+            id: 'a_unapproved_videos',
+            label: '未承認動画',
+            detail: '承認待ち',
+            pendingCount: (videos.items || []).length,
+            route: 'unapproved-videos',
+          },
+          {
+            id: 'a_unapproved_comments',
+            label: '未承認コメント',
+            detail: '承認待ち',
+            pendingCount: (comments.items || []).length,
+            route: 'comments-pending',
+          },
+          {
+            id: 'a_unapproved_actors',
+            label: '未承認俳優アカウント',
+            detail: '審査待ち',
+            pendingCount: (actors.items || []).length,
+            route: 'unapproved-actor-accounts',
+          },
+        ])
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
+
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>ダッシュボード</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>サマリー情報</Text>
@@ -573,6 +651,11 @@ function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>最近のアクティビティ</Text>
         <View style={styles.table}>
+          {busy && activities.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
           {activities.map((a) => (
             <Pressable key={a.id} onPress={() => onNavigate(a.route)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
@@ -997,6 +1080,245 @@ type UnapprovedVideoRow = {
   submitter: string
   desiredScheduledAt: string
   status: '未承認'
+}
+
+type UnapprovedActorAccountRow = {
+  id: string
+  submittedAt: string
+  name: string
+  email: string
+  status: '未承認'
+}
+
+function UnapprovedActorAccountsListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
+  const cfg = useCmsApi()
+  const [rows, setRows] = useState<UnapprovedActorAccountRow[]>([])
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: Array<{ id: string; name: string; email: string; submittedAt: string; status: string }> }>(
+          cfg,
+          '/cms/cast-profiles/unapproved'
+        )
+        if (!mounted) return
+        setRows(
+          (json.items || []).map((r) => ({
+            id: String(r.id ?? ''),
+            submittedAt: (String((r as any).submittedAt ?? '') || '').slice(0, 19).replace('T', ' ') || '—',
+            name: String(r.name ?? '') || '—',
+            email: String(r.email ?? '') || '—',
+            status: '未承認',
+          }))
+        )
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Text style={styles.pageTitle}>未承認俳優アカウント一覧</Text>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>一覧</Text>
+        <View style={styles.table}>
+          {busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>未承認アカウントはありません</Text>
+            </View>
+          ) : null}
+          {rows.map((r) => (
+            <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>{r.name}</Text>
+                <Text style={styles.tableDetail}>{`${r.submittedAt} / ${r.email} / ${r.status}`}</Text>
+              </View>
+              <View style={styles.tableRight}>
+                <Text style={styles.linkText}>詳細</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+function UnapprovedActorAccountDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [item, setItem] = useState<null | { id: string; name: string; email: string; submittedAt: string; draft: any }>(null)
+  const [rejectReason, setRejectReason] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/cast-profiles/unapproved/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        setItem({
+          id: String(json.item?.id ?? ''),
+          name: String(json.item?.name ?? ''),
+          email: String(json.item?.email ?? ''),
+          submittedAt: String(json.item?.submittedAt ?? ''),
+          draft: json.item?.draft ?? null,
+        })
+        setRejectReason(String(json.item?.rejectionReason ?? ''))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const approve = useCallback(() => {
+    let ok = true
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      ok = window.confirm('この俳優アカウントを承認しますか？')
+    }
+    if (!ok) return
+
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        await cmsFetchJson(cfg, `/cms/cast-profiles/unapproved/${encodeURIComponent(id)}/approve`, { method: 'POST' })
+        onBack()
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id, onBack])
+
+  const reject = useCallback(() => {
+    const reason = rejectReason.trim()
+    if (!reason) {
+      setBanner('否認コメントを入力してください')
+      return
+    }
+    let ok = true
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      ok = window.confirm('この俳優アカウントを否認しますか？')
+    }
+    if (!ok) return
+
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        await cmsFetchJson(cfg, `/cms/cast-profiles/unapproved/${encodeURIComponent(id)}/reject`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ reason }),
+        })
+        onBack()
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id, onBack, rejectReason])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Pressable onPress={onBack} style={styles.smallBtn}>
+          <Text style={styles.smallBtnText}>戻る</Text>
+        </Pressable>
+        <Text style={styles.pageTitle}>俳優アカウント詳細</Text>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>申請情報</Text>
+        <View style={styles.field}>
+          <Text style={styles.label}>ID</Text>
+          <Text style={styles.readonlyText}>{id || '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>氏名</Text>
+          <Text style={styles.readonlyText}>{item?.name || '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>メール</Text>
+          <Text style={styles.readonlyText}>{item?.email || '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>申請日時</Text>
+          <Text style={styles.readonlyText}>{(item?.submittedAt || '').slice(0, 19).replace('T', ' ') || '—'}</Text>
+        </View>
+        {item?.draft ? (
+          <View style={styles.field}>
+            <Text style={styles.label}>申請内容（JSON）</Text>
+            <Text style={styles.readonlyText}>{JSON.stringify(item.draft)}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>操作</Text>
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={approve} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '処理中…' : '承認'}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>否認コメント（必須）</Text>
+          <TextInput value={rejectReason} onChangeText={setRejectReason} style={[styles.input, { minHeight: 90 }]} multiline />
+        </View>
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={reject} style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnSecondaryText}>{busy ? '処理中…' : '否認'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </ScrollView>
+  )
 }
 
 function UnapprovedVideosListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
@@ -1840,43 +2162,96 @@ type CommentRow = {
   author: string
   body: string
   createdAt: string
-  status: '未対応非公開' | '公開済み' | '対応済み非公開'
+  status: 'pending' | 'approved' | 'rejected'
+}
+
+function commentStatusLabel(v: CommentRow['status']): string {
+  switch (v) {
+    case 'pending':
+      return '未対応非公開'
+    case 'approved':
+      return '公開済み'
+    case 'rejected':
+      return '対応済み非公開'
+    default:
+      return '未対応非公開'
+  }
+}
+
+function commentTargetTitle(contentTitle: string, contentId: string, episodeId: string): string {
+  const base = contentTitle || contentId || '—'
+  const ep = (episodeId || '').trim()
+  return ep ? `${base} 第${ep}話` : base
 }
 
 function CommentsPendingListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
-  const [rows] = useState<CommentRow[]>(() => [
-    {
-      id: 'C0001',
-      targetTitle: '作品A 第1話',
-      author: '匿名',
-      body: 'めちゃくちゃ続きが気になる…！',
-      createdAt: '2026-01-10 12:00',
-      status: '未対応非公開',
-    },
-    {
-      id: 'C0002',
-      targetTitle: '作品B 第2話',
-      author: 'ユーザーA',
-      body: 'BGMが良くて一気見しました。',
-      createdAt: '2026-01-10 09:30',
-      status: '未対応非公開',
-    },
-  ])
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [rows, setRows] = useState<CommentRow[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/comments?status=pending')
+        if (!mounted) return
+        setRows(
+          (json.items ?? []).map((c) => ({
+            id: String(c.id ?? ''),
+            targetTitle: commentTargetTitle(String(c.contentTitle ?? ''), String(c.contentId ?? ''), String(c.episodeId ?? '')),
+            author: String(c.author ?? ''),
+            body: String(c.body ?? ''),
+            createdAt: String(c.createdAt ?? ''),
+            status: (String(c.status ?? 'pending') as any) as CommentRow['status'],
+          }))
+        )
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>未承認/未対応コメント一覧</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読み込み中…</Text>
+            </View>
+          ) : null}
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{`${r.targetTitle} / ${r.author}`}</Text>
-                <Text style={styles.tableDetail}>{`${r.createdAt} / ${r.status}`}</Text>
+                <Text style={styles.tableDetail}>{`${r.createdAt} / ${commentStatusLabel(r.status)}`}</Text>
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>未対応コメントがありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -1884,8 +2259,74 @@ function CommentsPendingListScreen({ onOpenDetail }: { onOpenDetail: (id: string
 }
 
 function CommentApproveScreen({ id, onBack }: { id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
   const [decision, setDecision] = useState<'公開済み' | '対応済み非公開' | ''>('')
   const [reason, setReason] = useState('')
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [item, setItem] = useState<null | { id: string; targetTitle: string; author: string; body: string; createdAt: string; status: CommentRow['status'] }>(null)
+
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/comments/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        const c = json.item
+        setItem({
+          id: String(c?.id ?? id),
+          targetTitle: commentTargetTitle(String(c?.contentTitle ?? ''), String(c?.contentId ?? ''), String(c?.episodeId ?? '')),
+          author: String(c?.author ?? ''),
+          body: String(c?.body ?? ''),
+          createdAt: String(c?.createdAt ?? ''),
+          status: (String(c?.status ?? 'pending') as any) as CommentRow['status'],
+        })
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSubmit = useCallback(() => {
+    if (!decision) {
+      setBanner('ステータスを選択してください')
+      return
+    }
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        if (decision === '公開済み') {
+          await cmsFetchJson(cfg, `/cms/comments/${encodeURIComponent(id)}/approve`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ note: reason }),
+          })
+        } else {
+          await cmsFetchJson(cfg, `/cms/comments/${encodeURIComponent(id)}/reject`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ note: reason }),
+          })
+        }
+        setBanner('更新しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, decision, id, reason])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -1896,14 +2337,37 @@ function CommentApproveScreen({ id, onBack }: { id: string; onBack: () => void }
         <Text style={styles.pageTitle}>コメント詳細（承認/否認）</Text>
       </View>
 
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>表示</Text>
         <View style={styles.field}>
           <Text style={styles.label}>コメントID</Text>
-          <Text style={styles.readonlyText}>{id || '—'}</Text>
+          <Text style={styles.readonlyText}>{item?.id || id || '—'}</Text>
         </View>
-        <View style={styles.placeholderBox}>
-          <Text style={styles.placeholderText}>対象/本文/投稿者/日時の詳細表示は後続実装</Text>
+        <View style={styles.field}>
+          <Text style={styles.label}>対象</Text>
+          <Text style={styles.readonlyText}>{item?.targetTitle || (busy ? '—' : '—')}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>投稿者</Text>
+          <Text style={styles.readonlyText}>{item?.author || (busy ? '—' : '—')}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>本文</Text>
+          <Text style={styles.readonlyText}>{item?.body || (busy ? '—' : '—')}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>投稿日時</Text>
+          <Text style={styles.readonlyText}>{item?.createdAt || (busy ? '—' : '—')}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>現在ステータス</Text>
+          <Text style={styles.readonlyText}>{item ? commentStatusLabel(item.status) : busy ? '—' : '—'}</Text>
         </View>
       </View>
 
@@ -1926,8 +2390,8 @@ function CommentApproveScreen({ id, onBack }: { id: string; onBack: () => void }
           </View>
         ) : null}
         <View style={styles.filterActions}>
-          <Pressable style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>確定</Text>
+          <Pressable disabled={busy} onPress={onSubmit} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '更新中…' : '確定'}</Text>
           </Pressable>
         </View>
       </View>
@@ -1936,34 +2400,54 @@ function CommentApproveScreen({ id, onBack }: { id: string; onBack: () => void }
 }
 
 function CommentsListScreen({ onOpenEdit }: { onOpenEdit: (id: string) => void }) {
-  const [qStatus, setQStatus] = useState('')
-  const [rows] = useState<CommentRow[]>(() => [
-    {
-      id: 'C0001',
-      targetTitle: '作品A 第1話',
-      author: '匿名',
-      body: 'めちゃくちゃ続きが気になる…！',
-      createdAt: '2026-01-10 12:00',
-      status: '公開済み',
-    },
-    {
-      id: 'C0009',
-      targetTitle: '作品B 第2話',
-      author: 'ユーザーB',
-      body: 'ラストの展開が予想外で鳥肌…！！！',
-      createdAt: '2026-01-09 10:15',
-      status: '対応済み非公開',
-    },
-  ])
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [qStatus, setQStatus] = useState<'' | 'pending' | 'approved' | 'rejected'>('')
+  const [rows, setRows] = useState<CommentRow[]>([])
 
-  const filtered = useMemo(() => {
-    if (!qStatus) return rows
-    return rows.filter((r) => r.status === qStatus)
-  }, [qStatus, rows])
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const qs = qStatus ? `?status=${encodeURIComponent(qStatus)}` : ''
+        const json = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/comments${qs}`)
+        if (!mounted) return
+        setRows(
+          (json.items ?? []).map((c) => ({
+            id: String(c.id ?? ''),
+            targetTitle: commentTargetTitle(String(c.contentTitle ?? ''), String(c.contentId ?? ''), String(c.episodeId ?? '')),
+            author: String(c.author ?? ''),
+            body: String(c.body ?? ''),
+            createdAt: String(c.createdAt ?? ''),
+            status: (String(c.status ?? 'pending') as any) as CommentRow['status'],
+          }))
+        )
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, qStatus])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>コメント一覧</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>検索</Text>
         <SelectField
@@ -1972,24 +2456,34 @@ function CommentsListScreen({ onOpenEdit }: { onOpenEdit: (id: string) => void }
           placeholder="全て"
           options={[
             { label: '全て', value: '' },
-            { label: '未対応非公開', value: '未対応非公開' },
-            { label: '公開済み', value: '公開済み' },
-            { label: '対応済み非公開', value: '対応済み非公開' },
+            { label: '未対応非公開', value: 'pending' },
+            { label: '公開済み', value: 'approved' },
+            { label: '対応済み非公開', value: 'rejected' },
           ]}
-          onChange={setQStatus}
+          onChange={(v) => setQStatus(v as any)}
         />
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
-          {filtered.map((r) => (
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読み込み中…</Text>
+            </View>
+          ) : null}
+          {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenEdit(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{`${r.targetTitle} / ${r.author}`}</Text>
-                <Text style={styles.tableDetail}>{`${r.createdAt} / ${r.status}`}</Text>
+                <Text style={styles.tableDetail}>{`${r.createdAt} / ${commentStatusLabel(r.status)}`}</Text>
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>コメントがありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -1997,8 +2491,59 @@ function CommentsListScreen({ onOpenEdit }: { onOpenEdit: (id: string) => void }
 }
 
 function CommentEditScreen({ id, onBack }: { id: string; onBack: () => void }) {
-  const [status, setStatus] = useState<'公開済み' | '対応済み非公開'>('公開済み')
+  const cfg = useCmsApi()
+  const [status, setStatus] = useState<'approved' | 'rejected'>('approved')
   const [deleted, setDeleted] = useState(false)
+  const [note, setNote] = useState('')
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/comments/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        const c = json.item
+        const st = String(c?.status ?? 'approved')
+        setStatus(st === 'rejected' ? 'rejected' : 'approved')
+        setDeleted(Boolean(c?.deleted))
+        setNote(String(c?.moderationNote ?? ''))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    if (!id) return
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        await cmsFetchJson(cfg, `/cms/comments/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ status, deleted, note }),
+        })
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, deleted, id, note, status])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2008,6 +2553,13 @@ function CommentEditScreen({ id, onBack }: { id: string; onBack: () => void }) {
         </Pressable>
         <Text style={styles.pageTitle}>コメント編集</Text>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>操作</Text>
         <View style={styles.field}>
@@ -2019,18 +2571,22 @@ function CommentEditScreen({ id, onBack }: { id: string; onBack: () => void }) {
           value={status}
           placeholder="選択"
           options={[
-            { label: '公開', value: '公開済み' },
-            { label: '非公開', value: '対応済み非公開' },
+            { label: '公開', value: 'approved' },
+            { label: '非公開', value: 'rejected' },
           ]}
           onChange={(v) => setStatus(v as any)}
         />
+        <View style={styles.field}>
+          <Text style={styles.label}>メモ（任意）</Text>
+          <TextInput value={note} onChangeText={setNote} style={[styles.input, { minHeight: 90 }]} multiline />
+        </View>
         <View style={styles.devRow}>
           <Text style={styles.devLabel}>削除（論理削除）</Text>
           <Switch value={deleted} onValueChange={setDeleted} />
         </View>
         <View style={styles.filterActions}>
-          <Pressable style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>保存</Text>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
       </View>
@@ -2038,28 +2594,80 @@ function CommentEditScreen({ id, onBack }: { id: string; onBack: () => void }) {
   )
 }
 
-type UserRow = { id: string; name: string; email: string; kind: 'ユーザー' | 'キャスト'; createdAt: string }
+type UserRow = { id: string; email: string; emailVerified: boolean; phone: string; phoneVerified: boolean; createdAt: string }
 
 function UsersListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
-  const [rows] = useState<UserRow[]>(() => [
-    { id: 'U0001', name: 'ユーザーA', email: 'usera@example.com', kind: 'ユーザー', createdAt: '2026-01-10' },
-    { id: 'U0002', name: 'キャストB', email: 'castb@example.com', kind: 'キャスト', createdAt: '2026-01-09' },
-  ])
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [rows, setRows] = useState<UserRow[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: Array<{ id: string; email: string; emailVerified: boolean; phone: string; phoneVerified: boolean; createdAt: string }> }>(
+          cfg,
+          '/cms/users'
+        )
+        if (!mounted) return
+        setRows(
+          (json.items ?? []).map((u) => ({
+            id: String(u.id ?? ''),
+            email: String(u.email ?? ''),
+            emailVerified: Boolean((u as any).emailVerified),
+            phone: String((u as any).phone ?? ''),
+            phoneVerified: Boolean((u as any).phoneVerified),
+            createdAt: String((u as any).createdAt ?? ''),
+          }))
+        )
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>ユーザー一覧</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読み込み中…</Text>
+            </View>
+          ) : null}
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
-                <Text style={styles.tableLabel}>{`${r.name}（${r.kind}）`}</Text>
-                <Text style={styles.tableDetail}>{`${r.email} / ${r.createdAt}`}</Text>
+                <Text style={styles.tableLabel}>{r.email || r.id}</Text>
+                <Text style={styles.tableDetail}>{`${r.id}${r.createdAt ? ` / ${r.createdAt}` : ''}`}</Text>
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>ユーザーがありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -2067,6 +2675,43 @@ function UsersListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void 
 }
 
 function UserDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [item, setItem] = useState<null | { id: string; email: string; emailVerified: boolean; phone: string; phoneVerified: boolean; createdAt: string; updatedAt: string }>(null)
+
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/users/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        const u = json.item
+        setItem({
+          id: String(u?.id ?? id),
+          email: String(u?.email ?? ''),
+          emailVerified: Boolean(u?.emailVerified),
+          phone: String(u?.phone ?? ''),
+          phoneVerified: Boolean(u?.phoneVerified),
+          createdAt: String(u?.createdAt ?? ''),
+          updatedAt: String(u?.updatedAt ?? ''),
+        })
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <View style={styles.pageHeaderRow}>
@@ -2075,27 +2720,101 @@ function UserDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
         </Pressable>
         <Text style={styles.pageTitle}>ユーザー詳細</Text>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>基本情報</Text>
         <View style={styles.field}>
           <Text style={styles.label}>ユーザーID</Text>
-          <Text style={styles.readonlyText}>{id || '—'}</Text>
+          <Text style={styles.readonlyText}>{item?.id || id || '—'}</Text>
         </View>
-        <View style={styles.placeholderBox}>
-          <Text style={styles.placeholderText}>プロフィール/履歴/お気に入り等は後続実装</Text>
+        <View style={styles.field}>
+          <Text style={styles.label}>メールアドレス</Text>
+          <Text style={styles.readonlyText}>{item?.email || '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>メール認証</Text>
+          <Text style={styles.readonlyText}>{item ? (item.emailVerified ? '済' : '未') : busy ? '—' : '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>電話番号</Text>
+          <Text style={styles.readonlyText}>{item?.phone || '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>電話番号認証</Text>
+          <Text style={styles.readonlyText}>{item ? (item.phoneVerified ? '済' : '未') : busy ? '—' : '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>作成日時</Text>
+          <Text style={styles.readonlyText}>{item?.createdAt || '—'}</Text>
         </View>
       </View>
     </ScrollView>
   )
 }
 
-type NoticeRow = { id: string; subject: string; sentAt: string; status: '下書き' | '予約' | '送信済み' | '取消' }
+type NoticeStatus = 'draft' | 'scheduled' | 'sent' | 'cancelled'
+type NoticeRow = { id: string; subject: string; sentAt: string; status: NoticeStatus; push: boolean }
+
+function noticeStatusLabel(v: NoticeStatus): string {
+  switch (v) {
+    case 'draft':
+      return '下書き'
+    case 'scheduled':
+      return '予約'
+    case 'sent':
+      return '送信済み'
+    case 'cancelled':
+      return '取消'
+    default:
+      return '下書き'
+  }
+}
 
 function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string) => void; onNew: () => void }) {
-  const [rows] = useState<NoticeRow[]>(() => [
-    { id: 'N0001', subject: 'メンテナンスのお知らせ', sentAt: '2026-01-12 03:00', status: '予約' },
-    { id: 'N0002', subject: '新作公開', sentAt: '2026-01-10 12:00', status: '送信済み' },
-  ])
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [rows, setRows] = useState<NoticeRow[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: Array<{ id: string; subject: string; body: string; sentAt: string; status: string; push: boolean }> }>(
+          cfg,
+          '/cms/notices'
+        )
+        if (!mounted) return
+        setRows(
+          (json.items ?? []).map((n) => ({
+            id: String(n.id ?? ''),
+            subject: String(n.subject ?? ''),
+            sentAt: String((n as any).sentAt ?? ''),
+            status: (String((n as any).status ?? 'draft') as NoticeStatus) || 'draft',
+            push: Boolean((n as any).push),
+          }))
+        )
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2105,17 +2824,34 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
           <Text style={styles.smallBtnPrimaryText}>新規作成</Text>
         </Pressable>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読み込み中…</Text>
+            </View>
+          ) : null}
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{r.subject}</Text>
-                <Text style={styles.tableDetail}>{`${r.sentAt} / ${r.status}`}</Text>
+                <Text style={styles.tableDetail}>{`${r.sentAt || '—'} / ${noticeStatusLabel(r.status)}`}</Text>
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>お知らせがありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -2123,15 +2859,88 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
 }
 
 function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
   const [sentAt, setSentAt] = useState('2026-01-12 03:00')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [push, setPush] = useState(false)
+  const [status, setStatus] = useState<NoticeStatus>('draft')
+
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (!id) return
-    setSubject(`(${id}) お知らせ件名`)
-  }, [id])
+    if (!id) {
+      setSentAt('')
+      setSubject('')
+      setBody('')
+      setPush(false)
+      setStatus('draft')
+      return
+    }
+
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/notices/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        const n = json.item
+        setSentAt(String(n?.sentAt ?? ''))
+        setSubject(String(n?.subject ?? ''))
+        setBody(String(n?.body ?? ''))
+        setPush(Boolean(n?.push))
+        setStatus((String(n?.status ?? 'draft') as NoticeStatus) || 'draft')
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const payload = {
+          sentAt,
+          subject,
+          body,
+          push,
+          status,
+        }
+        if (id) {
+          await cmsFetchJson(cfg, `/cms/notices/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } else {
+          await cmsFetchJson(cfg, '/cms/notices', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          onBack()
+          return
+        }
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [body, cfg, id, onBack, push, sentAt, status, subject])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2141,8 +2950,27 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
+        <SelectField
+          label="ステータス"
+          value={status}
+          placeholder="選択"
+          options={[
+            { label: '下書き', value: 'draft' },
+            { label: '予約', value: 'scheduled' },
+            { label: '送信済み', value: 'sent' },
+            { label: '取消', value: 'cancelled' },
+          ]}
+          onChange={(v) => setStatus(v as NoticeStatus)}
+        />
         <View style={styles.field}>
           <Text style={styles.label}>配信日時</Text>
           <TextInput value={sentAt} onChangeText={setSentAt} style={styles.input} />
@@ -2160,8 +2988,8 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
           <Switch value={push} onValueChange={setPush} />
         </View>
         <View style={styles.filterActions}>
-          <Pressable style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>保存</Text>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
       </View>
@@ -2316,13 +3144,619 @@ function TagEditScreen({ title, id, onBack }: { title: string; id: string; onBac
   )
 }
 
+type FeaturedVideoItem = {
+  id: string
+  workId: string
+  workTitle: string
+  title: string
+  thumbnailUrl: string
+  castNames: string
+  categoryNames: string
+  tagNames: string
+}
+
+function FeaturedVideosScreen({ slot, title }: { slot: string; title: string }) {
+  const cfg = useCmsApi()
+
+  const [q, setQ] = useState('')
+  const [qCast, setQCast] = useState('')
+  const [qCategory, setQCategory] = useState('')
+  const [qTag, setQTag] = useState('')
+
+  const [searchRows, setSearchRows] = useState<FeaturedVideoItem[]>([])
+  const [selectedRows, setSelectedRows] = useState<FeaturedVideoItem[]>([])
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const loadSelected = useCallback(async () => {
+    setBanner('')
+    try {
+      const json = await cmsFetchJson<{ items: FeaturedVideoItem[] }>(
+        cfg,
+        `/cms/featured/videos?slot=${encodeURIComponent(slot)}`
+      )
+      setSelectedRows(Array.isArray(json.items) ? json.items : [])
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    }
+  }, [cfg, slot])
+
+  useEffect(() => {
+    void loadSelected()
+  }, [loadSelected])
+
+  const runSearch = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const params = new URLSearchParams()
+      if (q.trim()) params.set('q', q.trim())
+      if (qCast.trim()) params.set('cast', qCast.trim())
+      if (qCategory.trim()) params.set('category', qCategory.trim())
+      if (qTag.trim()) params.set('tag', qTag.trim())
+      params.set('limit', '80')
+
+      const json = await cmsFetchJson<{ items: FeaturedVideoItem[] }>(cfg, `/cms/videos/search?${params.toString()}`)
+      setSearchRows(Array.isArray(json.items) ? json.items : [])
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [cfg, q, qCast, qCategory, qTag])
+
+  const reset = useCallback(() => {
+    setQ('')
+    setQCast('')
+    setQCategory('')
+    setQTag('')
+    setSearchRows([])
+    setBanner('')
+  }, [])
+
+  const addSelected = useCallback((it: FeaturedVideoItem) => {
+    setSelectedRows((prev) => {
+      if (prev.some((p) => p.id === it.id)) return prev
+      return [...prev, it]
+    })
+  }, [])
+
+  const removeSelected = useCallback((id: string) => {
+    setSelectedRows((prev) => prev.filter((p) => p.id !== id))
+  }, [])
+
+  const moveSelected = useCallback((from: number, to: number) => {
+    setSelectedRows((prev) => {
+      if (from < 0 || from >= prev.length) return prev
+      if (to < 0 || to >= prev.length) return prev
+      const next = [...prev]
+      const [picked] = next.splice(from, 1)
+      next.splice(to, 0, picked)
+      return next
+    })
+  }, [])
+
+  const onSave = useCallback(async () => {
+    setSaving(true)
+    setBanner('')
+    try {
+      await cmsFetchJson<{ ok: boolean }>(cfg, `/cms/featured/videos?slot=${encodeURIComponent(slot)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoIds: selectedRows.map((r) => r.id) }),
+      })
+      setBanner('保存しました')
+      await loadSelected()
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }, [cfg, loadSelected, selectedRows])
+
+  const selectedIds = useMemo(() => new Set(selectedRows.map((r) => r.id)), [selectedRows])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <Text style={styles.pageTitle}>{title}</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>検索</Text>
+        <View style={styles.filtersGrid}>
+          <View style={styles.field}>
+            <Text style={styles.label}>タイトル</Text>
+            <TextInput value={q} onChangeText={setQ} placeholder="部分一致" style={styles.input} />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>出演者</Text>
+            <TextInput value={qCast} onChangeText={setQCast} placeholder="部分一致" style={styles.input} />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>カテゴリ</Text>
+            <TextInput value={qCategory} onChangeText={setQCategory} placeholder="部分一致" style={styles.input} />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>タグ</Text>
+            <TextInput value={qTag} onChangeText={setQTag} placeholder="部分一致" style={styles.input} />
+          </View>
+        </View>
+
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={runSearch} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '検索中…' : '検索'}</Text>
+          </Pressable>
+          <Pressable onPress={reset} style={styles.btnSecondary}>
+            <Text style={styles.btnSecondaryText}>リセット</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.table}>
+          {searchRows.length === 0 ? (
+            <View style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableDetail}>検索結果がありません</Text>
+              </View>
+            </View>
+          ) : (
+            searchRows.map((r) => (
+              <View key={r.id} style={styles.tableRow}>
+                <View style={[styles.tableLeft, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                  {r.thumbnailUrl ? <Image source={{ uri: r.thumbnailUrl }} style={styles.thumb} /> : <View style={styles.thumb} />}
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={styles.tableLabel}>{r.title || '—'}</Text>
+                    <Text style={styles.tableDetail}>{`${r.id} / ${r.workTitle || '—'}`}</Text>
+                    <Text style={styles.tableDetail}>{`出演者: ${r.castNames || '—'}`}</Text>
+                    <Text style={styles.tableDetail}>{`カテゴリ: ${r.categoryNames || '—'} / タグ: ${r.tagNames || '—'}`}</Text>
+                  </View>
+                </View>
+                <View style={styles.tableRight}>
+                  <Pressable
+                    disabled={selectedIds.has(r.id)}
+                    onPress={() => addSelected(r)}
+                    style={[styles.smallBtnPrimary, selectedIds.has(r.id) ? styles.btnDisabled : null]}
+                  >
+                    <Text style={styles.smallBtnPrimaryText}>{selectedIds.has(r.id) ? '追加済み' : '追加'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.pageHeaderRow}>
+          <Text style={styles.sectionTitle}>{`選定済み（${selectedRows.length}件）`}</Text>
+          <Pressable disabled={saving} onPress={onSave} style={[styles.btnPrimary, saving ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{saving ? '保存中…' : '保存'}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.table}>
+          {selectedRows.length === 0 ? (
+            <View style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableDetail}>未選定です</Text>
+              </View>
+            </View>
+          ) : (
+            selectedRows.map((r, idx) => (
+              <View key={r.id} style={styles.tableRow}>
+                <View style={[styles.tableLeft, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                  {r.thumbnailUrl ? <Image source={{ uri: r.thumbnailUrl }} style={styles.thumb} /> : <View style={styles.thumb} />}
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={styles.tableLabel}>{`${idx + 1}. ${r.title || '—'}`}</Text>
+                    <Text style={styles.tableDetail}>{`${r.id} / ${r.workTitle || '—'}`}</Text>
+                    <Text style={styles.tableDetail}>{`出演者: ${r.castNames || '—'}`}</Text>
+                    <Text style={styles.tableDetail}>{`カテゴリ: ${r.categoryNames || '—'} / タグ: ${r.tagNames || '—'}`}</Text>
+                  </View>
+                </View>
+                <View style={[styles.tableRight, { flexDirection: 'row', gap: 8, alignItems: 'center' }]}>
+                  <Pressable disabled={idx === 0} onPress={() => moveSelected(idx, idx - 1)} style={[styles.smallBtn, idx === 0 ? styles.btnDisabled : null]}>
+                    <Text style={styles.smallBtnText}>上へ</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={idx === selectedRows.length - 1}
+                    onPress={() => moveSelected(idx, idx + 1)}
+                    style={[styles.smallBtn, idx === selectedRows.length - 1 ? styles.btnDisabled : null]}
+                  >
+                    <Text style={styles.smallBtnText}>下へ</Text>
+                  </Pressable>
+                  <Pressable onPress={() => removeSelected(r.id)} style={styles.smallBtn}>
+                    <Text style={styles.smallBtnText}>削除</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+function RecommendVideosScreen() {
+  return <FeaturedVideosScreen slot="recommend" title="おすすめ動画" />
+}
+
+function PickupVideosScreen() {
+  return <FeaturedVideosScreen slot="pickup" title="ピックアップ動画" />
+}
+
+type CastStaffRow = {
+  id: string
+  name: string
+  role: string
+  thumbnailUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+function CastStaffListScreen({
+  onOpenDetail,
+  onNew,
+}: {
+  onOpenDetail: (id: string) => void
+  onNew: () => void
+}) {
+  const cfg = useCmsApi()
+  const [qName, setQName] = useState('')
+  const [rows, setRows] = useState<CastStaffRow[]>([])
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: CastStaffRow[] }>(cfg, '/cms/casts')
+        if (!mounted) return
+        setRows(json.items || [])
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
+
+  const filtered = useMemo(() => {
+    const name = qName.trim()
+    if (!name) return rows
+    return rows.filter((r) => r.name.includes(name) || r.id.includes(name))
+  }, [qName, rows])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Text style={styles.pageTitle}>キャスト・スタッフ管理</Text>
+        <Pressable onPress={onNew} style={styles.smallBtnPrimary}>
+          <Text style={styles.smallBtnPrimaryText}>新規</Text>
+        </Pressable>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>検索</Text>
+        <View style={styles.field}>
+          <Text style={styles.label}>氏名 / ID</Text>
+          <TextInput value={qName} onChangeText={setQName} placeholder="例: cast_ / 山田" style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.filterActions}>
+          <Pressable onPress={() => setQName((v) => v.trim())} style={styles.btnPrimary}>
+            <Text style={styles.btnPrimaryText}>検索</Text>
+          </Pressable>
+          <Pressable onPress={() => setQName('')} style={styles.btnSecondary}>
+            <Text style={styles.btnSecondaryText}>リセット</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{`一覧${busy ? '（読み込み中）' : ''}`}</Text>
+        <View style={styles.table}>
+          {filtered.map((r) => (
+            <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                  {r.thumbnailUrl ? <Image source={{ uri: r.thumbnailUrl }} style={styles.thumb} /> : <View style={styles.thumb} />}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.tableLabel}>{r.name || '—'}</Text>
+                    <Text style={styles.tableDetail}>{`${r.id} / ${r.role || '—'}`}</Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+          {!busy && filtered.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>該当データがありません</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+type CastStaffDetailResponse = {
+  item: CastStaffRow
+  stats: { favoritesCount: number; worksCount: number; videosCount: number }
+  works: Array<{ id: string; title: string; roleName: string }>
+  videos: Array<{ id: string; title: string; workId: string; workTitle: string; roleName: string }>
+}
+
+function CastStaffDetailScreen({
+  title,
+  id,
+  onBack,
+  onSaved,
+  onOpenWork,
+  onOpenVideo,
+}: {
+  title: string
+  id: string
+  onBack: () => void
+  onSaved: (id: string) => void
+  onOpenWork: (id: string) => void
+  onOpenVideo: (id: string) => void
+}) {
+  const cfg = useCmsApi()
+  const [name, setName] = useState('')
+  const [role, setRole] = useState('')
+  const [thumbnailUrl, setThumbnailUrl] = useState('')
+  const [stats, setStats] = useState<{ favoritesCount: number; worksCount: number; videosCount: number } | null>(null)
+  const [works, setWorks] = useState<Array<{ id: string; title: string; roleName: string }>>([])
+  const [videos, setVideos] = useState<Array<{ id: string; title: string; workId: string; workTitle: string; roleName: string }>>([])
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!id) {
+      setStats(null)
+      setWorks([])
+      setVideos([])
+      return
+    }
+
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<CastStaffDetailResponse>(cfg, `/cms/casts/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        setName(json.item?.name || '')
+        setRole(json.item?.role || '')
+        setThumbnailUrl(json.item?.thumbnailUrl || '')
+        setStats(json.stats || null)
+        setWorks(json.works || [])
+        setVideos(json.videos || [])
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        if (!name.trim()) throw new Error('name is required')
+
+        if (id) {
+          await cmsFetchJson(cfg, `/cms/casts/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name, role, thumbnailUrl }),
+          })
+          setBanner('保存しました')
+          return
+        }
+
+        const created = await cmsFetchJson<{ ok: true; id: string }>(cfg, '/cms/casts', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name, role, thumbnailUrl }),
+        })
+        const nextId = String(created.id || '')
+        if (!nextId) throw new Error('作成に失敗しました')
+        setBanner('作成しました')
+        onSaved(nextId)
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id, name, onSaved, role, thumbnailUrl])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Pressable onPress={onBack} style={styles.smallBtn}>
+          <Text style={styles.smallBtnText}>戻る</Text>
+        </Pressable>
+        <Text style={styles.pageTitle}>{title}</Text>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>プロフィール</Text>
+        {id ? (
+          <View style={styles.field}>
+            <Text style={styles.label}>ID</Text>
+            <Text style={styles.readonlyText}>{id}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.field}>
+          <Text style={styles.label}>氏名</Text>
+          <TextInput value={name} onChangeText={setName} style={styles.input} />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>役割（例: 俳優/監督/脚本）</Text>
+          <TextInput value={role} onChangeText={setRole} style={styles.input} />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>サムネURL</Text>
+          <TextInput value={thumbnailUrl} onChangeText={setThumbnailUrl} style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>プレビュー</Text>
+          {thumbnailUrl ? <Image source={{ uri: thumbnailUrl }} style={styles.thumb} /> : <View style={styles.thumb} />}
+        </View>
+
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>保存</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {id ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>集計</Text>
+          <View style={styles.table}>
+            <View style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>お気に入り数</Text>
+                <Text style={styles.tableDetail}>{String(stats?.favoritesCount ?? 0)}</Text>
+              </View>
+            </View>
+            <View style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>出演作品数（作品）</Text>
+                <Text style={styles.tableDetail}>{String(stats?.worksCount ?? 0)}</Text>
+              </View>
+            </View>
+            <View style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>出演作品数（動画）</Text>
+                <Text style={styles.tableDetail}>{String(stats?.videosCount ?? 0)}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {id ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>関連作品（作品）</Text>
+          <View style={styles.table}>
+            {works.map((w) => (
+              <Pressable key={w.id} onPress={() => onOpenWork(w.id)} style={styles.tableRow}>
+                <View style={styles.tableLeft}>
+                  <Text style={styles.tableLabel}>{w.title || w.id}</Text>
+                  <Text style={styles.tableDetail}>{`${w.id}${w.roleName ? ` / ${w.roleName}` : ''}`}</Text>
+                </View>
+              </Pressable>
+            ))}
+            {works.length === 0 ? (
+              <View style={styles.placeholderBox}>
+                <Text style={styles.placeholderText}>紐づく作品がありません</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
+      {id ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>関連作品（動画）</Text>
+          <View style={styles.table}>
+            {videos.map((v) => (
+              <Pressable key={v.id} onPress={() => onOpenVideo(v.id)} style={styles.tableRow}>
+                <View style={styles.tableLeft}>
+                  <Text style={styles.tableLabel}>{v.title || v.id}</Text>
+                  <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : v.workId ? ` / ${v.workId}` : ''}${v.roleName ? ` / ${v.roleName}` : ''}`}</Text>
+                </View>
+              </Pressable>
+            ))}
+            {videos.length === 0 ? (
+              <View style={styles.placeholderBox}>
+                <Text style={styles.placeholderText}>紐づく動画がありません</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+    </ScrollView>
+  )
+}
+
 type CoinSettingRow = { id: string; price: string; place: string; target: string; period: string }
 
 function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string) => void; onNew: () => void }) {
-  const [rows] = useState<CoinSettingRow[]>(() => [
-    { id: 'COIN001', price: '¥480', place: 'アプリ', target: '全ユーザー', period: '常時' },
-    { id: 'COIN002', price: '¥1200', place: 'アプリ', target: '全ユーザー', period: '常時' },
-  ])
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [rows, setRows] = useState<CoinSettingRow[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/coin-settings')
+        if (!mounted) return
+        setRows(
+          (json.items ?? []).map((r) => ({
+            id: String(r.id ?? ''),
+            price: `¥${Number(r.priceYen ?? 0).toLocaleString('ja-JP')}`,
+            place: String(r.place ?? ''),
+            target: String(r.target ?? ''),
+            period: String(r.period ?? ''),
+          }))
+        )
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2332,9 +3766,21 @@ function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: st
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読み込み中…</Text>
+            </View>
+          ) : null}
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
@@ -2343,6 +3789,11 @@ function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: st
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>コイン設定がありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -2350,12 +3801,83 @@ function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: st
 }
 
 function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
-  const [price, setPrice] = useState('')
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const [priceYenText, setPriceYenText] = useState('')
+  const [place, setPlace] = useState('')
+  const [target, setTarget] = useState('')
+  const [period, setPeriod] = useState('')
 
   useEffect(() => {
-    if (!id) return
-    setPrice('¥480')
-  }, [id])
+    if (!id) {
+      setPriceYenText('')
+      setPlace('')
+      setTarget('')
+      setPeriod('')
+      return
+    }
+
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/coin-settings/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        const it = json.item
+        setPriceYenText(String(it?.priceYen ?? ''))
+        setPlace(String(it?.place ?? ''))
+        setTarget(String(it?.target ?? ''))
+        setPeriod(String(it?.period ?? ''))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    const priceYen = Math.floor(Number(priceYenText || 0))
+    if (!Number.isFinite(priceYen) || priceYen <= 0) {
+      setBanner('価格（円）を入力してください')
+      return
+    }
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const payload = { priceYen, place, target, period }
+        if (id) {
+          await cmsFetchJson(cfg, `/cms/coin-settings/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } else {
+          await cmsFetchJson(cfg, '/cms/coin-settings', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          onBack()
+          return
+        }
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id, onBack, period, place, priceYenText, target])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2365,6 +3887,13 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
         {id ? (
@@ -2374,15 +3903,24 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
           </View>
         ) : null}
         <View style={styles.field}>
-          <Text style={styles.label}>価格</Text>
-          <TextInput value={price} onChangeText={setPrice} style={styles.input} />
+          <Text style={styles.label}>価格（円）</Text>
+          <TextInput value={priceYenText} onChangeText={setPriceYenText} style={styles.input} keyboardType={Platform.OS === 'web' ? undefined : 'number-pad'} />
         </View>
-        <View style={styles.placeholderBox}>
-          <Text style={styles.placeholderText}>表示場所/対象/期間などは後続実装</Text>
+        <View style={styles.field}>
+          <Text style={styles.label}>表示場所</Text>
+          <TextInput value={place} onChangeText={setPlace} style={styles.input} />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>対象</Text>
+          <TextInput value={target} onChangeText={setTarget} style={styles.input} />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>期間</Text>
+          <TextInput value={period} onChangeText={setPeriod} style={styles.input} />
         </View>
         <View style={styles.filterActions}>
-          <Pressable style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>保存</Text>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
       </View>
@@ -2390,10 +3928,43 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
   )
 }
 
-type AdminRow = { id: string; name: string; email: string; role: 'Admin' }
+type AdminRow = { id: string; name: string; email: string; role: string; disabled: boolean }
 
 function AdminsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string) => void; onNew: () => void }) {
-  const [rows] = useState<AdminRow[]>(() => [{ id: 'A0001', name: '運営管理者', email: 'admin@example.com', role: 'Admin' }])
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [rows, setRows] = useState<AdminRow[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/admins')
+        if (!mounted) return
+        setRows(
+          (json.items ?? []).map((a) => ({
+            id: String(a.id ?? ''),
+            name: String(a.name ?? ''),
+            email: String(a.email ?? ''),
+            role: String(a.role ?? 'Admin'),
+            disabled: Boolean(a.disabled),
+          }))
+        )
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2403,17 +3974,34 @@ function AdminsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string) 
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読み込み中…</Text>
+            </View>
+          ) : null}
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{r.name}</Text>
-                <Text style={styles.tableDetail}>{`${r.email} / ${r.role}`}</Text>
+                <Text style={styles.tableDetail}>{`${r.email} / ${r.role}${r.disabled ? ' / 無効' : ''}`}</Text>
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>管理者がありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -2421,14 +4009,97 @@ function AdminsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string) 
 }
 
 function AdminEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [role, setRole] = useState('Admin')
+  const [disabled, setDisabled] = useState(false)
+  const [password, setPassword] = useState('')
+
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (!id) return
-    setName('運営管理者')
-    setEmail('admin@example.com')
-  }, [id])
+    if (!id) {
+      setName('')
+      setEmail('')
+      setRole('Admin')
+      setDisabled(false)
+      setPassword('')
+      return
+    }
+
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/admins/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        const a = json.item
+        setName(String(a?.name ?? ''))
+        setEmail(String(a?.email ?? ''))
+        setRole(String(a?.role ?? 'Admin'))
+        setDisabled(Boolean(a?.disabled))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    if (!name.trim()) {
+      setBanner('氏名を入力してください')
+      return
+    }
+    if (!isValidEmail(email)) {
+      setBanner('メールアドレスが不正です')
+      return
+    }
+    if (!id && !password.trim()) {
+      setBanner('パスワードを入力してください')
+      return
+    }
+
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const payload: any = { name, email, role, disabled }
+        if (password.trim()) payload.password = password
+
+        if (id) {
+          await cmsFetchJson(cfg, `/cms/admins/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } else {
+          await cmsFetchJson(cfg, '/cms/admins', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          onBack()
+          return
+        }
+
+        setPassword('')
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, disabled, email, id, name, onBack, password, role])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2438,6 +4109,13 @@ function AdminEditScreen({ title, id, onBack }: { title: string; id: string; onB
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>入力</Text>
         {id ? (
@@ -2454,9 +4132,24 @@ function AdminEditScreen({ title, id, onBack }: { title: string; id: string; onB
           <Text style={styles.label}>メールアドレス</Text>
           <TextInput value={email} onChangeText={setEmail} style={styles.input} autoCapitalize="none" />
         </View>
+        <SelectField
+          label="権限"
+          value={role}
+          placeholder="選択"
+          options={[{ label: 'Admin', value: 'Admin' }]}
+          onChange={setRole}
+        />
+        <View style={styles.field}>
+          <Text style={styles.label}>{id ? 'パスワード（変更時のみ）' : 'パスワード'}</Text>
+          <TextInput value={password} onChangeText={setPassword} style={styles.input} autoCapitalize="none" secureTextEntry />
+        </View>
+        <View style={styles.devRow}>
+          <Text style={styles.devLabel}>無効化</Text>
+          <Switch value={disabled} onValueChange={setDisabled} />
+        </View>
         <View style={styles.filterActions}>
-          <Pressable style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>保存</Text>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
       </View>
@@ -2476,22 +4169,147 @@ function RankingPlaceholderScreen({ title }: { title: string }) {
 }
 
 function InquiriesListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [rows, setRows] = useState<Array<{ id: string; subject: string; status: string; createdAt?: string }>>([])
+
+  const statusLabel = useCallback((s: string) => {
+    switch (String(s || '').toLowerCase()) {
+      case 'open':
+        return '未対応'
+      case 'in_progress':
+        return '対応中'
+      case 'closed':
+        return '完了'
+      default:
+        return s || '—'
+    }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/inquiries')
+        if (!mounted) return
+        setRows(
+          (json.items ?? []).map((r) => ({
+            id: String(r.id ?? ''),
+            subject: String(r.subject ?? ''),
+            status: String(r.status ?? ''),
+            createdAt: r.createdAt ? String(r.createdAt) : '',
+          }))
+        )
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
+
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>お問い合わせ一覧</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.table}>
-        <Pressable onPress={() => onOpenDetail('IQ0001')} style={styles.tableRow}>
-          <View style={styles.tableLeft}>
-            <Text style={styles.tableLabel}>お問い合わせ（サンプル）</Text>
-            <Text style={styles.tableDetail}>IQ0001 / 未対応</Text>
+        {busy ? (
+          <View style={styles.placeholderBox}>
+            <Text style={styles.placeholderText}>読み込み中…</Text>
           </View>
-        </Pressable>
+        ) : null}
+
+        {rows.map((r) => (
+          <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
+            <View style={styles.tableLeft}>
+              <Text style={styles.tableLabel}>{r.subject || '（件名なし）'}</Text>
+              <Text style={styles.tableDetail}>{`${r.id} / ${statusLabel(r.status)}`}</Text>
+            </View>
+          </Pressable>
+        ))}
+
+        {!busy && rows.length === 0 ? (
+          <View style={styles.placeholderBox}>
+            <Text style={styles.placeholderText}>お問い合わせがありません</Text>
+          </View>
+        ) : null}
       </View>
     </ScrollView>
   )
 }
 
 function InquiryDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+  const [status, setStatus] = useState('open')
+  const [createdAt, setCreatedAt] = useState('')
+  const [updatedAt, setUpdatedAt] = useState('')
+
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/inquiries/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        const item = json.item
+        setSubject(String(item?.subject ?? ''))
+        setBody(String(item?.body ?? ''))
+        setStatus(String(item?.status ?? 'open'))
+        setCreatedAt(String(item?.createdAt ?? ''))
+        setUpdatedAt(String(item?.updatedAt ?? ''))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    if (!id) return
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        await cmsFetchJson(cfg, `/cms/inquiries/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ status }),
+        })
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id, status])
+
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <View style={styles.pageHeaderRow}>
@@ -2500,14 +4318,154 @@ function InquiryDetailScreen({ id, onBack }: { id: string; onBack: () => void })
         </Pressable>
         <Text style={styles.pageTitle}>お問い合わせ詳細</Text>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>内容</Text>
         <View style={styles.field}>
           <Text style={styles.label}>ID</Text>
           <Text style={styles.readonlyText}>{id || '—'}</Text>
         </View>
-        <View style={styles.placeholderBox}>
-          <Text style={styles.placeholderText}>本文/対応ステータス更新は後続実装</Text>
+
+        {busy ? (
+          <View style={styles.placeholderBox}>
+            <Text style={styles.placeholderText}>読み込み中…</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.field}>
+          <Text style={styles.label}>件名</Text>
+          <Text style={styles.readonlyText}>{subject || '—'}</Text>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>本文</Text>
+          <Text style={styles.readonlyText}>{body || '—'}</Text>
+        </View>
+
+        <SelectField
+          label="対応ステータス"
+          value={status}
+          placeholder="選択"
+          options={[
+            { label: '未対応', value: 'open' },
+            { label: '対応中', value: 'in_progress' },
+            { label: '完了', value: 'closed' },
+          ]}
+          onChange={setStatus}
+        />
+
+        <View style={styles.field}>
+          <Text style={styles.label}>作成日時</Text>
+          <Text style={styles.readonlyText}>{createdAt || '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>更新日時</Text>
+          <Text style={styles.readonlyText}>{updatedAt || '—'}</Text>
+        </View>
+
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+function SettingsScreen() {
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [maintenanceMode, setMaintenanceMode] = useState(false)
+  const [maintenanceMessage, setMaintenanceMessage] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ maintenanceMode: boolean; maintenanceMessage: string }>(cfg, '/cms/settings')
+        if (!mounted) return
+        setMaintenanceMode(Boolean(json.maintenanceMode))
+        setMaintenanceMessage(String(json.maintenanceMessage ?? ''))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
+
+  const onSave = useCallback(() => {
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        await cmsFetchJson(cfg, '/cms/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ maintenanceMode, maintenanceMessage }),
+        })
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, maintenanceMessage, maintenanceMode])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <Text style={styles.pageTitle}>設定</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>メンテナンス</Text>
+
+        {busy ? (
+          <View style={styles.placeholderBox}>
+            <Text style={styles.placeholderText}>読み込み中…</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.devRow}>
+          <Text style={styles.devLabel}>メンテナンスモード</Text>
+          <Switch value={maintenanceMode} onValueChange={setMaintenanceMode} />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>メッセージ</Text>
+          <TextInput
+            value={maintenanceMessage}
+            onChangeText={setMaintenanceMessage}
+            style={[styles.input, { height: 88, textAlignVertical: 'top' }]}
+            multiline
+          />
+        </View>
+
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+          </Pressable>
         </View>
       </View>
     </ScrollView>
@@ -2630,9 +4588,11 @@ function DevModal({
   token,
   apiBase,
   adminEmail,
+  mock,
   onClose,
   onSetAdminEmail,
   onSetApiBase,
+  onSetMock,
   onNavigate,
   onSkipLogin,
   onSetLoggedInState,
@@ -2641,9 +4601,11 @@ function DevModal({
   token: string
   apiBase: string
   adminEmail: string
+  mock: boolean
   onClose: () => void
   onSetAdminEmail: (v: string) => void
   onSetApiBase: (v: string) => void
+  onSetMock: (v: boolean) => void
   onNavigate: (id: RouteId) => void
   onSkipLogin: (persist: boolean) => void
   onSetLoggedInState: (next: boolean, persist: boolean) => void
@@ -2713,6 +4675,11 @@ function DevModal({
             <Switch value={persist} onValueChange={setPersist} />
           </View>
 
+          <View style={styles.devRow}>
+            <Text style={styles.devLabel}>MOCK</Text>
+            <Switch value={mock} onValueChange={onSetMock} />
+          </View>
+
           <View style={styles.field}>
             <Text style={styles.label}>管理者メール</Text>
             <TextInput value={emailInput} onChangeText={setEmailInput} style={styles.input} />
@@ -2763,6 +4730,7 @@ function AppShell({
   const [selectedScheduledVideoId, setSelectedScheduledVideoId] = useState('')
   const [selectedVideoId, setSelectedVideoId] = useState('')
   const [selectedUnapprovedVideoId, setSelectedUnapprovedVideoId] = useState('')
+  const [selectedUnapprovedActorAccountId, setSelectedUnapprovedActorAccountId] = useState('')
   const [selectedCommentId, setSelectedCommentId] = useState('')
   const [selectedUserId, setSelectedUserId] = useState('')
   const [selectedNoticeId, setSelectedNoticeId] = useState('')
@@ -2773,6 +4741,7 @@ function AppShell({
   const [selectedCoinSettingId, setSelectedCoinSettingId] = useState('')
   const [selectedAdminId, setSelectedAdminId] = useState('')
   const [selectedInquiryId, setSelectedInquiryId] = useState('')
+  const [selectedCastStaffId, setSelectedCastStaffId] = useState('')
 
   const menu = useMemo<SidebarEntry[]>(
     () => [
@@ -2796,6 +4765,7 @@ function AppShell({
 
       { kind: 'group', label: 'ユーザー管理' },
       { kind: 'item', id: 'users', label: 'ユーザー一覧' },
+      { kind: 'item', id: 'unapproved-actor-accounts', label: '未承認俳優アカウント一覧' },
 
       { kind: 'group', label: 'お知らせ' },
       { kind: 'item', id: 'notices', label: 'お知らせ一覧' },
@@ -2916,13 +4886,82 @@ function AppShell({
         )
       case 'unapproved-video-detail':
         return <UnapprovedVideoDetailScreen id={selectedUnapprovedVideoId} onBack={() => onNavigate('unapproved-videos')} />
+
+      case 'unapproved-actor-accounts':
+        return (
+          <UnapprovedActorAccountsListScreen
+            onOpenDetail={(id) => {
+              setSelectedUnapprovedActorAccountId(id)
+              onNavigate('unapproved-actor-account-detail')
+            }}
+          />
+        )
+      case 'unapproved-actor-account-detail':
+        return (
+          <UnapprovedActorAccountDetailScreen
+            id={selectedUnapprovedActorAccountId}
+            onBack={() => onNavigate('unapproved-actor-accounts')}
+          />
+        )
       case 'recommend':
-        return <PlaceholderScreen title="おすすめ動画" />
+        return <RecommendVideosScreen />
       case 'pickup':
-        return <PlaceholderScreen title="ピックアップ" />
+        return <PickupVideosScreen />
 
       case 'castStaff':
-        return <PlaceholderScreen title="キャスト・スタッフ管理" />
+        return (
+          <CastStaffListScreen
+            onNew={() => {
+              setSelectedCastStaffId('')
+              onNavigate('castStaff-new')
+            }}
+            onOpenDetail={(id) => {
+              setSelectedCastStaffId(id)
+              onNavigate('castStaff-detail')
+            }}
+          />
+        )
+
+      case 'castStaff-detail':
+        return (
+          <CastStaffDetailScreen
+            title="キャスト・スタッフ詳細"
+            id={selectedCastStaffId}
+            onBack={() => onNavigate('castStaff')}
+            onSaved={(id) => {
+              setSelectedCastStaffId(id)
+            }}
+            onOpenWork={(id) => {
+              setSelectedWorkId(id)
+              onNavigate('work-detail')
+            }}
+            onOpenVideo={(id) => {
+              setSelectedVideoId(id)
+              onNavigate('video-detail')
+            }}
+          />
+        )
+
+      case 'castStaff-new':
+        return (
+          <CastStaffDetailScreen
+            title="キャスト・スタッフ新規作成"
+            id=""
+            onBack={() => onNavigate('castStaff')}
+            onSaved={(id) => {
+              setSelectedCastStaffId(id)
+              onNavigate('castStaff-detail')
+            }}
+            onOpenWork={(id) => {
+              setSelectedWorkId(id)
+              onNavigate('work-detail')
+            }}
+            onOpenVideo={(id) => {
+              setSelectedVideoId(id)
+              onNavigate('video-detail')
+            }}
+          />
+        )
 
       case 'comments-pending':
         return (
@@ -3079,7 +5118,7 @@ function AppShell({
         return <InquiryDetailScreen id={selectedInquiryId} onBack={() => onNavigate('inquiries')} />
 
       case 'settings':
-        return <PlaceholderScreen title="設定" />
+        return <SettingsScreen />
       default:
         return <DashboardScreen onNavigate={onNavigate} />
     }
@@ -3097,6 +5136,7 @@ function AppShell({
     selectedUserId,
     selectedVideoId,
     selectedUnapprovedVideoId,
+    selectedUnapprovedActorAccountId,
     selectedWorkId,
     categoryBackRoute,
     tagBackRoute,
@@ -3115,6 +5155,7 @@ function AppShell({
 
 function LoginScreen({
   apiBase,
+  mock,
   onLoggedIn,
   initialBanner,
   showDebugTools,
@@ -3124,6 +5165,7 @@ function LoginScreen({
   onOpenDevModal,
 }: {
   apiBase: string
+  mock: boolean
   onLoggedIn: (token: string, remember: boolean) => void
   initialBanner: string
   showDebugTools: boolean
@@ -3146,7 +5188,7 @@ function LoginScreen({
 
     const res = await fetch(`${apiBase}/cms/auth/login`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
       body: JSON.stringify({ email: email.trim(), password, remember }),
     })
 
@@ -3158,7 +5200,7 @@ function LoginScreen({
     const token = json && typeof json.token === 'string' ? json.token : ''
     if (!token) throw new Error('通信に失敗しました。時間をおいて再度お試しください')
     return token
-  }, [apiBase, email, password, remember])
+  }, [apiBase, email, mock, password, remember])
 
   const loginMock = useCallback(async (): Promise<string> => {
     if (email.toLowerCase() === 'admin@example.com' && password === 'password') {
@@ -3186,12 +5228,14 @@ function LoginScreen({
 
     setBusy(true)
     try {
-      let token = ''
-      try {
-        token = await loginViaApi()
-      } catch {
-        token = await loginMock()
-      }
+      const token = await (async () => {
+        try {
+          return await loginViaApi()
+        } catch (e) {
+          if (mock) return await loginMock()
+          throw e
+        }
+      })()
       safeLocalStorageSet(STORAGE_EMAIL_KEY, normalizedEmail)
       onLoggedIn(token, remember)
     } catch (e) {
@@ -3200,7 +5244,7 @@ function LoginScreen({
     } finally {
       setBusy(false)
     }
-  }, [email, loginMock, loginViaApi, onLoggedIn, password, remember])
+  }, [email, loginMock, loginViaApi, mock, onLoggedIn, password, remember])
 
   return (
     <View style={styles.loginRoot}>
@@ -3296,15 +5340,20 @@ export default function App() {
   const [devMode, setDevMode] = useState(true)
   const [devModalOpen, setDevModalOpen] = useState(false)
   const [debugOverlayHidden, setDebugOverlayHidden] = useState(false)
+  const [mockMode, setMockMode] = useState(false)
 
   useEffect(() => {
     const saved = safeLocalStorageGet(STORAGE_KEY)
     const savedEmail = safeLocalStorageGet(STORAGE_EMAIL_KEY)
     const savedDevMode = safeLocalStorageGet(STORAGE_DEV_MODE_KEY)
+    const savedMock = safeLocalStorageGet(STORAGE_MOCK_KEY)
     const initialRoute = getRouteFromLocation()
 
     if (savedDevMode === '1') setDevMode(true)
     if (savedDevMode === '0') setDevMode(false)
+
+    if (savedMock === '1') setMockMode(true)
+    if (savedMock === '0') setMockMode(false)
 
     if (saved) {
       setToken(saved)
@@ -3428,6 +5477,11 @@ export default function App() {
     setDevMode(v)
     safeLocalStorageSet(STORAGE_DEV_MODE_KEY, v ? '1' : '0')
     if (v) setDevModalOpen(true)
+  }, [])
+
+  const onSetMockMode = useCallback((v: boolean) => {
+    setMockMode(v)
+    safeLocalStorageSet(STORAGE_MOCK_KEY, v ? '1' : '0')
   }, [])
 
   const onSetApiBase = useCallback((v: string) => {
@@ -3566,6 +5620,7 @@ export default function App() {
       {screen === 'login' ? (
         <LoginScreen
           apiBase={apiBase}
+          mock={mockMode}
           onLoggedIn={onLoggedIn}
           initialBanner={loginBanner}
           showDebugTools={showDevButton}
@@ -3610,7 +5665,7 @@ export default function App() {
             </View>
           </View>
         ) : (
-          <CmsApiContext.Provider value={{ apiBase, token }}>
+          <CmsApiContext.Provider value={{ apiBase, token, mock: mockMode }}>
             <AppShell route={route} adminName={adminEmail} onLogout={onLogout} onNavigate={onNavigate} />
           </CmsApiContext.Provider>
         )
@@ -3621,9 +5676,11 @@ export default function App() {
         token={token}
         apiBase={apiBase}
         adminEmail={adminEmail}
+        mock={mockMode}
         onClose={() => setDevModalOpen(false)}
         onSetAdminEmail={onSetAdminEmail}
         onSetApiBase={onSetApiBase}
+        onSetMock={onSetMockMode}
         onNavigate={onNavigate}
         onSkipLogin={onSkipLogin}
         onSetLoggedInState={onSetLoggedInState}
@@ -3666,6 +5723,11 @@ export default function App() {
             <View style={styles.debugOverlayRow}>
               <Text style={styles.debugOverlayLabel}>ログイン状態</Text>
               <Switch value={Boolean(token)} onValueChange={(v) => onSetLoggedInState(v, true)} />
+            </View>
+
+            <View style={styles.debugOverlayRow}>
+              <Text style={styles.debugOverlayLabel}>MOCK</Text>
+              <Switch value={mockMode} onValueChange={onSetMockMode} />
             </View>
 
             <View style={styles.debugOverlayRow}>

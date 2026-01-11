@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type VideoListScreenProps = {
   apiBaseUrl: string
@@ -71,7 +72,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
   const fetchCategories = useCallback(async () => {
     setCategoriesError('')
     try {
-      const res = await fetch(`${apiBaseUrl}/v1/categories`)
+      const res = await apiFetch(`${apiBaseUrl}/v1/categories`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as CategoriesResponse
       const items = Array.isArray(json.items) ? json.items : []
@@ -100,7 +101,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
 
     try {
       const url = buildVideosUrl({ categoryId: selectedCategoryId, tag, cursor: mode === 'more' ? nextCursor : null })
-      const res = await fetch(url)
+      const res = await apiFetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as VideosResponse
       const items = Array.isArray(json.items) ? json.items : []

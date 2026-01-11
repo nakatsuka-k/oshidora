@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import RenderHtml from 'react-native-render-html'
 import { ScreenContainer, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type NoticeDetailScreenProps = {
   apiBaseUrl: string
@@ -43,7 +44,7 @@ export function NoticeDetailScreen({ apiBaseUrl, noticeId, onBack }: NoticeDetai
       setError('')
       setItem(null)
       try {
-        const res = await fetch(`${apiBaseUrl}/v1/notices/${encodeURIComponent(noticeId)}`)
+        const res = await apiFetch(`${apiBaseUrl}/v1/notices/${encodeURIComponent(noticeId)}`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = (await res.json()) as NoticeDetailResponse
         if (!cancelled) setItem(json.item ?? null)

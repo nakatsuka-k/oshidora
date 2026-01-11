@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, TextLink, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type ContactTypeKey = 'service' | 'video' | 'billing' | 'cast' | 'bug' | 'other'
 
@@ -66,7 +67,7 @@ export function ContactScreen({ apiBaseUrl, displayName, email, onBack, onGoFaq,
 
     setBusy(true)
     try {
-      const res = await fetch(`${apiBaseUrl}/v1/inquiries`, {
+      const res = await apiFetch(`${apiBaseUrl}/v1/inquiries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native'
 import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -35,7 +36,7 @@ export function CastSearchResultScreen({ apiBaseUrl, onPressTab, keyword, onBack
     try {
       const u = new URL(`${apiBaseUrl}/v1/cast`)
       if (q) u.searchParams.set('q', q)
-      const res = await fetch(u.toString())
+      const res = await apiFetch(u.toString())
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as CastResponse
       setCasts(Array.isArray(json.items) ? json.items : [])

@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native'
 import { CheckboxRow, ScreenContainer, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type FavoriteCastsEditScreenProps = {
   apiBaseUrl: string
@@ -60,7 +61,7 @@ export function FavoriteCastsEditScreen({ apiBaseUrl, authToken, loggedIn, onCan
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`${apiBaseUrl}/api/favorites/casts`, {
+      const res = await apiFetch(`${apiBaseUrl}/api/favorites/casts`, {
         headers: { authorization: `Bearer ${authToken}` },
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -115,7 +116,7 @@ export function FavoriteCastsEditScreen({ apiBaseUrl, authToken, loggedIn, onCan
     setDeleteBusy(true)
     setError('')
     try {
-      const res = await fetch(`${apiBaseUrl}/api/favorites/casts`, {
+      const res = await apiFetch(`${apiBaseUrl}/api/favorites/casts`, {
         method: 'DELETE',
         headers: {
           'content-type': 'application/json',

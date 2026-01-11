@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { RowItem, ScreenContainer, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type FavoriteCastsScreenProps = {
   apiBaseUrl: string
@@ -33,7 +34,7 @@ export function FavoriteCastsScreen({ apiBaseUrl, authToken, loggedIn, onBack, o
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`${apiBaseUrl}/api/favorites/casts`, {
+      const res = await apiFetch(`${apiBaseUrl}/api/favorites/casts`, {
         headers: { authorization: `Bearer ${authToken}` },
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)

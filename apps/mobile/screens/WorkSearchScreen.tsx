@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native'
 import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type TabKey = 'home' | 'video' | 'cast' | 'work' | 'search' | 'mypage'
 
@@ -128,7 +129,7 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNo
     try {
       const u = new URL(`${apiBaseUrl}/v1/works`)
       u.searchParams.set('q', q)
-      const res = await fetch(u.toString())
+        const res = await apiFetch(u.toString())
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as WorkResponse
       setWorks(Array.isArray(json.items) ? json.items : mockWorks)

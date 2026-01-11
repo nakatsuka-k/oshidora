@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -83,7 +84,7 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
     void (async () => {
       setLoadError('')
       try {
-        const res = await fetch(`${apiBaseUrl}/v1/top`)
+        const res = await apiFetch(`${apiBaseUrl}/v1/top`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = (await res.json()) as TopData
         if (!cancelled) setData(json)

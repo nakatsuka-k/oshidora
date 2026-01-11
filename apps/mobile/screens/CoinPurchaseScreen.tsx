@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type CoinPack = {
   id: string
@@ -42,7 +43,7 @@ export function CoinPurchaseScreen({ apiBaseUrl, ownedCoins, onBack, onStartChec
 
     // Balance
     try {
-      const res = await fetch(`${apiBaseUrl}/api/users/me/balance`)
+      const res = await apiFetch(`${apiBaseUrl}/api/users/me/balance`)
       if (!res.ok) throw new Error('COIN-001-01')
       const json = (await res.json()) as BalanceResponse
       if (Number.isFinite((json as any)?.coinBalance)) setBalance(Number((json as any).coinBalance))
@@ -53,7 +54,7 @@ export function CoinPurchaseScreen({ apiBaseUrl, ownedCoins, onBack, onStartChec
 
     // Packs
     try {
-      const res = await fetch(`${apiBaseUrl}/api/coin-packs`)
+      const res = await apiFetch(`${apiBaseUrl}/api/coin-packs`)
       if (!res.ok) throw new Error('COIN-001-02')
       const json = (await res.json()) as PacksResponse
       const items = Array.isArray((json as any)?.items) ? ((json as any).items as any[]) : []

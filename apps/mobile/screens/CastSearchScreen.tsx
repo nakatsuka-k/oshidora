@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native'
 import { Chip, NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { apiFetch } from '../utils/api'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -155,7 +156,7 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`${apiBaseUrl}/v1/cast`)
+      const res = await apiFetch(`${apiBaseUrl}/v1/cast`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as CastResponse
       const items = Array.isArray(json.items) ? json.items : []
