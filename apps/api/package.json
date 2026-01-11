@@ -6,6 +6,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "stream:create-signing-key": "node ./scripts/create-stream-signing-key.mjs",
+    "cms:create-admin": "node ./scripts/create-cms-admin.mjs",
     "db:migrate:local": "wrangler d1 migrations apply oshidora-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply oshidora-db --remote"
   },

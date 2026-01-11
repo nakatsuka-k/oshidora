@@ -116,6 +116,790 @@ app.use(
 
 app.get('/health', (c) => c.text('ok'))
 
+// ---- CMS (Admin) ----
+
+app.post('/cms/auth/login', async (c) => {
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { email?: unknown; password?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = String(body.email ?? '').trim().toLowerCase()
+  const password = String(body.password ?? '')
+
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (!password) return c.json({ error: 'password is required' }, 400)
+
+  let row: any = null
+  try {
+    row = await db
+      .prepare('SELECT id, email, name, role, password_hash, password_salt, disabled FROM cms_admins WHERE lower(email) = ?')
+      .bind(email)
+      .first<any>()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  if (!row) return c.json({ error: 'メールアドレスまたはパスワードが違います' }, 401)
+  if (Number(row.disabled ?? 0) === 1) return c.json({ error: 'account_disabled' }, 403)
+
+  const ok = await verifyPassword(password, String(row.password_salt ?? ''), String(row.password_hash ?? ''))
+  if (!ok) return c.json({ error: 'メールアドレスまたはパスワードが違います' }, 401)
+
+  const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
+  if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
+
+  const token = await makeJwtHs256(secret, {
+    kind: 'cms',
+    role: 'Admin',
+    adminId: String(row.id ?? ''),
+    email: String(row.email ?? ''),
+    name: String(row.name ?? ''),
+    stage: 'cms',
+    userId: String(row.id ?? ''),
+  })
+
+  return c.json({ token })
+})
+
+// Categories
+app.get('/cms/categories', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(db, 'SELECT id, name, enabled, created_at, updated_at FROM categories ORDER BY name ASC')
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows.map((r) => ({
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    enabled: Number(r.enabled ?? 0) === 1,
+    createdAt: String(r.created_at ?? ''),
+    updatedAt: String(r.updated_at ?? ''),
+  }))
+  return c.json({ items })
+})
+
+app.post('/cms/categories', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { name?: unknown; enabled?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = clampText(body.name, 80)
+  const enabled = body.enabled === undefined ? 1 : parseBool01(body.enabled)
+  if (!name) return c.json({ error: 'name is required' }, 400)
+
+  const createdAt = nowIso()
+  const id = uuidOrFallback('cat')
+  try {
+    await db.prepare('INSERT INTO categories (id, name, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').bind(id, name, enabled, createdAt, createdAt).run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true, id })
+})
+
+app.put('/cms/categories/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { name?: unknown; enabled?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = body.name === undefined ? null : clampText(body.name, 80)
+  const enabled = body.enabled === undefined ? null : parseBool01(body.enabled)
+  const updatedAt = nowIso()
+  try {
+    await db.prepare('UPDATE categories SET name = COALESCE(?, name), enabled = COALESCE(?, enabled), updated_at = ? WHERE id = ?').bind(name, enabled, updatedAt, id).run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true })
+})
+
+// Tags
+app.get('/cms/tags', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(db, 'SELECT id, name, created_at, updated_at FROM tags ORDER BY name ASC')
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows.map((r) => ({
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    createdAt: String(r.created_at ?? ''),
+    updatedAt: String(r.updated_at ?? ''),
+  }))
+  return c.json({ items })
+})
+
+app.post('/cms/tags', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  type Body = { name?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = clampText(body.name, 80)
+  if (!name) return c.json({ error: 'name is required' }, 400)
+  const createdAt = nowIso()
+  const id = uuidOrFallback('tag')
+  try {
+    await db.prepare('INSERT INTO tags (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').bind(id, name, createdAt, createdAt).run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true, id })
+})
+
+app.put('/cms/tags/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+  type Body = { name?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = body.name === undefined ? null : clampText(body.name, 80)
+  const updatedAt = nowIso()
+  try {
+    await db.prepare('UPDATE tags SET name = COALESCE(?, name), updated_at = ? WHERE id = ?').bind(name, updatedAt, id).run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true })
+})
+
+// Casts
+app.get('/cms/casts', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(db, 'SELECT id, name, role, thumbnail_url, created_at, updated_at FROM casts ORDER BY name ASC')
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows.map((r) => ({
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    role: String(r.role ?? ''),
+    thumbnailUrl: String(r.thumbnail_url ?? ''),
+    createdAt: String(r.created_at ?? ''),
+    updatedAt: String(r.updated_at ?? ''),
+  }))
+  return c.json({ items })
+})
+
+app.post('/cms/casts', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { name?: unknown; role?: unknown; thumbnailUrl?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = clampText(body.name, 120)
+  const role = clampText(body.role, 80)
+  const thumbnailUrl = clampText(body.thumbnailUrl, 500)
+  if (!name) return c.json({ error: 'name is required' }, 400)
+
+  const createdAt = nowIso()
+  const id = uuidOrFallback('cast')
+  try {
+    await db
+      .prepare('INSERT INTO casts (id, name, role, thumbnail_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(id, name, role, thumbnailUrl, createdAt, createdAt)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true, id })
+})
+
+app.put('/cms/casts/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { name?: unknown; role?: unknown; thumbnailUrl?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = body.name === undefined ? null : clampText(body.name, 120)
+  const role = body.role === undefined ? null : clampText(body.role, 80)
+  const thumbnailUrl = body.thumbnailUrl === undefined ? null : clampText(body.thumbnailUrl, 500)
+  const updatedAt = nowIso()
+  try {
+    await db
+      .prepare('UPDATE casts SET name = COALESCE(?, name), role = COALESCE(?, role), thumbnail_url = COALESCE(?, thumbnail_url), updated_at = ? WHERE id = ?')
+      .bind(name, role, thumbnailUrl, updatedAt, id)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true })
+})
+
+// Works
+app.get('/cms/works', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(db, 'SELECT id, title, description, thumbnail_url, published, created_at, updated_at FROM works ORDER BY created_at DESC')
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows.map((r) => ({
+    id: String(r.id ?? ''),
+    title: String(r.title ?? ''),
+    description: String(r.description ?? ''),
+    thumbnailUrl: String(r.thumbnail_url ?? ''),
+    published: Number(r.published ?? 0) === 1,
+    createdAt: String(r.created_at ?? ''),
+    updatedAt: String(r.updated_at ?? ''),
+  }))
+  return c.json({ items })
+})
+
+app.get('/cms/works/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  let row: any = null
+  try {
+    row = await d1First(db, 'SELECT id, title, description, thumbnail_url, published, created_at, updated_at FROM works WHERE id = ?', [id])
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  if (!row) return c.json({ error: 'not_found' }, 404)
+
+  const categoryIds = (await d1All(db, 'SELECT category_id FROM work_categories WHERE work_id = ? ORDER BY sort_order ASC', [id])).map((r) => String(r.category_id ?? '')).filter(Boolean)
+  const tagIds = (await d1All(db, 'SELECT tag_id FROM work_tags WHERE work_id = ? ORDER BY created_at ASC', [id])).map((r) => String(r.tag_id ?? '')).filter(Boolean)
+  const castIds = (await d1All(db, 'SELECT cast_id FROM work_casts WHERE work_id = ? ORDER BY sort_order ASC', [id])).map((r) => String(r.cast_id ?? '')).filter(Boolean)
+
+  return c.json({
+    item: {
+      id: String(row.id ?? ''),
+      title: String(row.title ?? ''),
+      description: String(row.description ?? ''),
+      thumbnailUrl: String(row.thumbnail_url ?? ''),
+      published: Number(row.published ?? 0) === 1,
+      createdAt: String(row.created_at ?? ''),
+      updatedAt: String(row.updated_at ?? ''),
+      categoryIds,
+      tagIds,
+      castIds,
+    },
+  })
+})
+
+app.post('/cms/works', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = {
+    title?: unknown
+    description?: unknown
+    thumbnailUrl?: unknown
+    published?: unknown
+    categoryIds?: unknown
+    tagIds?: unknown
+    castIds?: unknown
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const title = clampText(body.title, 200)
+  const description = clampText(body.description, 5000)
+  const thumbnailUrl = clampText(body.thumbnailUrl, 500)
+  const published = body.published === undefined ? 0 : parseBool01(body.published)
+  const categoryIds = parseIdList(body.categoryIds)
+  const tagIds = parseIdList(body.tagIds)
+  const castIds = parseIdList(body.castIds)
+  if (!title) return c.json({ error: 'title is required' }, 400)
+
+  const createdAt = nowIso()
+  const id = uuidOrFallback('work')
+  try {
+    await db
+      .prepare('INSERT INTO works (id, title, description, thumbnail_url, published, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, title, description, thumbnailUrl, published, createdAt, createdAt)
+      .run()
+
+    await replaceLinks(db, { table: 'work_categories', leftKey: 'work_id', leftId: id, rightKey: 'category_id', rightIds: categoryIds })
+    await replaceLinks(db, { table: 'work_tags', leftKey: 'work_id', leftId: id, rightKey: 'tag_id', rightIds: tagIds })
+    await replaceCastLinks(db, { table: 'work_casts', leftKey: 'work_id', leftId: id, castIds })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true, id })
+})
+
+app.put('/cms/works/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = {
+    title?: unknown
+    description?: unknown
+    thumbnailUrl?: unknown
+    published?: unknown
+    categoryIds?: unknown
+    tagIds?: unknown
+    castIds?: unknown
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+
+  const title = body.title === undefined ? undefined : clampText(body.title, 200)
+  const description = body.description === undefined ? undefined : clampText(body.description, 5000)
+  const thumbnailUrl = body.thumbnailUrl === undefined ? undefined : clampText(body.thumbnailUrl, 500)
+  const published = body.published === undefined ? undefined : parseBool01(body.published)
+  const updatedAt = nowIso()
+
+  const sets: string[] = []
+  const binds: any[] = []
+  if (title !== undefined) {
+    sets.push('title = ?')
+    binds.push(title)
+  }
+  if (description !== undefined) {
+    sets.push('description = ?')
+    binds.push(description)
+  }
+  if (thumbnailUrl !== undefined) {
+    sets.push('thumbnail_url = ?')
+    binds.push(thumbnailUrl)
+  }
+  if (published !== undefined) {
+    sets.push('published = ?')
+    binds.push(published)
+  }
+  sets.push('updated_at = ?')
+  binds.push(updatedAt)
+
+  try {
+    if (sets.length) {
+      await db.prepare(`UPDATE works SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run()
+    }
+
+    if (body.categoryIds !== undefined) {
+      const categoryIds = parseIdList(body.categoryIds)
+      await replaceLinks(db, { table: 'work_categories', leftKey: 'work_id', leftId: id, rightKey: 'category_id', rightIds: categoryIds })
+    }
+    if (body.tagIds !== undefined) {
+      const tagIds = parseIdList(body.tagIds)
+      await replaceLinks(db, { table: 'work_tags', leftKey: 'work_id', leftId: id, rightKey: 'tag_id', rightIds: tagIds })
+    }
+    if (body.castIds !== undefined) {
+      const castIds = parseIdList(body.castIds)
+      await replaceCastLinks(db, { table: 'work_casts', leftKey: 'work_id', leftId: id, castIds })
+    }
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true })
+})
+
+// Videos
+app.get('/cms/videos', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(
+      db,
+      'SELECT v.id, v.work_id, w.title AS work_title, v.title, v.description, v.stream_video_id, v.thumbnail_url, v.published, v.scheduled_at, v.created_at, v.updated_at FROM videos v LEFT JOIN works w ON w.id = v.work_id ORDER BY v.created_at DESC'
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows.map((r) => ({
+    id: String(r.id ?? ''),
+    workId: String(r.work_id ?? ''),
+    workTitle: String(r.work_title ?? ''),
+    title: String(r.title ?? ''),
+    description: String(r.description ?? ''),
+    streamVideoId: String(r.stream_video_id ?? ''),
+    thumbnailUrl: String(r.thumbnail_url ?? ''),
+    published: Number(r.published ?? 0) === 1,
+    scheduledAt: r.scheduled_at === null || r.scheduled_at === undefined ? null : String(r.scheduled_at ?? ''),
+    createdAt: String(r.created_at ?? ''),
+    updatedAt: String(r.updated_at ?? ''),
+  }))
+  return c.json({ items })
+})
+
+app.get('/cms/videos/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  let row: any = null
+  try {
+    row = await d1First(
+      db,
+      'SELECT v.id, v.work_id, w.title AS work_title, v.title, v.description, v.stream_video_id, v.thumbnail_url, v.published, v.scheduled_at, v.created_at, v.updated_at FROM videos v LEFT JOIN works w ON w.id = v.work_id WHERE v.id = ?',
+      [id]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  if (!row) return c.json({ error: 'not_found' }, 404)
+
+  const categoryIds = (await d1All(db, 'SELECT category_id FROM video_categories WHERE video_id = ? ORDER BY sort_order ASC', [id])).map((r) => String(r.category_id ?? '')).filter(Boolean)
+  const tagIds = (await d1All(db, 'SELECT tag_id FROM video_tags WHERE video_id = ? ORDER BY created_at ASC', [id])).map((r) => String(r.tag_id ?? '')).filter(Boolean)
+  const castIds = (await d1All(db, 'SELECT cast_id FROM video_casts WHERE video_id = ? ORDER BY sort_order ASC', [id])).map((r) => String(r.cast_id ?? '')).filter(Boolean)
+
+  return c.json({
+    item: {
+      id: String(row.id ?? ''),
+      workId: String(row.work_id ?? ''),
+      workTitle: String(row.work_title ?? ''),
+      title: String(row.title ?? ''),
+      description: String(row.description ?? ''),
+      streamVideoId: String(row.stream_video_id ?? ''),
+      thumbnailUrl: String(row.thumbnail_url ?? ''),
+      published: Number(row.published ?? 0) === 1,
+      scheduledAt: row.scheduled_at === null || row.scheduled_at === undefined ? null : String(row.scheduled_at ?? ''),
+      createdAt: String(row.created_at ?? ''),
+      updatedAt: String(row.updated_at ?? ''),
+      categoryIds,
+      tagIds,
+      castIds,
+    },
+  })
+})
+
+app.post('/cms/videos', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = {
+    workId?: unknown
+    title?: unknown
+    description?: unknown
+    streamVideoId?: unknown
+    thumbnailUrl?: unknown
+    published?: unknown
+    scheduledAt?: unknown
+    categoryIds?: unknown
+    tagIds?: unknown
+    castIds?: unknown
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const workId = String(body.workId ?? '').trim()
+  const title = clampText(body.title, 200)
+  const description = clampText(body.description, 5000)
+  const streamVideoId = clampText(body.streamVideoId, 120)
+  const thumbnailUrl = clampText(body.thumbnailUrl, 500)
+  const published = body.published === undefined ? 0 : parseBool01(body.published)
+  const scheduledAtRaw = body.scheduledAt === undefined ? undefined : String(body.scheduledAt ?? '').trim()
+  const scheduledAt = scheduledAtRaw === undefined ? null : scheduledAtRaw || null
+  const categoryIds = parseIdList(body.categoryIds)
+  const tagIds = parseIdList(body.tagIds)
+  const castIds = parseIdList(body.castIds)
+
+  if (!workId) return c.json({ error: 'workId is required' }, 400)
+  if (!title) return c.json({ error: 'title is required' }, 400)
+
+  const createdAt = nowIso()
+  const id = uuidOrFallback('vid')
+  try {
+    await db
+      .prepare('INSERT INTO videos (id, work_id, title, description, stream_video_id, thumbnail_url, published, scheduled_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, workId, title, description, streamVideoId, thumbnailUrl, published, scheduledAt, createdAt, createdAt)
+      .run()
+
+    await replaceLinks(db, { table: 'video_categories', leftKey: 'video_id', leftId: id, rightKey: 'category_id', rightIds: categoryIds })
+    await replaceLinks(db, { table: 'video_tags', leftKey: 'video_id', leftId: id, rightKey: 'tag_id', rightIds: tagIds })
+    await replaceCastLinks(db, { table: 'video_casts', leftKey: 'video_id', leftId: id, castIds })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true, id })
+})
+
+app.put('/cms/videos/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = {
+    workId?: unknown
+    title?: unknown
+    description?: unknown
+    streamVideoId?: unknown
+    thumbnailUrl?: unknown
+    published?: unknown
+    scheduledAt?: unknown
+    categoryIds?: unknown
+    tagIds?: unknown
+    castIds?: unknown
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+
+  const updatedAt = nowIso()
+  const sets: string[] = []
+  const binds: any[] = []
+
+  if (body.workId !== undefined) {
+    const workId = String(body.workId ?? '').trim()
+    if (!workId) return c.json({ error: 'workId is required' }, 400)
+    sets.push('work_id = ?')
+    binds.push(workId)
+  }
+  if (body.title !== undefined) {
+    const title = clampText(body.title, 200)
+    if (!title) return c.json({ error: 'title is required' }, 400)
+    sets.push('title = ?')
+    binds.push(title)
+  }
+  if (body.description !== undefined) {
+    sets.push('description = ?')
+    binds.push(clampText(body.description, 5000))
+  }
+  if (body.streamVideoId !== undefined) {
+    sets.push('stream_video_id = ?')
+    binds.push(clampText(body.streamVideoId, 120))
+  }
+  if (body.thumbnailUrl !== undefined) {
+    sets.push('thumbnail_url = ?')
+    binds.push(clampText(body.thumbnailUrl, 500))
+  }
+  if (body.published !== undefined) {
+    sets.push('published = ?')
+    binds.push(parseBool01(body.published))
+  }
+  if (body.scheduledAt !== undefined) {
+    const scheduledAtRaw = String(body.scheduledAt ?? '').trim()
+    const scheduledAt = scheduledAtRaw ? scheduledAtRaw : null
+    sets.push('scheduled_at = ?')
+    binds.push(scheduledAt)
+  }
+
+  sets.push('updated_at = ?')
+  binds.push(updatedAt)
+
+  try {
+    await db.prepare(`UPDATE videos SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run()
+
+    if (body.categoryIds !== undefined) {
+      const categoryIds = parseIdList(body.categoryIds)
+      await replaceLinks(db, { table: 'video_categories', leftKey: 'video_id', leftId: id, rightKey: 'category_id', rightIds: categoryIds })
+    }
+    if (body.tagIds !== undefined) {
+      const tagIds = parseIdList(body.tagIds)
+      await replaceLinks(db, { table: 'video_tags', leftKey: 'video_id', leftId: id, rightKey: 'tag_id', rightIds: tagIds })
+    }
+    if (body.castIds !== undefined) {
+      const castIds = parseIdList(body.castIds)
+      await replaceCastLinks(db, { table: 'video_casts', leftKey: 'video_id', leftId: id, castIds })
+    }
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true })
+})
+
+// ---- CMS: Unapproved videos (future workflow; implemented minimally) ----
+
+app.get('/cms/videos/unapproved', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(
+      db,
+      "SELECT v.id, v.title, v.scheduled_at, v.approval_status, v.approval_requested_at, v.submitted_by_user_id, u.email AS submitter_email FROM videos v LEFT JOIN users u ON u.id = v.submitted_by_user_id WHERE v.approval_status = 'pending' ORDER BY COALESCE(v.approval_requested_at, v.created_at) DESC"
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows.map((r) => ({
+    id: String(r.id ?? ''),
+    title: String(r.title ?? ''),
+    approvalRequestedAt:
+      r.approval_requested_at === null || r.approval_requested_at === undefined ? null : String(r.approval_requested_at ?? ''),
+    scheduledAt: r.scheduled_at === null || r.scheduled_at === undefined ? null : String(r.scheduled_at ?? ''),
+    submitterUserId: String(r.submitted_by_user_id ?? ''),
+    submitterEmail: String(r.submitter_email ?? ''),
+    status: 'pending' as const,
+  }))
+
+  return c.json({ items })
+})
+
+app.get('/cms/videos/unapproved/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  let row: any = null
+  try {
+    row = await d1First(
+      db,
+      "SELECT v.id, v.title, v.description, v.stream_video_id, v.thumbnail_url, v.scheduled_at, v.approval_status, v.approval_requested_at, v.submitted_by_user_id, u.email AS submitter_email, v.rejection_reason FROM videos v LEFT JOIN users u ON u.id = v.submitted_by_user_id WHERE v.id = ?",
+      [id]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  if (!row) return c.json({ error: 'not_found' }, 404)
+  if (String(row.approval_status ?? '') !== 'pending') return c.json({ error: 'not_pending' }, 409)
+
+  return c.json({
+    item: {
+      id: String(row.id ?? ''),
+      title: String(row.title ?? ''),
+      description: String(row.description ?? ''),
+      streamVideoId: String(row.stream_video_id ?? ''),
+      thumbnailUrl: String(row.thumbnail_url ?? ''),
+      approvalRequestedAt:
+        row.approval_requested_at === null || row.approval_requested_at === undefined ? null : String(row.approval_requested_at ?? ''),
+      scheduledAt: row.scheduled_at === null || row.scheduled_at === undefined ? null : String(row.scheduled_at ?? ''),
+      submitterUserId: String(row.submitted_by_user_id ?? ''),
+      submitterEmail: String(row.submitter_email ?? ''),
+      rejectionReason: String(row.rejection_reason ?? ''),
+      status: 'pending' as const,
+    },
+  })
+})
+
+app.post('/cms/videos/unapproved/:id/approve', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  const decidedAt = nowIso()
+  try {
+    const res = await db
+      .prepare(
+        "UPDATE videos SET approval_status = 'approved', approval_decided_at = ?, approval_decided_by_admin_id = ?, rejection_reason = '' WHERE id = ? AND approval_status = 'pending'"
+      )
+      .bind(decidedAt, admin.adminId, id)
+      .run()
+
+    if ((res as any)?.meta?.changes === 0) return c.json({ error: 'not_pending' }, 409)
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true })
+})
+
+app.post('/cms/videos/unapproved/:id/reject', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { reason?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const reason = clampText(body.reason, 500)
+  if (!reason) return c.json({ error: 'reason is required' }, 400)
+
+  const decidedAt = nowIso()
+  try {
+    const res = await db
+      .prepare(
+        "UPDATE videos SET approval_status = 'rejected', approval_decided_at = ?, approval_decided_by_admin_id = ?, rejection_reason = ? WHERE id = ? AND approval_status = 'pending'"
+      )
+      .bind(decidedAt, admin.adminId, reason, id)
+      .run()
+
+    if ((res as any)?.meta?.changes === 0) return c.json({ error: 'not_pending' }, 409)
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true })
+})
+
 function toHex(bytes: ArrayBuffer) {
   const u8 = new Uint8Array(bytes)
   let out = ''
@@ -350,13 +1134,18 @@ async function requireAuth(c: any) {
   const auth = c.req.header('authorization') || ''
   const m = auth.match(/^Bearer\s+(.+)$/i)
   const token = m?.[1] || ''
+
+  // If there's no Bearer token at all, treat as unauthenticated.
+  // This keeps public/unauthenticated calls from failing just because the secret isn't configured.
+  if (!token) return { ok: false as const, status: 401 as const, error: 'Unauthorized' as const }
+
   const secret = (c.env.AUTH_JWT_SECRET ?? '').trim()
-  if (!secret) return { ok: false, status: 500, error: 'AUTH_JWT_SECRET is not configured' as const }
-  const payload = token ? await verifyJwtHs256(secret, token) : null
-  if (!payload) return { ok: false, status: 401, error: 'Unauthorized' as const }
+  if (!secret) return { ok: false as const, status: 500 as const, error: 'AUTH_JWT_SECRET is not configured' as const }
+  const payload = await verifyJwtHs256(secret, token)
+  if (!payload) return { ok: false as const, status: 401 as const, error: 'Unauthorized' as const }
   const userId = typeof payload.userId === 'string' ? payload.userId : ''
   const stage = typeof payload.stage === 'string' ? payload.stage : ''
-  if (!userId) return { ok: false, status: 401, error: 'Unauthorized' as const }
+  if (!userId) return { ok: false as const, status: 401 as const, error: 'Unauthorized' as const }
   return { ok: true, userId, stage, payload } as const
 }
 
@@ -365,12 +1154,109 @@ async function requireAdmin(c: any) {
   if (!auth.ok) return auth
 
   const expected = (c.env.ADMIN_API_KEY ?? '').trim()
-  if (!expected) return { ok: false, status: 500, error: 'ADMIN_API_KEY is not configured' as const }
+  if (!expected) return { ok: false as const, status: 500 as const, error: 'ADMIN_API_KEY is not configured' as const }
 
   const provided = (c.req.header('x-admin-key') ?? '').trim()
-  if (!provided || provided !== expected) return { ok: false, status: 403, error: 'Forbidden' as const }
+  if (!provided || provided !== expected) return { ok: false as const, status: 403 as const, error: 'Forbidden' as const }
 
   return auth
+}
+
+async function requireCmsAdmin(c: any) {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return auth
+  const role = typeof auth.payload?.role === 'string' ? String(auth.payload.role) : ''
+  const kind = typeof auth.payload?.kind === 'string' ? String(auth.payload.kind) : ''
+  const adminId = typeof auth.payload?.adminId === 'string' ? String(auth.payload.adminId) : ''
+  if (kind !== 'cms' || role !== 'Admin' || !adminId) return { ok: false as const, status: 403 as const, error: 'Forbidden' as const }
+  return {
+    ok: true as const,
+    userId: auth.userId,
+    stage: auth.stage,
+    payload: auth.payload,
+    adminId,
+    role: 'Admin' as const,
+    kind: 'cms' as const,
+  }
+}
+
+function nowIso() {
+  return new Date().toISOString()
+}
+
+function uuidOrFallback(prefix: string) {
+  const hasUuid = Boolean((globalThis as any).crypto?.randomUUID)
+  const id = hasUuid ? crypto.randomUUID() : `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
+  return id
+}
+
+function clampText(value: unknown, maxLen: number) {
+  const s = String(value ?? '').trim()
+  if (s.length > maxLen) return s.slice(0, maxLen)
+  return s
+}
+
+function parseBool01(value: unknown) {
+  if (value === true) return 1
+  if (value === false) return 0
+  const s = String(value ?? '').trim().toLowerCase()
+  if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return 1
+  return 0
+}
+
+function parseIdList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((v) => String(v ?? '').trim()).filter(Boolean)
+  const s = String(value ?? '').trim()
+  if (!s) return []
+  return s
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+}
+
+async function d1All(db: D1Database, sql: string, binds: any[] = []) {
+  const res = await db.prepare(sql).bind(...binds).all<any>()
+  return (res.results ?? []) as any[]
+}
+
+async function d1First(db: D1Database, sql: string, binds: any[] = []) {
+  return await db.prepare(sql).bind(...binds).first<any>()
+}
+
+async function replaceLinks(db: D1Database, opts: { table: string; leftKey: string; leftId: string; rightKey: string; rightIds: string[] }) {
+  const createdAt = nowIso()
+  await db.prepare(`DELETE FROM ${opts.table} WHERE ${opts.leftKey} = ?`).bind(opts.leftId).run()
+  for (let i = 0; i < opts.rightIds.length; i++) {
+    const rid = opts.rightIds[i]
+    if (!rid) continue
+    if (opts.table.endsWith('_categories')) {
+      await db
+        .prepare(`INSERT INTO ${opts.table} (${opts.leftKey}, ${opts.rightKey}, sort_order, created_at) VALUES (?, ?, ?, ?)`)
+        .bind(opts.leftId, rid, i, createdAt)
+        .run()
+    } else {
+      await db
+        .prepare(`INSERT INTO ${opts.table} (${opts.leftKey}, ${opts.rightKey}, created_at) VALUES (?, ?, ?)`)
+        .bind(opts.leftId, rid, createdAt)
+        .run()
+    }
+  }
+}
+
+async function replaceCastLinks(
+  db: D1Database,
+  opts: { table: 'work_casts' | 'video_casts'; leftKey: string; leftId: string; castIds: string[] }
+) {
+  const createdAt = nowIso()
+  await db.prepare(`DELETE FROM ${opts.table} WHERE ${opts.leftKey} = ?`).bind(opts.leftId).run()
+  for (let i = 0; i < opts.castIds.length; i++) {
+    const castId = opts.castIds[i]
+    if (!castId) continue
+    await db
+      .prepare(`INSERT INTO ${opts.table} (${opts.leftKey}, cast_id, role_name, sort_order, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .bind(opts.leftId, castId, '', i, createdAt)
+      .run()
+  }
 }
 
 async function awsV4SigningKey(secretAccessKey: string, dateStamp: string, region: string, service: string) {

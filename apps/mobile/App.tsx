@@ -556,7 +556,14 @@ function digitsOnly(value: string) {
 }
 
 function defaultApiBaseUrl() {
-  if (Platform.OS === 'web') return 'http://localhost:8787'
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+      if (isLocalhost) return 'http://localhost:8787'
+    }
+    return 'https://api.oshidra.com'
+  }
   if (Platform.OS === 'android') return 'http://10.0.2.2:8787'
   return 'http://127.0.0.1:8787'
 }
