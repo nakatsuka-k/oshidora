@@ -3721,7 +3721,7 @@ app.get('/v1/stream/playback/:videoId', async (c) => {
 })
 
 // Cloudflare Stream RS256 署名付き再生トークン（/token エンドポイント）
-// Cloudflare が RS256 署名トークンを生成し、customer-<ACCOUNT_ID>.cloudflarestream.com に埋め込む形式
+// Cloudflare が RS256 署名トークンを生成
 app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {
   const videoId = c.req.param('videoId')?.trim()
   if (!videoId) return c.json({ error: 'videoId is required' }, 400)
@@ -3748,12 +3748,63 @@ app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {
   }
 
   try {
-    // Cloudflare の /token エンドポイントで RS256 署名トークンを生成
-    // 有効期限：24時間
+    // Step 1: ビデオのメタデータを取得（ホスト情報を含む）
+    const videoInfoUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}`
+    const videoInfoResp = await fetch(videoInfoUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    const videoData = (await videoInfoResp.json().catch(() => null)) as
+      | {
+          success: boolean
+          result?: { playback?: { hls?: string } }
+          errors?: any[]
+        }
+      | null
+
+    if (!videoInfoResp.ok || !videoData?.success) {
+      console.error('Video info fetch failed:', videoInfoResp.status, videoData?.errors)
+      return c.json(
+        {
+          error: 'Failed to fetch video info',
+          status: videoInfoResp.status,
+        },
+        502
+      )
+    }
+
+    // ホスト情報をHLS URLから抽出（例：https://customer-{HASH}.cloudflarestream.com/{VIDEO_ID}/manifest/video.m3u8）
+    const hlsUrl = videoData.result?.playback?.hls
+    if (!hlsUrl) {
+      return c.json(
+        {
+          error: 'Video is not ready or playback URL not available',
+        },
+        503
+      )
+    }
+
+    // ホスト名を抽出（customer-XXXX.cloudflarestream.com）
+    const hostMatch = hlsUrl.match(/https:\/\/(customer-[a-z0-9]+\.cloudflarestream\.com)\//)
+    if (!hostMatch) {
+      console.error('Failed to extract host from HLS URL:', hlsUrl)
+      return c.json(
+        {
+          error: 'Failed to parse Cloudflare Stream host',
+        },
+        500
+      )
+    }
+    const host = hostMatch[1]
+
+    // Step 2: Cloudflare の /token エンドポイントで RS256 署名トークンを生成
     const expiresInSeconds = 24 * 60 * 60
     
-    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}/token`
-    const resp = await fetch(url, {
+    const tokenUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}/token`
+    const tokenResp = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -3764,7 +3815,7 @@ app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {
       }),
     })
 
-    const data = (await resp.json().catch(() => null)) as
+    const tokenData = (await tokenResp.json().catch(() => null)) as
       | {
           success: boolean
           result?: { token?: string }
@@ -3772,23 +3823,23 @@ app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {
         }
       | null
 
-    if (!resp.ok || !data?.success || !data?.result?.token) {
-      console.error('Token generation failed:', resp.status, data?.errors)
+    if (!tokenResp.ok || !tokenData?.success || !tokenData?.result?.token) {
+      console.error('Token generation failed:', tokenResp.status, tokenData?.errors)
       return c.json(
         {
           error: 'Failed to generate Cloudflare Stream token',
-          status: resp.status,
-          errors: data?.errors ?? [],
+          status: tokenResp.status,
+          errors: tokenData?.errors ?? [],
         },
         502
       )
     }
 
-    const signedToken = data.result.token
+    const signedToken = tokenData.result.token
     const exp = Math.floor(Date.now() / 1000) + expiresInSeconds
 
-    // トークンをパスに埋める形式の URL を構築（Cloudflare 公式形式）
-    const baseUrl = `https://customer-${accountId}.cloudflarestream.com/${signedToken}`
+    // Step 3: 正しいホスト名でトークン付きURLを構築
+    const baseUrl = `https://${host}/${signedToken}`
 
     return c.json({
       videoId,
