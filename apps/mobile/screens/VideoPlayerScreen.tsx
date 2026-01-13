@@ -2,7 +2,7 @@ import { ResizeMode, Video } from 'expo-av'
 import * as ScreenCapture from 'expo-screen-capture'
 import * as ScreenOrientation from 'expo-screen-orientation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { AppState, Image, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 
 import { IconButton, PrimaryButton, SecondaryButton, THEME } from '../components'
@@ -13,6 +13,8 @@ type Props = {
   videoIdNoSub: string
   videoIdWithSub?: string | null
   onBack: () => void
+  nextEpisodeTitle?: string | null
+  nextEpisodeThumbnailUrl?: string | null
   onPrevEpisode?: () => void
   onNextEpisode?: () => void
   canPrevEpisode?: boolean
@@ -92,6 +94,8 @@ export function VideoPlayerScreen({
   videoIdNoSub,
   videoIdWithSub,
   onBack,
+  nextEpisodeTitle,
+  nextEpisodeThumbnailUrl,
   onPrevEpisode,
   onNextEpisode,
   canPrevEpisode,
@@ -168,6 +172,8 @@ export function VideoPlayerScreen({
 
   const [controlsVisible, setControlsVisible] = useState(true)
   const autoHideTimerRef = useRef<any>(null)
+
+  const [didFinish, setDidFinish] = useState(false)
 
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null)
 
@@ -304,6 +310,7 @@ export function VideoPlayerScreen({
   }, [uiShouldPlay])
 
   const setShouldPlay = useCallback((next: boolean) => {
+    if (next) setDidFinish(false)
     setUiShouldPlay(next)
     if (next) void videoRef.current?.playAsync?.().catch(() => {})
     else void videoRef.current?.pauseAsync?.().catch(() => {})
@@ -329,15 +336,22 @@ export function VideoPlayerScreen({
 
   const onStageTap = useCallback(() => {
     if (showPrePlay) return
-    // Tap anywhere on the stage toggles play/pause and shows controls.
-    setControlsVisible(true)
+    if (didFinish) return
 
+    // If controls are hidden, first tap only reveals controls (no surprise pause).
+    if (!controlsVisible) {
+      setControlsVisible(true)
+      if (uiShouldPlay) scheduleAutoHide()
+      return
+    }
+
+    // If controls are visible, tap toggles play/pause.
     const next = !uiShouldPlay
+    setControlsVisible(true)
     setShouldPlay(next)
-
     if (next) scheduleAutoHide()
     else cancelAutoHide()
-  }, [cancelAutoHide, scheduleAutoHide, setShouldPlay, showPrePlay, uiShouldPlay])
+  }, [cancelAutoHide, controlsVisible, didFinish, scheduleAutoHide, setShouldPlay, showPrePlay, uiShouldPlay])
 
   const iconColor = THEME.text
   const iconMutedColor = THEME.textMuted
@@ -550,6 +564,13 @@ export function VideoPlayerScreen({
                 if (typeof status.isPlaying === 'boolean' && status.isPlaying !== uiShouldPlay) {
                   setUiShouldPlay(Boolean(status.isPlaying))
                 }
+
+                if (status?.didJustFinish) {
+                  setDidFinish(true)
+                  setUiShouldPlay(false)
+                  cancelAutoHide()
+                  setControlsVisible(true)
+                }
               } else {
                 setPlayback((prev) => ({ ...prev, isLoaded: false }))
               }
@@ -754,6 +775,56 @@ export function VideoPlayerScreen({
                     },
                   ]}
                 />
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Up next overlay */}
+        {hasStarted && playUrl && didFinish ? (
+          <View style={styles.upNextWrap} pointerEvents="box-none">
+            <View style={styles.upNextCard}>
+              <Text style={styles.upNextTitle}>再生終了</Text>
+
+              {onNextEpisode && canNextEpisode !== false ? (
+                <View style={styles.upNextRow}>
+                  {nextEpisodeThumbnailUrl ? (
+                    <Image
+                      source={{ uri: nextEpisodeThumbnailUrl }}
+                      style={styles.upNextThumb}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.upNextThumbPlaceholder} />
+                  )}
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.upNextLabel}>次のエピソード</Text>
+                    <Text style={styles.upNextEpisodeTitle} numberOfLines={2}>
+                      {nextEpisodeTitle || '次のエピソード'}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.upNextActions}>
+                <SecondaryButton
+                  label="閉じる"
+                  onPress={() => {
+                    onBack()
+                  }}
+                />
+
+                {onNextEpisode && canNextEpisode !== false ? (
+                  <PrimaryButton
+                    label="次へ"
+                    onPress={() => {
+                      setDidFinish(false)
+                      onNextEpisode()
+                    }}
+                    fullWidth={false}
+                  />
+                ) : null}
               </View>
             </View>
           </View>
@@ -980,5 +1051,63 @@ const styles = StyleSheet.create({
     color: THEME.textMuted,
     fontSize: 11,
     fontWeight: '700',
+  },
+  upNextWrap: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 14,
+  },
+  upNextCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    padding: 14,
+  },
+  upNextTitle: {
+    color: THEME.text,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 10,
+  },
+  upNextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  upNextThumb: {
+    width: 92,
+    height: 52,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.bg,
+  },
+  upNextThumbPlaceholder: {
+    width: 92,
+    height: 52,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.bg,
+  },
+  upNextLabel: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  upNextEpisodeTitle: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  upNextActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
   },
 })

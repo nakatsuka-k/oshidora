@@ -2736,7 +2736,15 @@ export default function App() {
                 })
                 setPlayerVideoIdNoSub(streamSampleVideoId)
                 setPlayerVideoIdWithSub(streamSampleVideoId)
-                setPlayerEpisodeContext(null)
+                if (workForDetail.episodes.length > 0) {
+                  setPlayerEpisodeContext({
+                    workId: workIdForDetail,
+                    episodeIds: workForDetail.episodes.map((x) => x.id),
+                    currentIndex: 0,
+                  })
+                } else {
+                  setPlayerEpisodeContext(null)
+                }
                 goTo('videoPlayer')
               }}
               style={StyleSheet.absoluteFill}
@@ -2835,7 +2843,15 @@ export default function App() {
               })
               setPlayerVideoIdNoSub(streamSampleVideoId)
               setPlayerVideoIdWithSub(null)
-              setPlayerEpisodeContext(null)
+              if (workForDetail.episodes.length > 0) {
+                setPlayerEpisodeContext({
+                  workId: workIdForDetail,
+                  episodeIds: workForDetail.episodes.map((x) => x.id),
+                  currentIndex: 0,
+                })
+              } else {
+                setPlayerEpisodeContext(null)
+              }
               goTo('videoPlayer')
             }}
           />
@@ -3201,6 +3217,23 @@ export default function App() {
           videoIdNoSub={playerVideoIdNoSub}
           videoIdWithSub={playerVideoIdWithSub}
           onBack={goBack}
+          nextEpisodeTitle={(() => {
+            if (!playerEpisodeContext) return null
+            if (playerEpisodeContext.workId !== workIdForDetail) return null
+            const nextIndex = playerEpisodeContext.currentIndex + 1
+            if (nextIndex < 0 || nextIndex >= workForDetail.episodes.length) return null
+            const ep = workForDetail.episodes[nextIndex]
+            return ep ? `${ep.id} ${ep.title}` : null
+          })()}
+          nextEpisodeThumbnailUrl={(() => {
+            if (!playerEpisodeContext) return null
+            const nextIndex = playerEpisodeContext.currentIndex + 1
+            if (!Number.isFinite(nextIndex)) return null
+            if (nextIndex < 0) return null
+            if (playerEpisodeContext.workId !== workIdForDetail) return null
+            if (nextIndex >= workForDetail.episodes.length) return null
+            return `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s`
+          })()}
           onPrevEpisode={
             playerEpisodeContext
               ? () => {
