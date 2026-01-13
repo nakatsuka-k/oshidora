@@ -87,6 +87,37 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
 
   const isWeb = Platform.OS === 'web'
 
+  const [webViewport, setWebViewport] = useState<{ width: number; height: number } | null>(null)
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return
+    if (typeof window === 'undefined') return
+
+    const vv = (window as any).visualViewport as
+      | { width: number; height: number; addEventListener: any; removeEventListener: any }
+      | undefined
+
+    const read = () => {
+      const w = Math.floor(Number(vv?.width ?? window.innerWidth))
+      const h = Math.floor(Number(vv?.height ?? window.innerHeight))
+      if (w > 0 && h > 0) setWebViewport({ width: w, height: h })
+    }
+
+    read()
+
+    window.addEventListener('resize', read)
+    window.addEventListener('orientationchange', read)
+    vv?.addEventListener?.('resize', read)
+    vv?.addEventListener?.('scroll', read)
+
+    return () => {
+      window.removeEventListener('resize', read)
+      window.removeEventListener('orientationchange', read)
+      vv?.removeEventListener?.('resize', read)
+      vv?.removeEventListener?.('scroll', read)
+    }
+  }, [])
+
   const canSubOn = Boolean(videoIdWithSub && videoIdWithSub.trim().length > 0)
 
   const [subOn, setSubOn] = useState(false)
@@ -97,6 +128,21 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
 
   const [hasStarted, setHasStarted] = useState(false)
   const [pendingAutoPlay, setPendingAutoPlay] = useState(false)
+
+  const [uiShouldPlay, setUiShouldPlay] = useState(false)
+  const [playback, setPlayback] = useState<{
+    isLoaded: boolean
+    isPlaying: boolean
+    positionMillis: number
+    durationMillis: number
+  }>({
+    isLoaded: false,
+    isPlaying: false,
+    positionMillis: 0,
+    durationMillis: 0,
+  })
+
+  const [seekBarWidth, setSeekBarWidth] = useState(0)
 
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null)
 
@@ -115,8 +161,11 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   const videoWrapRef = useRef<any>(null)
 
   const fittedLayout = useMemo(() => {
-    const stageW = Math.max(1, stageSize?.width ?? width)
-    const stageH = Math.max(1, stageSize?.height ?? height)
+    const fallbackW = isWeb ? webViewport?.width : width
+    const fallbackH = isWeb ? webViewport?.height : height
+
+    const stageW = Math.max(1, stageSize?.width ?? fallbackW ?? width)
+    const stageH = Math.max(1, stageSize?.height ?? fallbackH ?? height)
     const maxW = stageW
     const maxH = stageH
 
@@ -132,7 +181,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
     }
     // Container is taller -> fit by width
     return { width: maxW, height: Math.round(maxW / ar) }
-  }, [height, naturalSize, stageSize, width])
+  }, [height, isWeb, naturalSize, stageSize, webViewport?.height, webViewport?.width, width])
 
   const load = useCallback(async () => {
     setPlayUrl(null)
@@ -190,9 +239,66 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
 
   const showPrePlay = !hasStarted
 
+  const clampMillis = useCallback((millis: number) => {
+    const max = playback.durationMillis > 0 ? playback.durationMillis : 0
+    return Math.max(0, Math.min(max, Math.floor(millis)))
+  }, [playback.durationMillis])
+
+  const setPositionMillis = useCallback(async (millis: number) => {
+    const next = clampMillis(millis)
+    try {
+      const keepPlaying = uiShouldPlay
+      // Prefer setStatusAsync to keep play/pause in sync.
+      const anyRef: any = videoRef.current as any
+      if (typeof anyRef?.setStatusAsync === 'function') {
+        await anyRef.setStatusAsync({ positionMillis: next, shouldPlay: keepPlaying })
+      } else {
+        await videoRef.current?.setPositionAsync?.(next)
+        if (keepPlaying) await videoRef.current?.playAsync?.()
+      }
+    } catch {
+      // ignore
+    }
+  }, [clampMillis, uiShouldPlay])
+
+  const seekRelative = useCallback((deltaMillis: number) => {
+    void setPositionMillis(playback.positionMillis + deltaMillis)
+  }, [playback.positionMillis, setPositionMillis])
+
+  const togglePlayPause = useCallback(() => {
+    const next = !uiShouldPlay
+    setUiShouldPlay(next)
+    if (next) void videoRef.current?.playAsync?.().catch(() => {})
+    else void videoRef.current?.pauseAsync?.().catch(() => {})
+  }, [uiShouldPlay])
+
+  const seekProgress = useMemo(() => {
+    const d = playback.durationMillis
+    if (!(d > 0)) return 0
+    return Math.max(0, Math.min(1, playback.positionMillis / d))
+  }, [playback.durationMillis, playback.positionMillis])
+
+  const formatTime = useCallback((millis: number) => {
+    const totalSec = Math.max(0, Math.floor(millis / 1000))
+    const mm = Math.floor(totalSec / 60)
+    const ss = totalSec % 60
+    return `${mm}:${String(ss).padStart(2, '0')}`
+  }, [])
+
   return (
     <View
-      style={[styles.root, isWeb ? { width, height } : null]}
+      style={[
+        styles.root,
+        isWeb && webViewport
+          ? (({
+              position: 'fixed',
+              left: 0,
+              top: 0,
+              width: webViewport.width,
+              height: webViewport.height,
+            } as unknown) as any)
+          : null,
+      ]}
       onLayout={(e) => {
         const w = e.nativeEvent.layout.width
         const h = e.nativeEvent.layout.height
@@ -221,9 +327,10 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
             }}
             style={styles.video}
             source={{ uri: playUrl }}
-            useNativeControls
+            useNativeControls={false}
             resizeMode={ResizeMode.CONTAIN}
-            shouldPlay={hasStarted}
+            shouldPlay={uiShouldPlay}
+            progressUpdateIntervalMillis={250}
             onLoad={() => {
               if (!pendingAutoPlay) return
               setPendingAutoPlay(false)
@@ -238,6 +345,19 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
               }
             }}
             onPlaybackStatusUpdate={(status: any) => {
+              if (status?.isLoaded) {
+                const positionMillis = typeof status.positionMillis === 'number' ? status.positionMillis : 0
+                const durationMillis = typeof status.durationMillis === 'number' ? status.durationMillis : 0
+                const isPlaying = Boolean(status.isPlaying)
+                setPlayback({ isLoaded: true, isPlaying, positionMillis, durationMillis })
+                // Keep uiShouldPlay aligned if platform paused/played (buffering, appstate, etc)
+                if (typeof status.isPlaying === 'boolean' && status.isPlaying !== uiShouldPlay) {
+                  setUiShouldPlay(Boolean(status.isPlaying))
+                }
+              } else {
+                setPlayback((prev) => ({ ...prev, isLoaded: false }))
+              }
+
               // Capture natural size from status when available (platform-dependent).
               const w = Number(status?.naturalSize?.width ?? status?.videoWidth)
               const h = Number(status?.naturalSize?.height ?? status?.videoHeight)
@@ -255,6 +375,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
 
               const resume = pendingResume
               setPendingResume(null)
+              setUiShouldPlay(resume.shouldPlay)
               void (async () => {
                 try {
                   await videoRef.current?.setPositionAsync?.(resume.positionMillis)
@@ -271,6 +392,69 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
             <Text style={styles.loadingText}>{loadError ? `再生URL取得に失敗しました（${loadError}）` : '読み込み中…'}</Text>
           </View>
         )}
+
+        {/* Custom minimal controls */}
+        {hasStarted && playUrl ? (
+          <View style={styles.controlsWrap} pointerEvents="box-none">
+            <View style={styles.controlsCard}>
+              <View style={styles.controlsRow}>
+                <Pressable onPress={() => seekRelative(-10_000)} style={styles.ctrlBtn}>
+                  <Text style={styles.ctrlBtnText}>-10s</Text>
+                </Pressable>
+
+                <Pressable onPress={togglePlayPause} style={[styles.ctrlBtn, styles.ctrlBtnPrimary]}>
+                  <Text style={[styles.ctrlBtnText, styles.ctrlBtnPrimaryText]}>{uiShouldPlay ? '一時停止' : '再生'}</Text>
+                </Pressable>
+
+                <Pressable onPress={() => seekRelative(10_000)} style={styles.ctrlBtn}>
+                  <Text style={styles.ctrlBtnText}>+10s</Text>
+                </Pressable>
+
+                <Text style={styles.timeText}>
+                  {formatTime(playback.positionMillis)} / {formatTime(playback.durationMillis)}
+                </Text>
+              </View>
+
+              <View
+                style={styles.seekTrack}
+                onLayout={(e) => {
+                  const w = e.nativeEvent.layout.width
+                  if (Number.isFinite(w) && w > 0) setSeekBarWidth(w)
+                }}
+                onStartShouldSetResponder={() => true}
+                onResponderRelease={(e: any) => {
+                  if (!(seekBarWidth > 0)) return
+                  const x = Number(e?.nativeEvent?.locationX)
+                  if (!Number.isFinite(x)) return
+                  const ratio = Math.max(0, Math.min(1, x / seekBarWidth))
+                  const next = ratio * (playback.durationMillis || 0)
+                  void setPositionMillis(next)
+                }}
+              >
+                <View style={styles.seekTrackBg} />
+                <View
+                  style={[
+                    styles.seekFill,
+                    {
+                      width: Math.max(0, Math.min(seekBarWidth, Math.round(seekProgress * seekBarWidth))),
+                    },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.seekKnob,
+                    {
+                      left: Math.max(
+                        0,
+                        Math.min(seekBarWidth - 12, Math.round(seekProgress * seekBarWidth) - 6)
+                      ),
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          </View>
+        ) : null}
 
         {/* Overlay controls (minimal) */}
         <View style={styles.topBar}>
@@ -306,6 +490,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
                   setHasStarted(true)
                   // Start playback exactly when the user presses play.
                   setPendingAutoPlay(true)
+                  setUiShouldPlay(true)
                   void videoRef.current?.playAsync?.().catch(() => {})
                 }}
                 disabled={!playUrl || playUrlKind === 'error'}
@@ -384,6 +569,74 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontSize: 12,
     fontWeight: '800',
+  },
+  controlsWrap: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 14,
+  },
+  controlsCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    padding: 12,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  ctrlBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+  },
+  ctrlBtnPrimary: {
+    backgroundColor: THEME.accent,
+    borderColor: THEME.accent,
+  },
+  ctrlBtnText: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  ctrlBtnPrimaryText: {
+    color: '#111827',
+  },
+  timeText: {
+    marginLeft: 'auto',
+    color: THEME.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  seekTrack: {
+    marginTop: 10,
+    height: 18,
+    justifyContent: 'center',
+  },
+  seekTrackBg: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: THEME.outline,
+  },
+  seekFill: {
+    position: 'absolute',
+    left: 0,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: THEME.accent,
+  },
+  seekKnob: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: THEME.accent,
   },
   prePlayOverlay: {
     ...StyleSheet.absoluteFillObject,
