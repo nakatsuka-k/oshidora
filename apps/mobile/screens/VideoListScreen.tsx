@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
-import { apiFetch } from '../utils/api'
+import { apiFetch, isDebugMockEnabled } from '../utils/api'
 
 type VideoListScreenProps = {
   apiBaseUrl: string
@@ -60,17 +60,20 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
 
   const [categories, setCategories] = useState<Category[]>([])
   const [categoriesError, setCategoriesError] = useState<string>('')
+  const [categoriesFallbackUsed, setCategoriesFallbackUsed] = useState(false)
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all')
 
   const [videos, setVideos] = useState<Video[]>([])
   const [videosError, setVideosError] = useState<string>('')
+  const [videosFallbackUsed, setVideosFallbackUsed] = useState(false)
   const [busyInitial, setBusyInitial] = useState(false)
   const [busyMore, setBusyMore] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
 
   const fetchCategories = useCallback(async () => {
     setCategoriesError('')
+    setCategoriesFallbackUsed(false)
     try {
       const res = await apiFetch(`${apiBaseUrl}/v1/categories`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -78,7 +81,9 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
       const items = Array.isArray(json.items) ? json.items : []
       setCategories(items)
     } catch (e) {
-      setCategories(mockCategories)
+      const mock = await isDebugMockEnabled()
+      setCategoriesFallbackUsed(mock)
+      setCategories(mock ? mockCategories : [])
       setCategoriesError(e instanceof Error ? e.message : String(e))
     }
   }, [apiBaseUrl, mockCategories])
@@ -97,7 +102,10 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
     if (mode === 'more' && nextCursor === null && videos.length > 0) return
 
     mode === 'initial' ? setBusyInitial(true) : setBusyMore(true)
-    if (mode === 'initial') setVideosError('')
+    if (mode === 'initial') {
+      setVideosError('')
+      setVideosFallbackUsed(false)
+    }
 
     try {
       const url = buildVideosUrl({ categoryId: selectedCategoryId, tag, cursor: mode === 'more' ? nextCursor : null })
@@ -122,7 +130,9 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
       setNextCursor(typeof json.nextCursor === 'string' ? json.nextCursor : null)
     } catch (e) {
       if (mode === 'initial') {
-        setVideos(mockVideos)
+        const mock = await isDebugMockEnabled()
+        setVideosFallbackUsed(mock)
+        setVideos(mock ? mockVideos : [])
         setNextCursor(null)
         setVideosError(e instanceof Error ? e.message : String(e))
       }
@@ -223,7 +233,9 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
                 )
               })}
             </ScrollView>
-            {categoriesError ? <Text style={styles.loadNote}>カテゴリ取得に失敗しました（モック表示）</Text> : null}
+            {categoriesError ? (
+              <Text style={styles.loadNote}>カテゴリ取得に失敗しました{categoriesFallbackUsed ? '（モック表示）' : ''}</Text>
+            ) : null}
           </View>
         ) : null}
 
@@ -245,7 +257,9 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
               void fetchVideos('more')
             }}
             ListHeaderComponent={
-              videosError ? <Text style={styles.loadNote}>作品取得に失敗しました（モック表示）</Text> : null
+              videosError ? (
+                <Text style={styles.loadNote}>作品取得に失敗しました{videosFallbackUsed ? '（モック表示）' : ''}</Text>
+              ) : null
             }
             ListFooterComponent={
               busyMore ? (

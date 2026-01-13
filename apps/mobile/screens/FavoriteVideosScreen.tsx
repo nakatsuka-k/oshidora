@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
-import { apiFetch } from '../utils/api'
+import { apiFetch, isDebugMockEnabled } from '../utils/api'
 
 type Props = {
   apiBaseUrl: string
@@ -25,12 +25,14 @@ export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props)
   const [favorites, setFavorites] = useState<VideoItem[]>(mockData.favorites)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [fallbackUsed, setFallbackUsed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       setLoading(true)
       setError('')
+      setFallbackUsed(false)
       try {
         const res = await apiFetch(`${apiBaseUrl}/v1/top`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -39,7 +41,9 @@ export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props)
         if (!cancelled) setFavorites(list)
       } catch (e) {
         if (!cancelled) {
-          setFavorites(mockData.favorites)
+          const mock = await isDebugMockEnabled()
+          setFallbackUsed(mock)
+          setFavorites(mock ? mockData.favorites : [])
           setError(e instanceof Error ? e.message : String(e))
         }
       } finally {
@@ -63,7 +67,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props)
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>お気に入り動画がありません</Text>
             <Text style={styles.emptyDesc}>作品・動画の詳細からお気に入り登録してください</Text>
-            {error ? <Text style={styles.error}>読み込み失敗（モック表示）：{error}</Text> : null}
+            {error ? <Text style={styles.error}>読み込み失敗{fallbackUsed ? '（モック表示）' : ''}：{error}</Text> : null}
           </View>
         ) : (
           <View style={styles.card}>
@@ -81,7 +85,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props)
                 </Pressable>
               ))}
             </ScrollView>
-            {error ? <Text style={styles.error}>読み込み失敗（モック表示）：{error}</Text> : null}
+            {error ? <Text style={styles.error}>読み込み失敗{fallbackUsed ? '（モック表示）' : ''}：{error}</Text> : null}
           </View>
         )}
       </View>

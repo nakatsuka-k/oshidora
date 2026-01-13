@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
-import { apiFetch } from '../utils/api'
+import { apiFetch, isDebugMockEnabled } from '../utils/api'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -28,6 +28,12 @@ type TopData = {
     byRating: VideoItem[]
     overall: VideoItem[]
   }
+}
+
+const EMPTY_TOP_DATA: TopData = {
+  pickup: [],
+  recommended: [],
+  rankings: { byViews: [], byRating: [], overall: [] },
 }
 
 const FALLBACK_IMAGE = require('../assets/thumbnail-sample.png')
@@ -76,13 +82,15 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
     []
   )
 
-  const [data, setData] = useState<TopData>(mockData)
+  const [data, setData] = useState<TopData>(EMPTY_TOP_DATA)
   const [loadError, setLoadError] = useState<string>('')
+  const [fallbackUsed, setFallbackUsed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       setLoadError('')
+      setFallbackUsed(false)
       try {
         const res = await apiFetch(`${apiBaseUrl}/v1/top`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -90,7 +98,9 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
         if (!cancelled) setData(json)
       } catch (e) {
         if (!cancelled) {
-          setData(mockData)
+          const mock = await isDebugMockEnabled()
+          setFallbackUsed(mock)
+          setData(mock ? mockData : EMPTY_TOP_DATA)
           setLoadError(e instanceof Error ? e.message : String(e))
         }
       }
@@ -115,7 +125,9 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>ピックアップ</Text>
-              {loadError ? <Text style={styles.sectionMeta}>読み込み失敗（モック表示）</Text> : null}
+              {loadError ? (
+                <Text style={styles.sectionMeta}>読み込み失敗{fallbackUsed ? '（モック表示）' : ''}</Text>
+              ) : null}
             </View>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>

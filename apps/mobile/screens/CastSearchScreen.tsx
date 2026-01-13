@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native'
 import { Chip, NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
-import { apiFetch } from '../utils/api'
+import { apiFetch, isDebugMockEnabled } from '../utils/api'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -76,6 +76,7 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
   const [casts, setCasts] = useState<Cast[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [fallbackUsed, setFallbackUsed] = useState(false)
 
   const [keyword, setKeyword] = useState('')
   const [contentKeyword, setContentKeyword] = useState('')
@@ -155,6 +156,7 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
   const fetchCasts = useCallback(async () => {
     setBusy(true)
     setError('')
+    setFallbackUsed(false)
     try {
       const res = await apiFetch(`${apiBaseUrl}/v1/cast`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -162,7 +164,9 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
       const items = Array.isArray(json.items) ? json.items : []
       setCasts(items)
     } catch (e) {
-      setCasts(mockCasts)
+      const mock = await isDebugMockEnabled()
+      setFallbackUsed(mock)
+      setCasts(mock ? mockCasts : [])
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
@@ -418,7 +422,7 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
 
             {renderHistory}
 
-            {error ? <Text style={styles.loadNote}>取得に失敗しました（モック表示）</Text> : null}
+            {error ? <Text style={styles.loadNote}>取得に失敗しました{fallbackUsed ? '（モック表示）' : ''}</Text> : null}
 
             {busy ? (
               <View style={styles.loadingCenter}>

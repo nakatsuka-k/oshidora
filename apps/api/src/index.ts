@@ -251,9 +251,9 @@ function tryParseJwkFromString(value: string): JsonWebKey | null {
     }
   }
 
-  // 2) Base64/Base64URL encoded JSON (Cloudflare sometimes returns this)
-  // Common prefix for base64-encoded JSON is "eyJ".
-  if (trimmed.startsWith('eyJ')) {
+  // 2) Base64/Base64URL encoded JSON
+  // Accept both base64 and base64url alphabets, with optional padding.
+  if (/^[A-Za-z0-9_\-+/=]+$/.test(trimmed) && trimmed.length >= 32) {
     try {
       // Convert base64url -> base64 then decode.
       let b64 = trimmed.replace(/-/g, '+').replace(/_/g, '/')
@@ -264,7 +264,7 @@ function tryParseJwkFromString(value: string): JsonWebKey | null {
       const jwk = JSON.parse(json) as JsonWebKey
       if (jwk && typeof jwk === 'object') return jwk
     } catch {
-      return null
+      // ignore
     }
   }
 
@@ -315,6 +315,15 @@ function getDevFallbackJwtSecret() {
 function isMockRequest(c: any) {
   // Safety: only allow mock mode when explicitly enabled for debugging.
   if (!shouldReturnDebugCodes(c.env)) return false
+  const h = String(c.req.header('x-mock') ?? '').trim().toLowerCase()
+  if (h === '1' || h === 'true') return true
+  const q = String(c.req.query('mock') ?? '').trim().toLowerCase()
+  return q === '1' || q === 'true'
+}
+
+// Client-side mock toggle (mobile debug). This is intentionally NOT tied to ALLOW_DEBUG_RETURN_CODES
+// so we can enable mock data without exposing other debug-only response fields.
+function isClientMockRequest(c: any) {
   const h = String(c.req.header('x-mock') ?? '').trim().toLowerCase()
   if (h === '1' || h === 'true') return true
   const q = String(c.req.query('mock') ?? '').trim().toLowerCase()
@@ -3771,6 +3780,7 @@ app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {
         {
           error: 'Failed to fetch video info',
           status: videoInfoResp.status,
+          errors: videoData?.errors ?? [],
         },
         502
       )
@@ -3876,17 +3886,44 @@ app.get('/v1/stream/signed-playback/:videoId', async (c) => {
     // ignore
   }
 
-  const keyId = c.env.CLOUDFLARE_STREAM_SIGNING_KEY_ID
-  const jwkRaw = c.env.CLOUDFLARE_STREAM_SIGNING_KEY_JWK ?? c.env.CLOUDFLARE_STREAM_SIGNING_KEY_SECRET
+  const keyId = c.env.CLOUDFLARE_STREAM_SIGNING_KEY_ID?.trim()
+  const jwkRaw =
+    c.env.CLOUDFLARE_STREAM_SIGNING_KEY_JWK ??
+    c.env.CLOUDFLARE_STREAM_SIGNING_KEY_SECRET ??
+    c.env.CLOUDFLARE_STREAM_SIGNING_SECRET
+  const jwkSource =
+    c.env.CLOUDFLARE_STREAM_SIGNING_KEY_JWK != null
+      ? 'CLOUDFLARE_STREAM_SIGNING_KEY_JWK'
+      : c.env.CLOUDFLARE_STREAM_SIGNING_KEY_SECRET != null
+        ? 'CLOUDFLARE_STREAM_SIGNING_KEY_SECRET'
+        : c.env.CLOUDFLARE_STREAM_SIGNING_SECRET != null
+          ? 'CLOUDFLARE_STREAM_SIGNING_SECRET'
+          : null
 
   const keyJwk = jwkRaw ? tryParseJwkFromString(jwkRaw) : null
 
   if (!keyId || !keyJwk) {
+    const missing: string[] = []
+    const invalid: string[] = []
+    if (!keyId) missing.push('CLOUDFLARE_STREAM_SIGNING_KEY_ID')
+    if (!jwkRaw) {
+      missing.push(
+        'CLOUDFLARE_STREAM_SIGNING_KEY_JWK (or CLOUDFLARE_STREAM_SIGNING_KEY_SECRET / CLOUDFLARE_STREAM_SIGNING_SECRET)'
+      )
+    } else if (!keyJwk && jwkSource) {
+      invalid.push(jwkSource)
+    }
+
     return c.json(
       {
         error: 'Cloudflare Stream Signed URL is not configured',
-        required: ['CLOUDFLARE_STREAM_SIGNING_KEY_ID', 'CLOUDFLARE_STREAM_SIGNING_KEY_JWK'],
-        note: 'Use the private JWK returned by Cloudflare (data.result.jwk). JSON or base64-encoded JSON is accepted.',
+        required: [
+          'CLOUDFLARE_STREAM_SIGNING_KEY_ID',
+          'CLOUDFLARE_STREAM_SIGNING_KEY_JWK (or CLOUDFLARE_STREAM_SIGNING_KEY_SECRET / CLOUDFLARE_STREAM_SIGNING_SECRET)',
+        ],
+        missing,
+        invalid,
+        note: 'Use the private JWK returned by Cloudflare (data.result.jwk). JSON or base64/base64url-encoded JSON is accepted.',
       },
       500
     )
@@ -3975,7 +4012,7 @@ app.post('/v1/stream/direct-upload', async (c) => {
 })
 
 app.get('/v1/top', async (c) => {
-  if (isMockRequest(c) || !c.env.DB) {
+  if (isClientMockRequest(c) || !c.env.DB) {
     const toItem = (w: MockWork) => ({
       id: w.id,
       title: w.title,
@@ -4208,7 +4245,7 @@ app.post('/v1/inquiries', async (c) => {
 })
 
 app.get('/v1/categories', async (c) => {
-  if (isMockRequest(c) || !c.env.DB) {
+  if (isClientMockRequest(c) || !c.env.DB) {
     return c.json({
       items: [
         { id: 'c1', name: 'ドラマ' },
@@ -4770,7 +4807,7 @@ app.get('/v1/videos', async (c) => {
   const tag = normalizeQuery(String(c.req.query('tag') ?? ''))
 
   // If mock mode is enabled OR DB is not available, return mock data
-  if (isMockRequest(c) || !c.env.DB) {
+  if (isClientMockRequest(c) || !c.env.DB) {
     let items = MOCK_VIDEOS
     if (categoryId) {
       items = items.filter((v) => v.categoryId === categoryId)
@@ -4813,25 +4850,7 @@ app.get('/v1/videos', async (c) => {
     results = (out as any).results ?? []
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
-    // Fallback to mock on error
-    let items = MOCK_VIDEOS
-    if (categoryId) {
-      items = items.filter((v) => v.categoryId === categoryId)
-    }
-    if (tag) {
-      items = items.filter((v) => v.tags.some((t) => normalizeQuery(t) === tag))
-    }
-    return c.json({
-      items: items.map((v) => ({
-        id: v.id,
-        title: v.title,
-        ratingAvg: v.ratingAvg,
-        reviewCount: v.reviewCount,
-        priceCoin: v.priceCoin,
-        thumbnailUrl: v.thumbnailUrl,
-        tags: v.tags,
-      })),
-    })
+    return c.json({ error: 'failed_to_query_videos' }, 500)
   }
 
   return c.json({
@@ -5038,7 +5057,7 @@ app.get('/v1/works', async (c) => {
   const cursorRaw = String(c.req.query('cursor') ?? '').trim()
   const offset = cursorRaw ? Math.max(0, Number(cursorRaw) || 0) : 0
 
-  if (isMockRequest(c) || !c.env.DB) {
+  if (isClientMockRequest(c) || !c.env.DB) {
     let items = MOCK_WORKS
     if (q) {
       items = items.filter((w) => normalizeQuery(w.title).includes(q))

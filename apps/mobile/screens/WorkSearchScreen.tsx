@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native'
 import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
-import { apiFetch } from '../utils/api'
+import { apiFetch, isDebugMockEnabled } from '../utils/api'
 
 type TabKey = 'home' | 'video' | 'cast' | 'work' | 'search' | 'mypage'
 
@@ -66,6 +66,7 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNo
   const [keyword, setKeyword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [fallbackUsed, setFallbackUsed] = useState(false)
 
   const [works, setWorks] = useState<Work[]>([])
   const [history, setHistory] = useState<HistoryItem[]>([])
@@ -126,16 +127,19 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNo
 
     setBusy(true)
     setError('')
+    setFallbackUsed(false)
     try {
       const u = new URL(`${apiBaseUrl}/v1/works`)
       u.searchParams.set('q', q)
-        const res = await apiFetch(u.toString())
+      const res = await apiFetch(u.toString())
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as WorkResponse
       setWorks(Array.isArray(json.items) ? json.items : mockWorks)
       void saveToHistory(keyword)
     } catch (e) {
-      setWorks(mockWorks)
+      const mock = await isDebugMockEnabled()
+      setFallbackUsed(mock)
+      setWorks(mock ? mockWorks : [])
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)

@@ -3296,6 +3296,11 @@ export default function App() {
               <Text style={styles.devOverlayLabel}>キャストユーザ</Text>
               <Switch value={debugUserType === 'cast'} onValueChange={toggleDebugUserType} />
             </View>
+
+            <View style={styles.devOverlayRow}>
+              <Text style={styles.devOverlayLabel}>Mock データ</Text>
+              <Switch value={debugMock} onValueChange={() => setDebugMock((v) => !v)} />
+            </View>
           </Animated.View>
         )}
       </View>

@@ -117,6 +117,14 @@ npm run stream:create-signing-key
 
 ## 簡易動作確認（例）
 
+### "Cloudflare Stream Signed URL is not configured" が出る場合
+
+API（`GET /v1/stream/signed-playback/:videoId`）がこのエラーを返すのは、署名鍵の環境変数が未設定、または JWK の形式が不正なときです。
+
+- ローカル: `apps/api/.dev.vars.example` を `.dev.vars` にコピーし、`CLOUDFLARE_STREAM_SIGNING_KEY_ID` と `CLOUDFLARE_STREAM_SIGNING_KEY_JWK` を埋める
+- デプロイ先: `npx wrangler secret put CLOUDFLARE_STREAM_SIGNING_KEY_ID` と `..._JWK` を登録する
+- 署名鍵の作成: 下の「Signing Key（kid / secret）の作成」を実行して `keyId` / `keyJwk` を取得する
+
 ### 署名付き再生URL取得
 
 ```bash

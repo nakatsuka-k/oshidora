@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 
 import { PrimaryButton, SecondaryButton, THEME } from '../components'
+import { isDebugMockEnabled } from '../utils/api'
 
 type Props = {
   apiBaseUrl: string
@@ -63,7 +64,7 @@ async function resolvePlaybackUrl(apiBaseUrl: string, videoId: string) {
     if (info.data?.mp4Url) return { url: info.data.mp4Url, kind: 'mp4' as const, token: undefined, error: null as string | null }
   }
 
-  // ④ エラー時はテスト動画を返す
+  // ④ エラー
   const status = hmacSigned.ok ? null : hmacSigned.status
   const reason =
     status === 500
@@ -73,7 +74,13 @@ async function resolvePlaybackUrl(apiBaseUrl: string, videoId: string) {
         : status === -1
           ? 'network'
           : 'stream_error'
-  return { url: PUBLIC_FALLBACK_TEST_VIDEO_MP4, kind: 'fallback' as const, token: undefined, error: reason }
+
+  const allowFallback = await isDebugMockEnabled()
+  if (allowFallback) {
+    return { url: PUBLIC_FALLBACK_TEST_VIDEO_MP4, kind: 'fallback' as const, token: undefined, error: reason }
+  }
+
+  return { url: null as string | null, kind: 'error' as const, token: undefined, error: reason }
 }
 
 export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, onBack }: Props) {
@@ -100,7 +107,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
 
   const [playUrl, setPlayUrl] = useState<string | null>(null)
   const [playToken, setPlayToken] = useState<string | null>(null)
-  const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'signed-mp4' | 'hls' | 'mp4' | 'fallback' | null>(null)
+  const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'signed-mp4' | 'hls' | 'mp4' | 'fallback' | 'error' | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const videoRef = useRef<Video | null>(null)
@@ -136,7 +143,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
     setLoadError(null)
 
     const resolved = await resolvePlaybackUrl(apiBaseUrl, selectedVideoId)
-    setPlayUrl(resolved.url)
+    setPlayUrl(resolved.url ?? null)
     setPlayToken(resolved.token || null)
     setPlayUrlKind(resolved.kind)
     setLoadError(resolved.error)
@@ -226,7 +233,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
           />
         ) : (
           <View style={styles.loadingBox}>
-            <Text style={styles.loadingText}>読み込み中…</Text>
+            <Text style={styles.loadingText}>{loadError ? `再生URL取得に失敗しました（${loadError}）` : '読み込み中…'}</Text>
           </View>
         )}
 
@@ -265,9 +272,10 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
                   setHasStarted(true)
                   requestFullscreen()
                 }}
+                disabled={!playUrl || playUrlKind === 'error'}
               />
 
-              {loadError ? (
+              {loadError && playUrlKind === 'fallback' ? (
                 <Text style={styles.warnText}>
                   ※ Stream の非公開再生設定が未完了のため、テスト動画で再生します（{loadError}）。
                 </Text>
