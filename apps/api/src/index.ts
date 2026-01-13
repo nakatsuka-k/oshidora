@@ -3042,7 +3042,8 @@ function base64DecodeToBytes(base64: string) {
   return out
 }
 
-async function pbkdf2HashPassword(password: string, saltBytes: Uint8Array, iterations = 120_000) {
+// Cloudflare Workers currently rejects PBKDF2 iteration counts above 100,000.
+async function pbkdf2HashPassword(password: string, saltBytes: Uint8Array, iterations = 100_000) {
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(password),
@@ -5270,24 +5271,46 @@ app.post('/v1/auth/login/start', async (c) => {
   if (!password.trim()) return c.json({ error: 'password is required' }, 400)
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
 
-  const user = await c.env.DB.prepare(
-    'SELECT id, email_verified, phone, phone_verified, password_hash, password_salt FROM users WHERE email = ?'
-  )
-    .bind(email)
-    .first<any>()
+  let user: any = null
+  try {
+    user = await c.env.DB.prepare(
+      'SELECT id, email_verified, phone, phone_verified, password_hash, password_salt FROM users WHERE email = ?'
+    )
+      .bind(email)
+      .first<any>()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    console.error('login/start: failed to query user', err)
+    return c.json({ error: 'internal_query_user', message: String((err as any)?.message ?? err).slice(0, 180) }, 500)
+  }
 
   if (!user) return c.json({ error: 'invalid_credentials' }, 401)
   if (Number(user.email_verified) !== 1) return c.json({ error: 'email_not_verified' }, 403)
 
-  const passOk = await verifyPassword(password, String(user.password_salt), String(user.password_hash))
+  let passOk = false
+  try {
+    passOk = await verifyPassword(password, String(user.password_salt), String(user.password_hash))
+  } catch (err) {
+    // Stored hash/salt may be invalid base64, or crypto APIs may fail.
+    console.error('login/start: failed to verify password', err)
+    return c.json({ error: 'internal_verify_password', message: String((err as any)?.message ?? err).slice(0, 180) }, 500)
+  }
   if (!passOk) return c.json({ error: 'invalid_credentials' }, 401)
 
   const secret = getAuthJwtSecret(c.env)
   if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
-  const stage = 'needs_sms'
-  const token = await makeJwtHs256(secret, { userId: String(user.id), stage }, 60 * 30)
+  const hasVerifiedPhone = Number(user.phone_verified ?? 0) === 1 && String(user.phone ?? '').trim().length > 0
+  const stage = hasVerifiedPhone ? 'full' : 'needs_sms'
+
+  let token = ''
+  try {
+    token = await makeJwtHs256(secret, { userId: String(user.id), stage }, 60 * 30)
+  } catch (err) {
+    console.error('login/start: failed to sign jwt', err)
+    return c.json({ error: 'internal_sign_jwt', message: String((err as any)?.message ?? err).slice(0, 180) }, 500)
+  }
   const phoneMasked = user.phone ? String(user.phone).replace(/.(?=.{4})/g, '*') : null
-  return c.json({ ok: true, token, stage, phoneMasked, phoneRequired: true })
+  return c.json({ ok: true, token, stage, phoneMasked, phoneRequired: !hasVerifiedPhone })
 })
 
 app.post('/v1/auth/sms/send', async (c) => {

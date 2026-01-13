@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Generates a cms_admins INSERT SQL with PBKDF2(SHA-256) password hash.
-// Matches apps/api/src/index.ts: salt 16 bytes, hash 32 bytes, iterations 120_000.
+// Matches apps/api/src/index.ts: salt 16 bytes, hash 32 bytes, iterations 100_000.
 
 import crypto from 'node:crypto'
 
@@ -23,7 +23,7 @@ function base64Encode(u8) {
   return Buffer.from(u8).toString('base64')
 }
 
-async function pbkdf2HashPassword(password, saltBytes, iterations = 120_000) {
+async function pbkdf2HashPassword(password, saltBytes, iterations = 100_000) {
   const keyMaterial = await crypto.webcrypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(password),
