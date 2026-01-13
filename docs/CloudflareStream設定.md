@@ -110,7 +110,7 @@ npm run stream:create-signing-key
 ### Mobile（Expo）側
 
 - `EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID`
-  - 例: `367b90a85d2d8f745dc709d988dff07d`
+  - 例: `75f3ddaf69ff44c43746c9492c3c4df5`
   - これは **公開されても問題ない** videoId のみを置きます
 
 ※ トークンや署名鍵は `EXPO_PUBLIC_*` には入れません。
@@ -120,7 +120,7 @@ npm run stream:create-signing-key
 ### 署名付き再生URL取得
 
 ```bash
-curl "$API_BASE_URL/v1/stream/signed-playback/367b90a85d2d8f745dc709d988dff07d"
+curl "$API_BASE_URL/v1/stream/signed-playback/75f3ddaf69ff44c43746c9492c3c4df5"
 ```
 
 返った `hlsUrl` を `expo-av`（`Video`）で再生します。

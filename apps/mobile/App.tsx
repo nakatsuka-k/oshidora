@@ -631,11 +631,11 @@ export default function App() {
 
   const streamSampleVideoId = useMemo(() => {
     const env = process.env.EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID
-    return env && env.trim().length > 0 ? env.trim() : '367b90a85d2d8f745dc709d988dff07d'
+    return env && env.trim().length > 0 ? env.trim() : '75f3ddaf69ff44c43746c9492c3c4df5'
   }, [])
 
   // Player context (AXCMS-PL-001)
-  const [playerVideoIdNoSub, setPlayerVideoIdNoSub] = useState<string>('367b90a85d2d8f745dc709d988dff07d')
+  const [playerVideoIdNoSub, setPlayerVideoIdNoSub] = useState<string>('75f3ddaf69ff44c43746c9492c3c4df5')
   const [playerVideoIdWithSub, setPlayerVideoIdWithSub] = useState<string | null>(null)
 
   const [screen, setScreen] = useState<Screen>('splash')

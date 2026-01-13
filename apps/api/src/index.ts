@@ -4765,27 +4765,84 @@ app.delete('/v1/favorites/casts', handleDeleteFavoriteCasts)
 // Design-doc compatibility (docs/アプリ/* use /api/...)
 app.get('/api/favorites/casts', handleGetFavoriteCasts)
 app.delete('/api/favorites/casts', handleDeleteFavoriteCasts)
-app.get('/v1/videos', (c) => {
+app.get('/v1/videos', async (c) => {
   const categoryId = String(c.req.query('category_id') ?? '').trim()
   const tag = normalizeQuery(String(c.req.query('tag') ?? ''))
 
-  let items = MOCK_VIDEOS
+  // If mock mode is enabled OR DB is not available, return mock data
+  if (isMockRequest(c) || !c.env.DB) {
+    let items = MOCK_VIDEOS
+    if (categoryId) {
+      items = items.filter((v) => v.categoryId === categoryId)
+    }
+    if (tag) {
+      items = items.filter((v) => v.tags.some((t) => normalizeQuery(t) === tag))
+    }
+
+    return c.json({
+      items: items.map((v) => ({
+        id: v.id,
+        title: v.title,
+        ratingAvg: v.ratingAvg,
+        reviewCount: v.reviewCount,
+        priceCoin: v.priceCoin,
+        thumbnailUrl: v.thumbnailUrl,
+        tags: v.tags,
+      })),
+    })
+  }
+
+  // Production: Query database
+  const db = c.env.DB as D1Database
+  const whereConditions: string[] = ['deleted = 0']
+  const params: any[] = []
+
   if (categoryId) {
-    items = items.filter((v) => v.categoryId === categoryId)
+    whereConditions.push('category_id = ?')
+    params.push(categoryId)
   }
   if (tag) {
-    items = items.filter((v) => v.tags.some((t) => normalizeQuery(t) === tag))
+    whereConditions.push("tags LIKE ?")
+    params.push(`%${tag}%`)
+  }
+
+  let results: any[] = []
+  try {
+    const query = `SELECT id, title, rating_avg as ratingAvg, review_count as reviewCount, price_coin as priceCoin, thumbnail_url as thumbnailUrl, tags FROM videos WHERE ${whereConditions.join(' AND ')} ORDER BY created_at DESC`
+    const out = await db.prepare(query).bind(...params).all()
+    results = (out as any).results ?? []
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    // Fallback to mock on error
+    let items = MOCK_VIDEOS
+    if (categoryId) {
+      items = items.filter((v) => v.categoryId === categoryId)
+    }
+    if (tag) {
+      items = items.filter((v) => v.tags.some((t) => normalizeQuery(t) === tag))
+    }
+    return c.json({
+      items: items.map((v) => ({
+        id: v.id,
+        title: v.title,
+        ratingAvg: v.ratingAvg,
+        reviewCount: v.reviewCount,
+        priceCoin: v.priceCoin,
+        thumbnailUrl: v.thumbnailUrl,
+        tags: v.tags,
+      })),
+    })
   }
 
   return c.json({
-    items: items.map((v) => ({
-      id: v.id,
-      title: v.title,
-      ratingAvg: v.ratingAvg,
-      reviewCount: v.reviewCount,
-      priceCoin: v.priceCoin,
-      thumbnailUrl: v.thumbnailUrl,
-      tags: v.tags,
+    items: (results ?? []).map((r: any) => ({
+      id: String(r.id ?? ''),
+      title: String(r.title ?? ''),
+      ratingAvg: Number(r.ratingAvg ?? 0) || 0,
+      reviewCount: Number(r.reviewCount ?? 0) || 0,
+      priceCoin: Number(r.priceCoin ?? 0) || 0,
+      thumbnailUrl: String(r.thumbnailUrl ?? ''),
+      tags: typeof r.tags === 'string' ? r.tags.split(',').map((t: string) => t.trim()).filter((t: string) => t) : [],
     })),
   })
 })
