@@ -28,6 +28,8 @@ type Env = {
     // For backward compat, we also accept it via CLOUDFLARE_STREAM_SIGNING_KEY_SECRET.
     CLOUDFLARE_STREAM_SIGNING_KEY_JWK?: string
     CLOUDFLARE_STREAM_SIGNING_KEY_SECRET?: string
+    CLOUDFLARE_STREAM_SIGNING_SECRET?: string
+    CLOUDFLARE_ACCOUNT_ID_FOR_STREAM?: string
   }
 }
 
@@ -3714,6 +3716,67 @@ app.get('/v1/stream/playback/:videoId', async (c) => {
         status: null,
       },
       502
+    )
+  }
+})
+
+// HMAC-HS256 署名付き Stream URL エンドポイント（簡易版）
+// Cloudflare Stream の Signed URL が必須の場合はこちらを使用
+app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {
+  const videoId = c.req.param('videoId')?.trim()
+  if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+
+  // Best-effort analytics: record a play event (never blocks playback).
+  try {
+    const userId = await optionalAuthUserId(c)
+    await tryLogVideoPlay({ db: c.env.DB ?? null, videoId, userId })
+  } catch {
+    // ignore
+  }
+
+  const signingSecret = c.env.CLOUDFLARE_STREAM_SIGNING_SECRET
+  if (!signingSecret) {
+    return c.json(
+      {
+        error: 'Cloudflare Stream HMAC signing is not configured',
+        required: ['CLOUDFLARE_STREAM_SIGNING_SECRET'],
+        note: 'Set CLOUDFLARE_STREAM_SIGNING_SECRET to enable signed playback URLs.',
+      },
+      500
+    )
+  }
+
+  try {
+    // JWT 署名トークンを生成（有効期限：24時間）
+    const expiresInSeconds = 24 * 60 * 60
+    const payload = {
+      sub: videoId,
+      kid: 'default',
+    }
+    const token = await makeJwtHs256(signingSecret, payload, expiresInSeconds)
+    const exp = Math.floor(Date.now() / 1000) + expiresInSeconds
+
+    // トークンパラメータ付きの再生URL
+    const tokenParam = `token=${encodeURIComponent(token)}`
+
+    return c.json({
+      videoId,
+      token,
+      expiresAt: new Date(exp * 1000).toISOString(),
+      expiresAtUnix: exp,
+      iframeUrl: `https://iframe.videodelivery.net/${videoId}?${tokenParam}`,
+      hlsUrl: `https://videodelivery.net/${videoId}/manifest/video.m3u8?${tokenParam}`,
+      dashUrl: `https://videodelivery.net/${videoId}/manifest/video.mpd?${tokenParam}`,
+      mp4Url: `https://videodelivery.net/${videoId}/downloads/default.mp4?${tokenParam}`,
+    })
+  } catch (err) {
+    console.error('HMAC signing error:', err)
+    return c.json(
+      {
+        error: 'Failed to generate signed token',
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500
     )
   }
 })

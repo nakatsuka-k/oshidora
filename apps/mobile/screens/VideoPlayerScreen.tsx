@@ -30,24 +30,50 @@ async function fetchJson<T>(url: string): Promise<{ ok: true; data: T } | { ok: 
 }
 
 async function resolvePlaybackUrl(apiBaseUrl: string, videoId: string) {
-  const signed = await fetchJson<{ hlsUrl?: string }>(
-    `${apiBaseUrl}/v1/stream/signed-playback/${encodeURIComponent(videoId)}`
-  )
-  if (signed.ok && signed.data?.hlsUrl) {
-    return { url: signed.data.hlsUrl, kind: 'signed-hls' as const, error: null as string | null }
+  // ① HMAC-HS256 署名付きトークンを取得（推奨）
+  const hmacSigned = await fetchJson<{
+    token?: string
+    hlsUrl?: string
+    mp4Url?: string
+    iframeUrl?: string
+  }>(`${apiBaseUrl}/v1/stream/hmac-signed-playback/${encodeURIComponent(videoId)}`)
+
+  if (hmacSigned.ok && hmacSigned.data?.hlsUrl) {
+    return { url: hmacSigned.data.hlsUrl, kind: 'signed-hls' as const, token: hmacSigned.data.token, error: null as string | null }
   }
 
+  if (hmacSigned.ok && hmacSigned.data?.mp4Url) {
+    return { url: hmacSigned.data.mp4Url, kind: 'signed-mp4' as const, token: hmacSigned.data.token, error: null as string | null }
+  }
+
+  // ② フォールバック：RSA署名付きURL取得
+  const rsaSigned = await fetchJson<{ hlsUrl?: string }>(
+    `${apiBaseUrl}/v1/stream/signed-playback/${encodeURIComponent(videoId)}`
+  )
+  if (rsaSigned.ok && rsaSigned.data?.hlsUrl) {
+    return { url: rsaSigned.data.hlsUrl, kind: 'signed-hls' as const, token: undefined, error: null as string | null }
+  }
+
+  // ③ フォールバック：署名なしの再生URL取得
   const info = await fetchJson<{ hlsUrl?: string; mp4Url?: string }>(
     `${apiBaseUrl}/v1/stream/playback/${encodeURIComponent(videoId)}`
   )
   if (info.ok) {
-    if (info.data?.hlsUrl) return { url: info.data.hlsUrl, kind: 'hls' as const, error: null as string | null }
-    if (info.data?.mp4Url) return { url: info.data.mp4Url, kind: 'mp4' as const, error: null as string | null }
+    if (info.data?.hlsUrl) return { url: info.data.hlsUrl, kind: 'hls' as const, token: undefined, error: null as string | null }
+    if (info.data?.mp4Url) return { url: info.data.mp4Url, kind: 'mp4' as const, token: undefined, error: null as string | null }
   }
 
-  const status = signed.ok ? null : signed.status
-  const reason = status === 500 ? 'stream_not_configured' : status === 401 ? 'unauthorized' : status === -1 ? 'network' : 'stream_error'
-  return { url: PUBLIC_FALLBACK_TEST_VIDEO_MP4, kind: 'fallback' as const, error: reason }
+  // ④ エラー時はテスト動画を返す
+  const status = hmacSigned.ok ? null : hmacSigned.status
+  const reason =
+    status === 500
+      ? 'stream_signing_not_configured'
+      : status === 401
+        ? 'unauthorized'
+        : status === -1
+          ? 'network'
+          : 'stream_error'
+  return { url: PUBLIC_FALLBACK_TEST_VIDEO_MP4, kind: 'fallback' as const, token: undefined, error: reason }
 }
 
 export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, onBack }: Props) {
@@ -73,7 +99,8 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   } | null>(null)
 
   const [playUrl, setPlayUrl] = useState<string | null>(null)
-  const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'hls' | 'mp4' | 'fallback' | null>(null)
+  const [playToken, setPlayToken] = useState<string | null>(null)
+  const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'signed-mp4' | 'hls' | 'mp4' | 'fallback' | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const videoRef = useRef<Video | null>(null)
@@ -104,11 +131,13 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
 
   const load = useCallback(async () => {
     setPlayUrl(null)
+    setPlayToken(null)
     setPlayUrlKind(null)
     setLoadError(null)
 
     const resolved = await resolvePlaybackUrl(apiBaseUrl, selectedVideoId)
     setPlayUrl(resolved.url)
+    setPlayToken(resolved.token || null)
     setPlayUrlKind(resolved.kind)
     setLoadError(resolved.error)
   }, [apiBaseUrl, selectedVideoId])
