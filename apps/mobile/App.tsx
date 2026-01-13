@@ -610,7 +610,11 @@ export default function App() {
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '::1')
 
-  const ipRestrictionEnabled = Platform.OS === 'web' && !isLocalhostWeb
+  const ipRestrictionEnabled = useMemo(() => {
+    if (Platform.OS !== 'web' || isLocalhostWeb) return false
+    const raw = String(process.env.EXPO_PUBLIC_IP_RESTRICTION_ENABLED ?? '').trim().toLowerCase()
+    return raw === '1' || raw === 'true'
+  }, [isLocalhostWeb])
   const { ipInfo, isLoading: ipLoading, error: ipError, refetch: refetchIp } = useIpAddress({ enabled: ipRestrictionEnabled })
   const ipAllowed = !ipRestrictionEnabled || (ipInfo?.ip ? allowedIpSet.has(ipInfo.ip) : false)
 

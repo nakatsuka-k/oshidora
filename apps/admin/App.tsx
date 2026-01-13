@@ -18,6 +18,8 @@ type Screen = 'login' | 'app'
 
 type RouteId =
   | 'login'
+  | 'password-reset'
+  | 'not-found'
   | 'dev'
   | 'dashboard'
   // 動画管理
@@ -246,8 +248,12 @@ function getRouteFromHash(): RouteId {
       return 'inquiry-detail'
     case 'settings':
       return 'settings'
+    case 'password-reset':
+      return 'password-reset'
+    case 'not-found':
+      return 'not-found'
     default:
-      return 'login'
+      return key === 'login' ? 'login' : 'not-found'
   }
 }
 
@@ -261,6 +267,8 @@ function getRouteFromPathname(): RouteId | null {
   const key = (first || '').toLowerCase()
 
   switch (key) {
+    case 'password-reset':
+      return 'password-reset'
     case 'dev':
       return 'dev'
     case 'dashboard':
@@ -359,8 +367,10 @@ function getRouteFromPathname(): RouteId | null {
       return 'settings'
     case 'login':
       return 'login'
+    case 'not-found':
+      return 'not-found'
     default:
-      return null
+      return 'not-found'
   }
 }
 
@@ -489,6 +499,8 @@ function Sidebar({ entries, activeId, onNavigate }: { entries: SidebarEntry[]; a
 
 function sidebarActiveRoute(route: RouteId): RouteId {
   switch (route) {
+    case 'not-found':
+      return 'dashboard'
     case 'videos-scheduled-detail':
       return 'videos-scheduled'
     case 'video-detail':
@@ -548,17 +560,14 @@ function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) 
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const kpis = useMemo<KPIItem[]>(
-    () => [
-      { id: 'users_total', label: '総ユーザー数', value: '—', route: 'users' },
-      { id: 'users_today', label: '本日の新規登録', value: '—', route: 'users' },
-      { id: 'works_published', label: '公開中作品数', value: '—', route: 'works' },
-      { id: 'videos_published', label: '公開中動画数', value: '—', route: 'videos' },
-      { id: 'plays_today', label: '本日の再生回数', value: '—', route: 'videos' },
-      { id: 'coins_spent_today', label: '本日のコイン消費', value: '—', route: 'coin' },
-    ],
-    []
-  )
+  const [kpis, setKpis] = useState<KPIItem[]>(() => [
+    { id: 'users_total', label: '総ユーザー数', value: '—', route: 'users' },
+    { id: 'users_today', label: '本日の新規登録', value: '—', route: 'users' },
+    { id: 'works_published', label: '公開中作品数', value: '—', route: 'works' },
+    { id: 'videos_published', label: '公開中動画数', value: '—', route: 'videos' },
+    { id: 'plays_today', label: '本日の再生回数', value: '—', route: 'videos' },
+    { id: 'coins_spent_today', label: '本日のコイン消費', value: '—', route: 'coin' },
+  ])
 
   const [activities, setActivities] = useState<ActivityItem[]>(() => [
     { id: 'a_unapproved_videos', label: '未承認動画', detail: '承認待ち', pendingCount: 0, route: 'unapproved-videos' },
@@ -584,12 +593,23 @@ function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) 
     setBanner('')
     void (async () => {
       try {
-        const [videos, comments, actors] = await Promise.all([
+        const [summary, videos, comments, actors] = await Promise.all([
+          cmsFetchJson<any>(cfg, '/cms/dashboard/summary'),
           cmsFetchJson<{ items: any[] }>(cfg, '/cms/videos/unapproved'),
           cmsFetchJson<{ items: any[] }>(cfg, '/cms/comments?status=pending'),
           cmsFetchJson<{ items: any[] }>(cfg, '/cms/cast-profiles/unapproved'),
         ])
         if (!mounted) return
+
+        setKpis([
+          { id: 'users_total', label: '総ユーザー数', value: String(summary?.usersTotal ?? 0), route: 'users' },
+          { id: 'users_today', label: '本日の新規登録', value: String(summary?.usersToday ?? 0), route: 'users' },
+          { id: 'works_published', label: '公開中作品数', value: String(summary?.worksPublished ?? 0), route: 'works' },
+          { id: 'videos_published', label: '公開中動画数', value: String(summary?.videosPublished ?? 0), route: 'videos' },
+          { id: 'plays_today', label: '本日の再生回数', value: String(summary?.playsToday ?? 0), route: 'videos' },
+          { id: 'coins_spent_today', label: '本日のコイン消費', value: String(summary?.coinsSpentToday ?? 0), route: 'coin' },
+        ])
+
         setActivities([
           {
             id: 'a_unapproved_videos',
@@ -694,6 +714,38 @@ function PlaceholderScreen({ title }: { title: string }) {
       <Text style={styles.pageTitle}>{title}</Text>
       <View style={styles.placeholderBox}>
         <Text style={styles.placeholderText}>未実装</Text>
+      </View>
+    </ScrollView>
+  )
+}
+
+function NotFoundScreen({ onGoDashboard }: { onGoDashboard: () => void }) {
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <Text style={styles.pageTitle}>404</Text>
+      <View style={styles.placeholderBox}>
+        <Text style={styles.placeholderText}>ページが見つかりません</Text>
+        <View style={styles.filterActions}>
+          <Pressable onPress={onGoDashboard} style={styles.btnPrimary}>
+            <Text style={styles.btnPrimaryText}>ダッシュボードへ戻る</Text>
+          </Pressable>
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+function MaintenanceModeScreen({ message, onGoSettings }: { message: string; onGoSettings: () => void }) {
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <Text style={styles.pageTitle}>メンテナンス中</Text>
+      <View style={styles.placeholderBox}>
+        <Text style={styles.placeholderText}>{message || 'メンテナンス中です。しばらくお待ちください。'}</Text>
+        <View style={styles.filterActions}>
+          <Pressable onPress={onGoSettings} style={styles.btnSecondary}>
+            <Text style={styles.btnSecondaryText}>設定へ</Text>
+          </Pressable>
+        </View>
       </View>
     </ScrollView>
   )
@@ -1582,17 +1634,61 @@ function UnapprovedVideoDetailScreen({ id, onBack }: { id: string; onBack: () =>
 type ScheduledVideoRow = { id: string; title: string; scheduledAt: string; status: '配信予約' | '取消' }
 
 function ScheduledVideosListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
-  const [rows] = useState<ScheduledVideoRow[]>(() => [
-    { id: 'S0001', title: '配信予定：作品A 第1話', scheduledAt: '2026-01-15 20:00', status: '配信予約' },
-    { id: 'S0002', title: '配信予定：作品B 第2話', scheduledAt: '2026-01-16 21:30', status: '配信予約' },
-  ])
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [rows, setRows] = useState<ScheduledVideoRow[]>([])
+
+  const load = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const json = await cmsFetchJson<{ items: Array<{ id: string; title: string; scheduledAt: string | null; status: string }> }>(
+        cfg,
+        '/cms/videos/scheduled'
+      )
+      setRows(
+        (json.items ?? []).map((r) => {
+          const status = String((r as any).status ?? 'scheduled')
+          const scheduledAtRaw = (r as any).scheduledAt
+          const scheduledAt = scheduledAtRaw ? String(scheduledAtRaw).slice(0, 19).replace('T', ' ') : ''
+          return {
+            id: String((r as any).id ?? ''),
+            title: String((r as any).title ?? ''),
+            scheduledAt,
+            status: status === 'cancelled' ? '取消' : '配信予約',
+          }
+        })
+      )
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [cfg])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>配信予定動画一覧</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
@@ -1601,6 +1697,11 @@ function ScheduledVideosListScreen({ onOpenDetail }: { onOpenDetail: (id: string
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>配信予定がありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -1608,8 +1709,58 @@ function ScheduledVideosListScreen({ onOpenDetail }: { onOpenDetail: (id: string
 }
 
 function ScheduledVideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
-  const [scheduledAt, setScheduledAt] = useState('2026-01-15 20:00')
+  const cfg = useCmsApi()
+  const [scheduledAt, setScheduledAt] = useState('')
   const [canceled, setCanceled] = useState(false)
+  const [title, setTitle] = useState('')
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/videos/scheduled/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        const it = json.item
+        setTitle(String(it?.title ?? ''))
+        setScheduledAt(it?.scheduledAt ? String(it.scheduledAt).slice(0, 19).replace('T', ' ') : '')
+        setCanceled(String(it?.status ?? 'scheduled') === 'cancelled')
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    if (!id) return
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        await cmsFetchJson(cfg, `/cms/videos/scheduled/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ scheduledAt: scheduledAt.trim() || null, status: canceled ? 'cancelled' : 'scheduled' }),
+        })
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, canceled, id, scheduledAt])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -1620,11 +1771,21 @@ function ScheduledVideoDetailScreen({ id, onBack }: { id: string; onBack: () => 
         <Text style={styles.pageTitle}>配信予定動画 詳細・編集</Text>
       </View>
 
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>表示/編集</Text>
         <View style={styles.field}>
           <Text style={styles.label}>ID</Text>
           <Text style={styles.readonlyText}>{id || '—'}</Text>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>タイトル</Text>
+          <Text style={styles.readonlyText}>{title || '—'}</Text>
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>配信予定日時</Text>
@@ -1635,8 +1796,8 @@ function ScheduledVideoDetailScreen({ id, onBack }: { id: string; onBack: () => 
           <Switch value={canceled} onValueChange={setCanceled} />
         </View>
         <View style={styles.filterActions}>
-          <Pressable style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>保存</Text>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
       </View>
@@ -2759,7 +2920,7 @@ function UserDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
 }
 
 type NoticeStatus = 'draft' | 'scheduled' | 'sent' | 'cancelled'
-type NoticeRow = { id: string; subject: string; sentAt: string; status: NoticeStatus; push: boolean }
+type NoticeRow = { id: string; subject: string; sentAt: string; status: NoticeStatus; push: boolean; tags: string[] }
 
 function noticeStatusLabel(v: NoticeStatus): string {
   switch (v) {
@@ -2788,7 +2949,7 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
     setBanner('')
     void (async () => {
       try {
-        const json = await cmsFetchJson<{ items: Array<{ id: string; subject: string; body: string; sentAt: string; status: string; push: boolean }> }>(
+        const json = await cmsFetchJson<{ items: Array<any> }>(
           cfg,
           '/cms/notices'
         )
@@ -2800,6 +2961,7 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
             sentAt: String((n as any).sentAt ?? ''),
             status: (String((n as any).status ?? 'draft') as NoticeStatus) || 'draft',
             push: Boolean((n as any).push),
+            tags: Array.isArray((n as any).tags) ? (n as any).tags.map((t: any) => String(t ?? '').trim()).filter(Boolean) : [],
           }))
         )
       } catch (e) {
@@ -2843,7 +3005,7 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{r.subject}</Text>
-                <Text style={styles.tableDetail}>{`${r.sentAt || '—'} / ${noticeStatusLabel(r.status)}`}</Text>
+                <Text style={styles.tableDetail}>{`${r.sentAt || '—'} / ${noticeStatusLabel(r.status)}${r.tags.length ? ` / タグ: ${r.tags.join(',')}` : ''}`}</Text>
               </View>
             </Pressable>
           ))}
@@ -2863,7 +3025,15 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
   const [sentAt, setSentAt] = useState('2026-01-12 03:00')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [tagsCsv, setTagsCsv] = useState('')
   const [push, setPush] = useState(false)
+  const [pushTitle, setPushTitle] = useState('')
+  const [pushBody, setPushBody] = useState('')
+
+  const [mailEnabled, setMailEnabled] = useState(false)
+  const [mailFormat, setMailFormat] = useState<'text' | 'html'>('text')
+  const [mailText, setMailText] = useState('')
+  const [mailHtml, setMailHtml] = useState('')
   const [status, setStatus] = useState<NoticeStatus>('draft')
 
   const [banner, setBanner] = useState('')
@@ -2874,7 +3044,14 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
       setSentAt('')
       setSubject('')
       setBody('')
+      setTagsCsv('')
       setPush(false)
+      setPushTitle('')
+      setPushBody('')
+      setMailEnabled(false)
+      setMailFormat('text')
+      setMailText('')
+      setMailHtml('')
       setStatus('draft')
       return
     }
@@ -2891,6 +3068,13 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
         setSubject(String(n?.subject ?? ''))
         setBody(String(n?.body ?? ''))
         setPush(Boolean(n?.push))
+        setTagsCsv(Array.isArray(n?.tags) ? (n.tags as any[]).map((t) => String(t ?? '').trim()).filter(Boolean).join(',') : '')
+        setPushTitle(String(n?.pushTitle ?? ''))
+        setPushBody(String(n?.pushBody ?? ''))
+        setMailEnabled(Boolean(n?.mailEnabled))
+        setMailFormat(((String(n?.mailFormat ?? 'text') as any) === 'html' ? 'html' : 'text') as 'text' | 'html')
+        setMailText(String(n?.mailText ?? ''))
+        setMailHtml(String(n?.mailHtml ?? ''))
         setStatus((String(n?.status ?? 'draft') as NoticeStatus) || 'draft')
       } catch (e) {
         if (!mounted) return
@@ -2916,6 +3100,13 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
           subject,
           body,
           push,
+          tags: csvToIdList(tagsCsv),
+          pushTitle,
+          pushBody,
+          mailEnabled,
+          mailFormat,
+          mailText,
+          mailHtml,
           status,
         }
         if (id) {
@@ -2941,6 +3132,66 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
       }
     })()
   }, [body, cfg, id, onBack, push, sentAt, status, subject])
+
+  const onSendEmailNow = useCallback(() => {
+    if (!id) {
+      setBanner('先に保存してください')
+      return
+    }
+    let ok = true
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      ok = window.confirm('メール送信を実行しますか？（対象: メール認証済みユーザー、上限50件）')
+    }
+    if (!ok) return
+
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<any>(cfg, `/cms/notices/${encodeURIComponent(id)}/send-email`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ limit: 50 }),
+        })
+        const sent = typeof json?.sent === 'number' ? json.sent : 0
+        const recipients = typeof json?.recipients === 'number' ? json.recipients : 0
+        const warning = json?.warning ? `（${String(json.warning)}）` : ''
+        setBanner(`メール送信: ${sent}/${recipients} ${warning}`.trim())
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id])
+
+  const onSendPushNow = useCallback(() => {
+    if (!id) {
+      setBanner('先に保存してください')
+      return
+    }
+    let ok = true
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      ok = window.confirm('プッシュ送信を実行しますか？')
+    }
+    if (!ok) return
+
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<any>(cfg, `/cms/notices/${encodeURIComponent(id)}/send-push`, {
+          method: 'POST',
+        })
+        const warning = json?.warning ? `（${String(json.warning)}）` : ''
+        setBanner(`プッシュ送信: OK ${warning}`.trim())
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2983,13 +3234,75 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
           <Text style={styles.label}>本文</Text>
           <TextInput value={body} onChangeText={setBody} style={[styles.input, { minHeight: 160 }]} multiline />
         </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>タグ（CSV）</Text>
+          <TextInput value={tagsCsv} onChangeText={setTagsCsv} placeholder="例: TAG001,TAG002" style={styles.input} />
+        </View>
+
         <View style={styles.devRow}>
           <Text style={styles.devLabel}>プッシュ通知送信</Text>
           <Switch value={push} onValueChange={setPush} />
         </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>プッシュ通知タイトル</Text>
+          <TextInput value={pushTitle} onChangeText={setPushTitle} placeholder="（未入力なら件名）" style={styles.input} />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>プッシュ通知本文</Text>
+          <TextInput
+            value={pushBody}
+            onChangeText={setPushBody}
+            placeholder="（未入力なら本文）"
+            style={[styles.input, { minHeight: 80 }]}
+            multiline
+          />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>メール</Text>
+          <View style={styles.devRow}>
+            <Text style={styles.devLabel}>メール送信</Text>
+            <Switch value={mailEnabled} onValueChange={setMailEnabled} />
+          </View>
+
+          <SelectField
+            label="メール形式"
+            value={mailFormat}
+            placeholder="選択"
+            options={[
+              { label: 'テキスト', value: 'text' },
+              { label: 'HTML', value: 'html' },
+            ]}
+            onChange={(v) => setMailFormat(v as 'text' | 'html')}
+          />
+
+          <View style={styles.field}>
+            <Text style={styles.label}>メール本文（テキスト）</Text>
+            <TextInput value={mailText} onChangeText={setMailText} style={[styles.input, { minHeight: 120 }]} multiline />
+          </View>
+
+          {mailFormat === 'html' ? (
+            <View style={styles.field}>
+              <Text style={styles.label}>メール本文（HTML）</Text>
+              <TextInput value={mailHtml} onChangeText={setMailHtml} style={[styles.input, { minHeight: 120 }]} multiline />
+            </View>
+          ) : null}
+        </View>
+
         <View style={styles.filterActions}>
           <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+          </Pressable>
+
+          <Pressable disabled={busy || !id} onPress={onSendEmailNow} style={[styles.btnSecondary, busy || !id ? styles.btnDisabled : null]}>
+            <Text style={styles.btnSecondaryText}>メール送信</Text>
+          </Pressable>
+
+          <Pressable disabled={busy || !id} onPress={onSendPushNow} style={[styles.btnSecondary, busy || !id ? styles.btnDisabled : null]}>
+            <Text style={styles.btnSecondaryText}>プッシュ送信</Text>
           </Pressable>
         </View>
       </View>
@@ -2997,13 +3310,78 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
   )
 }
 
+function CmsMaintenanceGate({
+  route,
+  adminName,
+  onLogout,
+  onNavigate,
+}: {
+  route: RouteId
+  adminName: string
+  onLogout: () => void
+  onNavigate: (id: RouteId) => void
+}) {
+  const cfg = useCmsApi()
+  const [maintenanceMode, setMaintenanceMode] = useState(false)
+  const [maintenanceMessage, setMaintenanceMessage] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    const tick = async () => {
+      try {
+        const json = await cmsFetchJson<{ maintenanceMode: boolean; maintenanceMessage: string }>(cfg, '/cms/settings')
+        if (!mounted) return
+        setMaintenanceMode(Boolean(json.maintenanceMode))
+        setMaintenanceMessage(String(json.maintenanceMessage ?? ''))
+      } catch {
+        // ignore
+      }
+    }
+    void tick()
+    const t = setInterval(() => void tick(), 30_000)
+    return () => {
+      mounted = false
+      clearInterval(t)
+    }
+  }, [cfg])
+
+  if (maintenanceMode && route !== 'settings' && route !== 'dev') {
+    return <MaintenanceModeScreen message={maintenanceMessage} onGoSettings={() => onNavigate('settings')} />
+  }
+
+  return <AppShell route={route} adminName={adminName} onLogout={onLogout} onNavigate={onNavigate} />
+}
+
 type CategoryRow = { id: string; name: string; enabled: boolean }
 
 function CategoriesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string) => void; onNew: () => void }) {
-  const [rows] = useState<CategoryRow[]>(() => [
-    { id: 'CAT001', name: '恋愛', enabled: true },
-    { id: 'CAT002', name: 'ミステリー', enabled: true },
-  ])
+  const cfg = useCmsApi()
+  const [rows, setRows] = useState<CategoryRow[]>([])
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const json = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/categories')
+      setRows(
+        (json.items ?? []).map((c) => ({
+          id: String(c.id ?? ''),
+          name: String(c.name ?? ''),
+          enabled: Boolean(c.enabled),
+        }))
+      )
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [cfg])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -3013,9 +3391,20 @@ function CategoriesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: stri
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
@@ -3024,6 +3413,11 @@ function CategoriesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: stri
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>カテゴリがありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -3031,13 +3425,69 @@ function CategoriesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: stri
 }
 
 function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
   const [name, setName] = useState('')
   const [enabled, setEnabled] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
 
   useEffect(() => {
-    if (!id) return
-    setName(`カテゴリ(${id})`)
-  }, [id])
+    if (!id) {
+      setName('')
+      setEnabled(true)
+      return
+    }
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/categories/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        setName(String(json.item?.name ?? ''))
+        setEnabled(Boolean(json.item?.enabled))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const payload = { name: name.trim(), enabled }
+        if (id) {
+          await cmsFetchJson(cfg, `/cms/categories/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } else {
+          await cmsFetchJson(cfg, '/cms/categories', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          onBack()
+          return
+        }
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, enabled, id, name, onBack])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -3047,6 +3497,12 @@ function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; 
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
         {id ? (
@@ -3064,8 +3520,8 @@ function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; 
           <Switch value={enabled} onValueChange={setEnabled} />
         </View>
         <View style={styles.filterActions}>
-          <Pressable style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>保存</Text>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
       </View>
@@ -3076,10 +3532,27 @@ function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; 
 type TagRow = { id: string; name: string }
 
 function TagsListScreen({ onOpenEdit, onNew }: { onOpenEdit: (id: string) => void; onNew: () => void }) {
-  const [rows] = useState<TagRow[]>(() => [
-    { id: 'TAG001', name: '胸キュン' },
-    { id: 'TAG002', name: '感動' },
-  ])
+  const cfg = useCmsApi()
+  const [rows, setRows] = useState<TagRow[]>([])
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const json = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/tags')
+      setRows((json.items ?? []).map((t) => ({ id: String(t.id ?? ''), name: String(t.name ?? '') })))
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [cfg])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -3089,9 +3562,20 @@ function TagsListScreen({ onOpenEdit, onNew }: { onOpenEdit: (id: string) => voi
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenEdit(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
@@ -3100,6 +3584,11 @@ function TagsListScreen({ onOpenEdit, onNew }: { onOpenEdit: (id: string) => voi
               </View>
             </Pressable>
           ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>タグがありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -3107,12 +3596,66 @@ function TagsListScreen({ onOpenEdit, onNew }: { onOpenEdit: (id: string) => voi
 }
 
 function TagEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
   const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
 
   useEffect(() => {
-    if (!id) return
-    setName(`タグ(${id})`)
-  }, [id])
+    if (!id) {
+      setName('')
+      return
+    }
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/tags/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        setName(String(json.item?.name ?? ''))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const payload = { name: name.trim() }
+        if (id) {
+          await cmsFetchJson(cfg, `/cms/tags/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } else {
+          await cmsFetchJson(cfg, '/cms/tags', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          onBack()
+          return
+        }
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id, name, onBack])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -3122,6 +3665,12 @@ function TagEditScreen({ title, id, onBack }: { title: string; id: string; onBac
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
         {id ? (
@@ -3135,12 +3684,234 @@ function TagEditScreen({ title, id, onBack }: { title: string; id: string; onBac
           <TextInput value={name} onChangeText={setName} style={styles.input} />
         </View>
         <View style={styles.filterActions}>
-          <Pressable style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>保存</Text>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
       </View>
     </ScrollView>
+  )
+}
+
+function RankingsScreen({ type, title }: { type: 'videos' | 'coins' | 'actors' | 'directors' | 'writers'; title: string }) {
+  const cfg = useCmsApi()
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [asOf, setAsOf] = useState('')
+  const [items, setItems] = useState<Array<{ rank: number; label: string; value: number }>>([])
+
+  const load = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const json = await cmsFetchJson<{ items: any[]; asOf: string }>(cfg, `/cms/rankings/${encodeURIComponent(type)}`)
+      setAsOf(String((json as any).asOf ?? ''))
+      setItems(
+        (json.items ?? []).map((r) => ({
+          rank: Number((r as any).rank ?? 0),
+          label: String((r as any).label ?? ''),
+          value: Number((r as any).value ?? 0),
+        }))
+      )
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [cfg, type])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <Text style={styles.pageTitle}>{title}</Text>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>集計日時</Text>
+        <Text style={styles.tableDetail}>{asOf || '—'}</Text>
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={load} style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnSecondaryText}>{busy ? '更新中…' : '更新'}</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>ランキング</Text>
+        <View style={styles.table}>
+          {busy && items.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
+          {items.map((r) => (
+            <View key={`${r.rank}-${r.label}`} style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>{`${r.rank}位 ${r.label}`}</Text>
+                <Text style={styles.tableDetail}>{`値: ${r.value}`}</Text>
+              </View>
+            </View>
+          ))}
+          {!busy && items.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>データがありません</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+function getTokenFromLocation(): string {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return ''
+
+  try {
+    const url = new URL(window.location.href)
+    const q = String(url.searchParams.get('token') || '').trim()
+    if (q) return q
+  } catch {
+    // ignore
+  }
+
+  const rawHash = String(window.location.hash || '')
+  const i = rawHash.indexOf('?')
+  if (i >= 0) {
+    const qs = rawHash.slice(i + 1)
+    try {
+      const params = new URLSearchParams(qs)
+      return String(params.get('token') || '').trim()
+    } catch {
+      return ''
+    }
+  }
+
+  return ''
+}
+
+function PasswordResetScreen({ apiBase, mock, onGoLogin }: { apiBase: string; mock: boolean; onGoLogin: () => void }) {
+  const [email, setEmail] = useState('')
+  const [token, setToken] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newPassword2, setNewPassword2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
+
+  useEffect(() => {
+    setToken(getTokenFromLocation())
+  }, [])
+
+  const requestReset = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const res = await fetch(`${apiBase.replace(/\/$/, '')}/cms/auth/request-password-reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
+        body: JSON.stringify({ email: email.trim() }),
+      })
+      const json = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) throw new Error(json?.error ? String(json.error) : '送信に失敗しました')
+      setBanner('再設定用のメールを送信しました（届かない場合は設定やメールアドレスを確認してください）')
+      if (json?.debugLink) setBanner(`再設定用のメールを送信しました（DEBUG: ${String(json.debugLink)}）`)
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [apiBase, email, mock])
+
+  const submitNewPassword = useCallback(async () => {
+    if (!token) {
+      setBanner('トークンがありません')
+      return
+    }
+    if (!newPassword || newPassword.length < 8) {
+      setBanner('パスワードは8文字以上で入力してください')
+      return
+    }
+    if (newPassword !== newPassword2) {
+      setBanner('パスワードが一致しません')
+      return
+    }
+
+    setBusy(true)
+    setBanner('')
+    try {
+      const res = await fetch(`${apiBase.replace(/\/$/, '')}/cms/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
+        body: JSON.stringify({ token, newPassword }),
+      })
+      const json = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) throw new Error(json?.error ? String(json.error) : '再設定に失敗しました')
+      setBanner('パスワードを再設定しました。ログインしてください。')
+      setNewPassword('')
+      setNewPassword2('')
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [apiBase, mock, newPassword, newPassword2, token])
+
+  return (
+    <View style={styles.loginRoot}>
+      <View style={styles.loginCard}>
+        <Text style={styles.loginTitle}>パスワード再発行</Text>
+        <Text style={styles.loginDesc}>管理者パスワードを再設定します</Text>
+
+        {banner ? (
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>{banner}</Text>
+          </View>
+        ) : null}
+
+        {!token ? (
+          <View style={styles.form}>
+            <View style={styles.field}>
+              <Text style={styles.label}>メールアドレス</Text>
+              <TextInput value={email} onChangeText={setEmail} placeholder="admin@example.com" autoCapitalize="none" style={styles.input} />
+            </View>
+            <View style={styles.actions}>
+              <Pressable disabled={busy || !email.trim()} onPress={() => void requestReset()} style={[styles.btnPrimary, busy || !email.trim() ? styles.btnDisabled : null]}>
+                <Text style={styles.btnPrimaryText}>{busy ? '送信中…' : '再設定メールを送信'}</Text>
+              </Pressable>
+              <Pressable onPress={onGoLogin} style={styles.btnSecondary}>
+                <Text style={styles.btnSecondaryText}>ログインへ戻る</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.form}>
+            <View style={styles.field}>
+              <Text style={styles.label}>新しいパスワード（8文字以上）</Text>
+              <TextInput value={newPassword} onChangeText={setNewPassword} secureTextEntry autoCapitalize="none" style={styles.input} />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>新しいパスワード（確認）</Text>
+              <TextInput value={newPassword2} onChangeText={setNewPassword2} secureTextEntry autoCapitalize="none" style={styles.input} />
+            </View>
+            <View style={styles.actions}>
+              <Pressable disabled={busy} onPress={() => void submitNewPassword()} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+                <Text style={styles.btnPrimaryText}>{busy ? '処理中…' : 'パスワードを再設定'}</Text>
+              </Pressable>
+              <Pressable onPress={onGoLogin} style={styles.btnSecondary}>
+                <Text style={styles.btnSecondaryText}>ログインへ戻る</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+      </View>
+    </View>
   )
 }
 
@@ -4795,6 +5566,8 @@ function AppShell({
 
   const content = useMemo(() => {
     switch (route) {
+      case 'not-found':
+        return <NotFoundScreen onGoDashboard={() => onNavigate('dashboard')} />
       case 'dev':
         return <PlaceholderScreen title="/dev" />
       case 'dashboard':
@@ -5017,15 +5790,15 @@ function AppShell({
         return <NoticeEditScreen title="お知らせ新規作成" id="" onBack={() => onNavigate('notices')} />
 
       case 'ranking-videos':
-        return <RankingPlaceholderScreen title="動画ランキング" />
+        return <RankingsScreen type="videos" title="動画ランキング" />
       case 'ranking-coins':
-        return <RankingPlaceholderScreen title="獲得コインランキング" />
+        return <RankingsScreen type="coins" title="獲得コインランキング" />
       case 'ranking-actors':
-        return <RankingPlaceholderScreen title="主演ランキング" />
+        return <RankingsScreen type="actors" title="主演ランキング" />
       case 'ranking-directors':
-        return <RankingPlaceholderScreen title="監督ランキング" />
+        return <RankingsScreen type="directors" title="監督ランキング" />
       case 'ranking-writers':
-        return <RankingPlaceholderScreen title="脚本ランキング" />
+        return <RankingsScreen type="writers" title="脚本ランキング" />
 
       case 'categories':
         return (
@@ -5162,6 +5935,7 @@ function LoginScreen({
   isLoggedIn,
   onDebugToggleLogin,
   onDebugSkipLogin,
+  onForgotPassword,
   onOpenDevModal,
 }: {
   apiBase: string
@@ -5172,6 +5946,7 @@ function LoginScreen({
   isLoggedIn: boolean
   onDebugToggleLogin: (next: boolean, persist: boolean) => void
   onDebugSkipLogin: (persist: boolean) => void
+  onForgotPassword: () => void
   onOpenDevModal: () => void
 }) {
   const [email, setEmail] = useState('')
@@ -5293,7 +6068,7 @@ function LoginScreen({
             </Pressable>
 
             <Pressable
-              onPress={() => setBanner('パスワード再発行は未実装です')}
+              onPress={onForgotPassword}
               style={styles.linkBtn}
             >
               <Text style={styles.linkText}>パスワードを忘れた</Text>
@@ -5364,10 +6139,12 @@ export default function App() {
       setPathRoute(initial)
       if (initialRoute === 'login') setHashRoute('dashboard')
     } else {
-      setRoute(initialRoute)
-      setScreen(initialRoute === 'login' ? 'login' : 'app')
-      setPathRoute(initialRoute)
-      setHashRoute(initialRoute)
+      const allowUnauthed = initialRoute === 'login' || initialRoute === 'dev' || initialRoute === 'password-reset'
+      const initial = allowUnauthed ? initialRoute : 'login'
+      setRoute(initial)
+      setScreen(initial === 'login' ? 'login' : 'app')
+      setPathRoute(initial)
+      setHashRoute(initial)
     }
   }, [])
 
@@ -5377,7 +6154,7 @@ export default function App() {
     const syncRoute = () => {
       const next = getRouteFromLocation()
 
-      const allowUnauthed = next === 'login' || next === 'dev'
+      const allowUnauthed = next === 'login' || next === 'dev' || next === 'password-reset'
 
       if (!token && !allowUnauthed) {
         setRoute('login')
@@ -5396,7 +6173,7 @@ export default function App() {
       }
 
       setRoute(next)
-      setScreen(next === 'login' ? 'login' : 'app')
+      setScreen(next === 'login' || next === 'password-reset' ? 'login' : 'app')
     }
 
     const onHashChange = () => syncRoute()
@@ -5456,7 +6233,7 @@ export default function App() {
   )
 
   const onNavigate = useCallback((next: RouteId) => {
-    const allowUnauthed = next === 'login' || next === 'dev'
+    const allowUnauthed = next === 'login' || next === 'dev' || next === 'password-reset'
     if (!token && !allowUnauthed) {
       setLoginBanner('セッションが切れました')
       setRoute('login')
@@ -5468,7 +6245,7 @@ export default function App() {
     setRoute(next)
     setPathRoute(next)
     setHashRoute(next)
-    setScreen(next === 'login' ? 'login' : 'app')
+    setScreen(next === 'login' || next === 'password-reset' ? 'login' : 'app')
   }, [token])
 
   const showDevButton = useMemo(() => devMode || route === 'dev', [devMode, route])
@@ -5618,17 +6395,22 @@ export default function App() {
   return (
     <View style={styles.appRoot}>
       {screen === 'login' ? (
-        <LoginScreen
-          apiBase={apiBase}
-          mock={mockMode}
-          onLoggedIn={onLoggedIn}
-          initialBanner={loginBanner}
-          showDebugTools={showDevButton}
-          isLoggedIn={Boolean(token)}
-          onDebugToggleLogin={onDebugToggleLogin}
-          onDebugSkipLogin={onSkipLogin}
-          onOpenDevModal={() => setDevModalOpen(true)}
-        />
+        route === 'password-reset' ? (
+          <PasswordResetScreen apiBase={apiBase} mock={mockMode} onGoLogin={() => onNavigate('login')} />
+        ) : (
+          <LoginScreen
+            apiBase={apiBase}
+            mock={mockMode}
+            onLoggedIn={onLoggedIn}
+            initialBanner={loginBanner}
+            showDebugTools={showDevButton}
+            isLoggedIn={Boolean(token)}
+            onDebugToggleLogin={onDebugToggleLogin}
+            onDebugSkipLogin={onSkipLogin}
+            onForgotPassword={() => onNavigate('password-reset')}
+            onOpenDevModal={() => setDevModalOpen(true)}
+          />
+        )
       ) : null}
       {screen === 'app' ? (
         route === 'dev' ? (
@@ -5666,7 +6448,7 @@ export default function App() {
           </View>
         ) : (
           <CmsApiContext.Provider value={{ apiBase, token, mock: mockMode }}>
-            <AppShell route={route} adminName={adminEmail} onLogout={onLogout} onNavigate={onNavigate} />
+            <CmsMaintenanceGate route={route} adminName={adminEmail} onLogout={onLogout} onNavigate={onNavigate} />
           </CmsApiContext.Provider>
         )
       ) : null}

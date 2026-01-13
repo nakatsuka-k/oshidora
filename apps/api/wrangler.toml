@@ -3,6 +3,11 @@ account_id = "c6270d2ac0aefb2ca6ce6831cbc9ca30"
 main = "src/index.ts"
 compatibility_date = "2026-01-02"
 
+[triggers]
+# Every 5 minutes: execute scheduled publishing.
+# Daily at 00:10 UTC: compute CMS rankings.
+crons = ["*/5 * * * *", "10 0 * * *"]
+
 [vars]
 CLOUDFLARE_ACCOUNT_ID = "c6270d2ac0aefb2ca6ce6831cbc9ca30"
 R2_BUCKET = "assets"
@@ -16,6 +21,9 @@ database_id = "1f7de46f-7b0c-4150-ae76-6dd762a23f71"
 # Production environment
 [env.production]
 name = "oshidra-api"
+
+[env.production.triggers]
+crons = ["*/5 * * * *", "10 0 * * *"]
 
 [env.production.vars]
 CLOUDFLARE_ACCOUNT_ID = "c6270d2ac0aefb2ca6ce6831cbc9ca30"

@@ -18,6 +18,9 @@ type Env = {
     R2_SECRET_ACCESS_KEY?: string
     R2_BUCKET?: string
     R2_PUBLIC_BASE_URL?: string
+    // Optional base URL for links in CMS password reset emails.
+    // Example: https://admin.example.com
+    CMS_PUBLIC_BASE_URL?: string
     CLOUDFLARE_STREAM_API_TOKEN?: string
     CLOUDFLARE_STREAM_SIGNING_KEY_ID?: string
     // Cloudflare Stream Signed URLs require an RSA signing key.
@@ -25,6 +28,198 @@ type Env = {
     // For backward compat, we also accept it via CLOUDFLARE_STREAM_SIGNING_KEY_SECRET.
     CLOUDFLARE_STREAM_SIGNING_KEY_JWK?: string
     CLOUDFLARE_STREAM_SIGNING_KEY_SECRET?: string
+  }
+}
+
+function isD1LikelyMissingTable(err: unknown) {
+  const msg = String((err as any)?.message ?? err)
+  return /no such table/i.test(msg) || /SQLITE_ERROR/i.test(msg)
+}
+
+async function optionalAuthUserId(c: any): Promise<string | null> {
+  try {
+    const secret = getAuthJwtSecret(c.env)
+    if (!secret) return null
+    const h = String(c.req.header('Authorization') ?? '')
+    const m = h.match(/^Bearer\s+(.+)$/i)
+    const token = m ? m[1].trim() : ''
+    if (!token) return null
+    const payload = await verifyJwtHs256(secret, token)
+    const userId = typeof (payload as any)?.userId === 'string' ? String((payload as any).userId) : ''
+    return userId || null
+  } catch {
+    return null
+  }
+}
+
+async function tryLogVideoPlay(params: { db: D1Database | null; videoId: string; userId: string | null }) {
+  if (!params.db) return
+  const now = nowIso()
+  try {
+    await params.db
+      .prepare('INSERT INTO video_play_events (id, video_id, user_id, created_at) VALUES (?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), params.videoId, params.userId, now)
+      .run()
+  } catch (err) {
+    // Swallow errors so playback endpoints never fail due to analytics.
+    if (isD1LikelyMissingTable(err)) return
+  }
+}
+
+async function runScheduledVideoPublishing(env: Env['Bindings']) {
+  if (!env.DB) return { ok: false as const, error: 'DB is not configured' as const }
+  const db = env.DB as D1Database
+  const now = nowIso()
+
+  // Publish videos whose scheduled time has arrived.
+  // After publishing, clear scheduled_at so they no longer appear in the scheduled list.
+  let rows: any[] = []
+  try {
+    const out = await db
+      .prepare(
+        `SELECT id
+         FROM videos
+         WHERE published = 0
+           AND scheduled_at IS NOT NULL
+           AND scheduled_status = 'scheduled'
+           AND scheduled_at <= ?
+           AND COALESCE(approval_status, 'approved') = 'approved'
+         ORDER BY scheduled_at ASC
+         LIMIT 100`
+      )
+      .bind(now)
+      .all()
+    rows = (out.results ?? []) as any[]
+  } catch (err) {
+    if (isD1LikelyMissingTable(err)) return { ok: false as const, error: 'db_not_migrated' as const }
+    throw err
+  }
+
+  if (!rows.length) return { ok: true as const, published: 0 }
+
+  // D1 doesn't support multi-statement transactions reliably across all environments; do per-row updates.
+  let published = 0
+  for (const r of rows) {
+    const id = String(r.id ?? '').trim()
+    if (!id) continue
+    try {
+      await db
+        .prepare('UPDATE videos SET published = 1, scheduled_at = NULL, updated_at = ? WHERE id = ?')
+        .bind(now, id)
+        .run()
+      published++
+    } catch (err) {
+      if (isD1LikelyMissingTable(err)) continue
+      throw err
+    }
+  }
+
+  return { ok: true as const, published }
+}
+
+function toAsOfIsoFromDate(dateYmd: string) {
+  return `${dateYmd}T00:00:00.000Z`
+}
+
+async function runCmsRankingsDaily(env: Env['Bindings']) {
+  if (!env.DB) return { ok: false as const, error: 'DB is not configured' as const }
+  const db = env.DB as D1Database
+
+  // Compute rankings for the previous UTC day to avoid partial-day data.
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const asOf = toAsOfIsoFromDate(yesterday)
+
+  const topN = 20
+
+  async function replaceRankings(type: string, items: Array<{ entityId: string; label: string; value: number }>) {
+    await db.prepare('DELETE FROM cms_rankings WHERE type = ? AND as_of = ?').bind(type, asOf).run()
+    let rank = 1
+    for (const it of items.slice(0, topN)) {
+      await db
+        .prepare('INSERT INTO cms_rankings (type, as_of, rank, entity_id, label, value) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(type, asOf, rank, it.entityId, it.label, Math.trunc(it.value))
+        .run()
+      rank++
+    }
+  }
+
+  try {
+    // videos: by plays (count of play events)
+    const videoRows = await d1All(
+      db,
+      `SELECT e.video_id AS id, v.title AS title, COUNT(*) AS n
+       FROM video_play_events e
+       LEFT JOIN videos v ON v.id = e.video_id
+       WHERE substr(e.created_at, 1, 10) = ?
+       GROUP BY e.video_id
+       ORDER BY n DESC
+       LIMIT ?`,
+      [yesterday, topN]
+    )
+    await replaceRankings(
+      'videos',
+      videoRows.map((r: any) => ({
+        entityId: String(r.id ?? ''),
+        label: String(r.title ?? ''),
+        value: Number(r.n ?? 0),
+      }))
+    )
+
+    // coins: by coin spend (sum)
+    const coinRows = await d1All(
+      db,
+      `SELECT e.video_id AS id, v.title AS title, COALESCE(SUM(e.amount), 0) AS n
+       FROM coin_spend_events e
+       LEFT JOIN videos v ON v.id = e.video_id
+       WHERE substr(e.created_at, 1, 10) = ?
+       GROUP BY e.video_id
+       ORDER BY n DESC
+       LIMIT ?`,
+      [yesterday, topN]
+    )
+    await replaceRankings(
+      'coins',
+      coinRows
+        .filter((r: any) => String(r.id ?? '').trim())
+        .map((r: any) => ({
+          entityId: String(r.id ?? ''),
+          label: String(r.title ?? ''),
+          value: Number(r.n ?? 0),
+        }))
+    )
+
+    async function rankCastsByRole(type: 'actors' | 'directors' | 'writers', roleLike: string) {
+      const rows = await d1All(
+        db,
+        `SELECT c.id AS id, c.name AS name, COUNT(*) AS n
+         FROM video_play_events e
+         JOIN video_casts vc ON vc.video_id = e.video_id
+         JOIN casts c ON c.id = vc.cast_id
+         WHERE substr(e.created_at, 1, 10) = ?
+           AND c.role LIKE ?
+         GROUP BY c.id
+         ORDER BY n DESC
+         LIMIT ?`,
+        [yesterday, roleLike, topN]
+      )
+      await replaceRankings(
+        type,
+        rows.map((r: any) => ({
+          entityId: String(r.id ?? ''),
+          label: String(r.name ?? ''),
+          value: Number(r.n ?? 0),
+        }))
+      )
+    }
+
+    await rankCastsByRole('actors', '%出演%')
+    await rankCastsByRole('directors', '%監督%')
+    await rankCastsByRole('writers', '%脚本%')
+
+    return { ok: true as const, asOf }
+  } catch (err) {
+    if (isD1LikelyMissingTable(err)) return { ok: false as const, error: 'db_not_migrated' as const }
+    throw err
   }
 }
 
@@ -201,6 +396,129 @@ app.post('/cms/auth/login', async (c) => {
   return c.json({ token })
 })
 
+app.post('/cms/auth/request-password-reset', async (c) => {
+  // Intentionally unauthenticated.
+  if (isMockRequest(c)) {
+    return c.json({ ok: true })
+  }
+
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { email?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = String(body.email ?? '').trim().toLowerCase()
+  if (!email) return c.json({ error: 'email is required' }, 400)
+
+  const db = c.env.DB as D1Database
+  let adminRow: any = null
+  try {
+    adminRow = await db
+      .prepare('SELECT id, email, name, disabled FROM cms_admins WHERE lower(email) = ? LIMIT 1')
+      .bind(email)
+      .first<any>()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  // Always return ok: true to avoid account enumeration.
+  if (!adminRow || Number(adminRow.disabled ?? 0) === 1) {
+    return c.json({ ok: true })
+  }
+
+  const tokenRaw = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)))
+  const tokenHash = await sha256Base64Url(tokenRaw)
+  const now = nowIso()
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+  const resetId = uuidOrFallback('cms_reset')
+
+  try {
+    await db
+      .prepare(
+        'INSERT INTO cms_admin_password_resets (id, admin_id, token_hash, expires_at, created_at, used_at) VALUES (?, ?, ?, ?, ?, NULL)'
+      )
+      .bind(resetId, String(adminRow.id ?? ''), tokenHash, expiresAt, now)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const publicBase = (c.env.CMS_PUBLIC_BASE_URL ?? '').trim()
+  const link = publicBase
+    ? `${publicBase.replace(/\/$/, '')}/password-reset?token=${encodeURIComponent(tokenRaw)}`
+    : `#/password-reset?token=${encodeURIComponent(tokenRaw)}`
+
+  const subject = '【推しドラ管理】パスワード再設定'
+  const text = `パスワード再設定のリクエストを受け付けました。\n\n以下のリンクから再設定してください（有効期限: 1時間）。\n${link}\n\n心当たりがない場合は、このメールを破棄してください。`
+  const html = `<!doctype html><html><body><p>パスワード再設定のリクエストを受け付けました。</p><p>以下のリンクから再設定してください（有効期限: 1時間）。</p><p><a href="${escapeHtml(link)}">パスワードを再設定する</a></p><p>心当たりがない場合は、このメールを破棄してください。</p></body></html>`
+
+  const emailRes = await sendEmailViaMailChannels(c.env, String(adminRow.email ?? ''), subject, text, html)
+  if (!emailRes.ok) {
+    // Still return ok, but tell the client the system isn't configured.
+    return c.json({ ok: true, warning: emailRes.error, ...(shouldReturnDebugCodes(c.env) ? { debugToken: tokenRaw, debugLink: link } : {}) })
+  }
+
+  return c.json({ ok: true, ...(shouldReturnDebugCodes(c.env) ? { debugToken: tokenRaw, debugLink: link } : {}) })
+})
+
+app.post('/cms/auth/reset-password', async (c) => {
+  // Intentionally unauthenticated.
+  if (isMockRequest(c)) {
+    return c.json({ ok: true })
+  }
+
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { token?: unknown; newPassword?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const tokenRaw = String(body.token ?? '').trim()
+  const newPassword = String(body.newPassword ?? '')
+  if (!tokenRaw) return c.json({ error: 'token is required' }, 400)
+  if (!newPassword || newPassword.length < 8) return c.json({ error: 'password_too_short' }, 400)
+
+  const tokenHash = await sha256Base64Url(tokenRaw)
+  const now = nowIso()
+
+  let row: any = null
+  try {
+    row = await db
+      .prepare(
+        'SELECT id, admin_id, expires_at, used_at FROM cms_admin_password_resets WHERE token_hash = ? LIMIT 1'
+      )
+      .bind(tokenHash)
+      .first<any>()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  if (!row) return c.json({ error: 'invalid_token' }, 400)
+  if (String(row.used_at ?? '')) return c.json({ error: 'invalid_token' }, 400)
+  if (String(row.expires_at ?? '') && String(row.expires_at) < now) return c.json({ error: 'invalid_token' }, 400)
+
+  const { saltB64, hashB64 } = await hashPasswordForStorage(newPassword)
+  const adminId = String(row.admin_id ?? '').trim()
+  if (!adminId) return c.json({ error: 'invalid_token' }, 400)
+
+  try {
+    await db.batch([
+      db
+        .prepare('UPDATE cms_admins SET password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?')
+        .bind(hashB64, saltB64, now, adminId),
+      db
+        .prepare('UPDATE cms_admin_password_resets SET used_at = ? WHERE id = ?')
+        .bind(now, String(row.id ?? '')),
+    ])
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true })
+})
+
 // Categories
 app.get('/cms/categories', async (c) => {
   const admin = await requireCmsAdmin(c)
@@ -224,6 +542,32 @@ app.get('/cms/categories', async (c) => {
     updatedAt: String(r.updated_at ?? ''),
   }))
   return c.json({ items })
+})
+
+app.get('/cms/categories/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  try {
+    const row = await d1First(db, 'SELECT id, name, enabled, created_at, updated_at FROM categories WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        name: String((row as any).name ?? ''),
+        enabled: Number((row as any).enabled ?? 0) === 1,
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
 app.post('/cms/categories', async (c) => {
@@ -295,6 +639,216 @@ app.get('/cms/tags', async (c) => {
   return c.json({ items })
 })
 
+app.get('/cms/tags/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  try {
+    const row = await d1First(db, 'SELECT id, name, created_at, updated_at FROM tags WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        name: String((row as any).name ?? ''),
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Dashboard (CMS)
+app.get('/cms/dashboard/summary', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      usersTotal: 123,
+      usersToday: 4,
+      worksPublished: 12,
+      videosPublished: 34,
+      playsToday: 0,
+      coinsSpentToday: 0,
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  const today = nowIso().slice(0, 10)
+  try {
+    const usersTotalRow = await d1First(db, 'SELECT COUNT(*) AS n FROM users')
+    const usersTodayRow = await d1First(db, 'SELECT COUNT(*) AS n FROM users WHERE substr(created_at, 1, 10) = ?', [today])
+    const worksPublishedRow = await d1First(db, 'SELECT COUNT(*) AS n FROM works WHERE published = 1')
+    const videosPublishedRow = await d1First(db, 'SELECT COUNT(*) AS n FROM videos WHERE published = 1')
+
+    const playsTodayRow = await d1First(db, 'SELECT COUNT(*) AS n FROM video_play_events WHERE substr(created_at, 1, 10) = ?', [today])
+    const coinsSpentTodayRow = await d1First(
+      db,
+      'SELECT COALESCE(SUM(amount), 0) AS n FROM coin_spend_events WHERE substr(created_at, 1, 10) = ? AND amount > 0',
+      [today]
+    )
+
+    return c.json({
+      usersTotal: Number((usersTotalRow as any)?.n ?? 0),
+      usersToday: Number((usersTodayRow as any)?.n ?? 0),
+      worksPublished: Number((worksPublishedRow as any)?.n ?? 0),
+      videosPublished: Number((videosPublishedRow as any)?.n ?? 0),
+      playsToday: Number((playsTodayRow as any)?.n ?? 0),
+      coinsSpentToday: Number((coinsSpentTodayRow as any)?.n ?? 0),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Scheduled videos (CMS)
+app.get('/cms/videos/scheduled', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: [
+        { id: 'V0001', title: '配信予定：作品A 第1話', scheduledAt: '2026-01-15T20:00:00.000Z', status: 'scheduled' },
+        { id: 'V0002', title: '配信予定：作品B 第2話', scheduledAt: '2026-01-16T21:30:00.000Z', status: 'scheduled' },
+      ],
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(
+      db,
+      `SELECT v.id, v.title, v.scheduled_at, v.scheduled_status
+       FROM videos v
+       WHERE v.scheduled_at IS NOT NULL
+       ORDER BY v.scheduled_at ASC
+       LIMIT 200`
+    )
+    return c.json({
+      items: rows.map((r: any) => ({
+        id: String(r.id ?? ''),
+        title: String(r.title ?? ''),
+        scheduledAt: r.scheduled_at === null || r.scheduled_at === undefined ? null : String(r.scheduled_at ?? ''),
+        status: String(r.scheduled_status ?? 'scheduled'),
+      })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/cms/videos/scheduled/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ item: { id, title: `配信予定(${id})`, scheduledAt: '2026-01-15T20:00:00.000Z', status: 'scheduled' } })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(db, 'SELECT id, title, scheduled_at, scheduled_status FROM videos WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        title: String((row as any).title ?? ''),
+        scheduledAt:
+          (row as any).scheduled_at === null || (row as any).scheduled_at === undefined ? null : String((row as any).scheduled_at ?? ''),
+        status: String((row as any).scheduled_status ?? 'scheduled'),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.put('/cms/videos/scheduled/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { scheduledAt?: unknown; status?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const scheduledAt = body.scheduledAt === undefined ? null : clampText(body.scheduledAt, 30)
+  const status = body.status === undefined ? null : clampText(body.status, 20)
+  const allowed = new Set(['scheduled', 'cancelled'])
+  if (status !== null && !allowed.has(status)) return c.json({ error: 'invalid_status' }, 400)
+  const updatedAt = nowIso()
+  const cancelledAt = status === 'cancelled' ? updatedAt : null
+
+  try {
+    await c.env.DB
+      .prepare(
+        'UPDATE videos SET scheduled_at = COALESCE(?, scheduled_at), scheduled_status = COALESCE(?, scheduled_status), scheduled_cancelled_at = COALESCE(?, scheduled_cancelled_at), updated_at = ? WHERE id = ?'
+      )
+      .bind(scheduledAt, status, cancelledAt, updatedAt, id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Rankings (CMS)
+app.get('/cms/rankings/:type', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  const type = String(c.req.param('type') ?? '').trim()
+  const allowed = new Set(['videos', 'coins', 'actors', 'directors', 'writers'])
+  if (!allowed.has(type)) return c.json({ error: 'invalid_type' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: [
+        { rank: 1, entityId: 'X1', label: `${type.toUpperCase()} 1`, value: 100 },
+        { rank: 2, entityId: 'X2', label: `${type.toUpperCase()} 2`, value: 80 },
+        { rank: 3, entityId: 'X3', label: `${type.toUpperCase()} 3`, value: 60 },
+      ],
+      asOf: '2026-01-12T00:00:00.000Z',
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const asOfRow = await d1First(db, 'SELECT MAX(as_of) AS as_of FROM cms_rankings WHERE type = ?', [type])
+    const asOf = String((asOfRow as any)?.as_of ?? '')
+    if (!asOf) return c.json({ items: [], asOf: '' })
+    const rows = await d1All(db, 'SELECT type, as_of, rank, entity_id, label, value FROM cms_rankings WHERE type = ? AND as_of = ? ORDER BY rank ASC', [
+      type,
+      asOf,
+    ])
+    return c.json({
+      items: rows.map((r: any) => ({
+        rank: Number(r.rank ?? 0),
+        entityId: String(r.entity_id ?? ''),
+        label: String(r.label ?? ''),
+        value: Number(r.value ?? 0),
+      })),
+      asOf,
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
 app.post('/cms/tags', async (c) => {
   const admin = await requireCmsAdmin(c)
   if (!admin.ok) return c.json({ error: admin.error }, admin.status)
@@ -343,8 +897,40 @@ app.get('/cms/notices', async (c) => {
   if (isMockRequest(c) || !c.env.DB) {
     return c.json({
       items: [
-        { id: 'N0001', subject: 'メンテナンスのお知らせ', body: '本文', sentAt: '2026-01-12 03:00', status: 'scheduled', push: true, createdAt: '', updatedAt: '' },
-        { id: 'N0002', subject: '新作公開', body: '本文', sentAt: '2026-01-10 12:00', status: 'sent', push: false, createdAt: '', updatedAt: '' },
+        {
+          id: 'N0001',
+          subject: 'メンテナンスのお知らせ',
+          body: '本文',
+          sentAt: '2026-01-12 03:00',
+          status: 'scheduled',
+          push: true,
+          tags: ['maintenance'],
+          mailEnabled: true,
+          mailFormat: 'text',
+          mailSentAt: '',
+          pushTitle: '',
+          pushBody: '',
+          pushSentAt: '',
+          createdAt: '',
+          updatedAt: '',
+        },
+        {
+          id: 'N0002',
+          subject: '新作公開',
+          body: '本文',
+          sentAt: '2026-01-10 12:00',
+          status: 'sent',
+          push: false,
+          tags: ['new'],
+          mailEnabled: false,
+          mailFormat: 'text',
+          mailSentAt: '2026-01-10 12:00',
+          pushTitle: '',
+          pushBody: '',
+          pushSentAt: '',
+          createdAt: '',
+          updatedAt: '',
+        },
       ],
     })
   }
@@ -353,7 +939,9 @@ app.get('/cms/notices', async (c) => {
   try {
     const rows = await d1All(
       db,
-      `SELECT id, subject, body, sent_at, status, push, created_at, updated_at
+      `SELECT id, subject, body, sent_at, status, push,
+              tags, mail_enabled, mail_format, mail_sent_at, push_title, push_body, push_sent_at,
+              created_at, updated_at
        FROM notices
        ORDER BY (sent_at = '') ASC, sent_at DESC, created_at DESC`
     )
@@ -365,6 +953,16 @@ app.get('/cms/notices', async (c) => {
         sentAt: String(r.sent_at ?? ''),
         status: String(r.status ?? 'draft'),
         push: Number(r.push ?? 0) === 1,
+        tags: String(r.tags ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        mailEnabled: Number(r.mail_enabled ?? 0) === 1,
+        mailFormat: String(r.mail_format ?? 'text') || 'text',
+        mailSentAt: String(r.mail_sent_at ?? ''),
+        pushTitle: String(r.push_title ?? ''),
+        pushBody: String(r.push_body ?? ''),
+        pushSentAt: String(r.push_sent_at ?? ''),
         createdAt: String(r.created_at ?? ''),
         updatedAt: String(r.updated_at ?? ''),
       })),
@@ -382,12 +980,34 @@ app.get('/cms/notices/:id', async (c) => {
   if (!id) return c.json({ error: 'id is required' }, 400)
 
   if (isMockRequest(c) || !c.env.DB) {
-    return c.json({ item: { id, subject: `(${id}) お知らせ件名`, body: '', sentAt: '', status: 'draft', push: false } })
+    return c.json({
+      item: {
+        id,
+        subject: `(${id}) お知らせ件名`,
+        body: '',
+        sentAt: '',
+        status: 'draft',
+        push: false,
+        tags: ['tag1', 'tag2'],
+        mailEnabled: false,
+        mailFormat: 'text',
+        mailText: '',
+        mailHtml: '',
+        mailSentAt: '',
+        pushTitle: '',
+        pushBody: '',
+        pushSentAt: '',
+      },
+    })
   }
 
   const db = c.env.DB as D1Database
   try {
-    const row = await d1First(db, 'SELECT id, subject, body, sent_at, status, push, created_at, updated_at FROM notices WHERE id = ? LIMIT 1', [id])
+    const row = await d1First(
+      db,
+      'SELECT id, subject, body, sent_at, status, push, tags, mail_enabled, mail_format, mail_text, mail_html, mail_sent_at, push_title, push_body, push_sent_at, created_at, updated_at FROM notices WHERE id = ? LIMIT 1',
+      [id]
+    )
     if (!row) return c.json({ error: 'not_found' }, 404)
     return c.json({
       item: {
@@ -397,6 +1017,18 @@ app.get('/cms/notices/:id', async (c) => {
         sentAt: String((row as any).sent_at ?? ''),
         status: String((row as any).status ?? 'draft'),
         push: Number((row as any).push ?? 0) === 1,
+        tags: String((row as any).tags ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        mailEnabled: Number((row as any).mail_enabled ?? 0) === 1,
+        mailFormat: String((row as any).mail_format ?? 'text') || 'text',
+        mailText: String((row as any).mail_text ?? ''),
+        mailHtml: String((row as any).mail_html ?? ''),
+        mailSentAt: String((row as any).mail_sent_at ?? ''),
+        pushTitle: String((row as any).push_title ?? ''),
+        pushBody: String((row as any).push_body ?? ''),
+        pushSentAt: String((row as any).push_sent_at ?? ''),
         createdAt: String((row as any).created_at ?? ''),
         updatedAt: String((row as any).updated_at ?? ''),
       },
@@ -412,13 +1044,36 @@ app.post('/cms/notices', async (c) => {
   if (!admin.ok) return c.json({ error: admin.error }, admin.status)
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
 
-  type Body = { subject?: unknown; body?: unknown; sentAt?: unknown; status?: unknown; push?: unknown }
+  type Body = {
+    subject?: unknown
+    body?: unknown
+    sentAt?: unknown
+    status?: unknown
+    push?: unknown
+    tags?: unknown
+    mailEnabled?: unknown
+    mailFormat?: unknown
+    mailText?: unknown
+    mailHtml?: unknown
+    pushTitle?: unknown
+    pushBody?: unknown
+  }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const subject = clampText(body.subject, 120)
   const text = body.body === undefined ? '' : String(body.body ?? '')
   const sentAt = body.sentAt === undefined ? '' : clampText(body.sentAt, 40)
   const status = body.status === undefined ? 'draft' : clampText(body.status, 20)
   const push = body.push === undefined ? 0 : parseBool01(body.push)
+  const tags = (() => {
+    if (Array.isArray(body.tags)) return body.tags.map((v) => String(v ?? '').trim()).filter(Boolean).join(',')
+    return clampText(body.tags, 500)
+  })()
+  const mailEnabled = body.mailEnabled === undefined ? 0 : parseBool01(body.mailEnabled)
+  const mailFormat = body.mailFormat === undefined ? 'text' : clampText(body.mailFormat, 10) || 'text'
+  const mailText = body.mailText === undefined ? '' : String(body.mailText ?? '')
+  const mailHtml = body.mailHtml === undefined ? '' : String(body.mailHtml ?? '')
+  const pushTitle = body.pushTitle === undefined ? '' : clampText(body.pushTitle, 120)
+  const pushBody = body.pushBody === undefined ? '' : String(body.pushBody ?? '')
   if (!subject) return c.json({ error: 'subject is required' }, 400)
 
   const db = c.env.DB as D1Database
@@ -426,8 +1081,10 @@ app.post('/cms/notices', async (c) => {
   const now = nowIso()
   try {
     await db
-      .prepare('INSERT INTO notices (id, subject, body, sent_at, status, push, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(id, subject, text, sentAt, status, push, now, now)
+      .prepare(
+        'INSERT INTO notices (id, subject, body, sent_at, status, push, tags, mail_enabled, mail_format, mail_text, mail_html, mail_sent_at, push_title, push_body, push_sent_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .bind(id, subject, text, sentAt, status, push, tags, mailEnabled, mailFormat, mailText, mailHtml, '', pushTitle, pushBody, '', now, now)
       .run()
     return c.json({ ok: true, id })
   } catch (err) {
@@ -444,23 +1101,155 @@ app.put('/cms/notices/:id', async (c) => {
   const id = String(c.req.param('id') ?? '').trim()
   if (!id) return c.json({ error: 'id is required' }, 400)
 
-  type Body = { subject?: unknown; body?: unknown; sentAt?: unknown; status?: unknown; push?: unknown }
+  type Body = {
+    subject?: unknown
+    body?: unknown
+    sentAt?: unknown
+    status?: unknown
+    push?: unknown
+    tags?: unknown
+    mailEnabled?: unknown
+    mailFormat?: unknown
+    mailText?: unknown
+    mailHtml?: unknown
+    pushTitle?: unknown
+    pushBody?: unknown
+  }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const subject = body.subject === undefined ? null : clampText(body.subject, 120)
   const text = body.body === undefined ? null : String(body.body ?? '')
   const sentAt = body.sentAt === undefined ? null : clampText(body.sentAt, 40)
   const status = body.status === undefined ? null : clampText(body.status, 20)
   const push = body.push === undefined ? null : parseBool01(body.push)
+  const tags = body.tags === undefined ? null : (() => {
+    if (Array.isArray(body.tags)) return body.tags.map((v) => String(v ?? '').trim()).filter(Boolean).join(',')
+    return clampText(body.tags, 500)
+  })()
+  const mailEnabled = body.mailEnabled === undefined ? null : parseBool01(body.mailEnabled)
+  const mailFormat = body.mailFormat === undefined ? null : clampText(body.mailFormat, 10)
+  const mailText = body.mailText === undefined ? null : String(body.mailText ?? '')
+  const mailHtml = body.mailHtml === undefined ? null : String(body.mailHtml ?? '')
+  const pushTitle = body.pushTitle === undefined ? null : clampText(body.pushTitle, 120)
+  const pushBody = body.pushBody === undefined ? null : String(body.pushBody ?? '')
   const updatedAt = nowIso()
 
   try {
     await db
       .prepare(
-        'UPDATE notices SET subject = COALESCE(?, subject), body = COALESCE(?, body), sent_at = COALESCE(?, sent_at), status = COALESCE(?, status), push = COALESCE(?, push), updated_at = ? WHERE id = ?'
+        'UPDATE notices SET subject = COALESCE(?, subject), body = COALESCE(?, body), sent_at = COALESCE(?, sent_at), status = COALESCE(?, status), push = COALESCE(?, push), tags = COALESCE(?, tags), mail_enabled = COALESCE(?, mail_enabled), mail_format = COALESCE(?, mail_format), mail_text = COALESCE(?, mail_text), mail_html = COALESCE(?, mail_html), push_title = COALESCE(?, push_title), push_body = COALESCE(?, push_body), updated_at = ? WHERE id = ?'
       )
-      .bind(subject, text, sentAt, status, push, updatedAt, id)
+      .bind(subject, text, sentAt, status, push, tags, mailEnabled, mailFormat, mailText, mailHtml, pushTitle, pushBody, updatedAt, id)
       .run()
     return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/notices/:id/send-email', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { limit?: unknown; dryRun?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const limit = Math.max(1, Math.min(200, Number(body.limit ?? 50) || 50))
+  const dryRun = Boolean(body.dryRun)
+
+  const db = c.env.DB as D1Database
+  let notice: any
+  try {
+    notice = await db
+      .prepare('SELECT id, subject, body, mail_enabled, mail_format, mail_text, mail_html FROM notices WHERE id = ? LIMIT 1')
+      .bind(id)
+      .first<any>()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  if (!notice) return c.json({ error: 'not_found' }, 404)
+  if (Number(notice.mail_enabled ?? 0) !== 1) return c.json({ error: 'mail_disabled' }, 400)
+
+  const subject = String(notice.subject ?? '').trim() || 'お知らせ'
+  const baseText = String(notice.mail_text ?? '').trim() || String(notice.body ?? '').trim() || '（本文なし）'
+  const format = String(notice.mail_format ?? 'text') || 'text'
+  const html =
+    format === 'html'
+      ? String(notice.mail_html ?? '').trim() || `<pre style="white-space:pre-wrap">${escapeHtml(baseText)}</pre>`
+      : ''
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(
+      db,
+      `SELECT email FROM users WHERE email IS NOT NULL AND trim(email) != '' AND email_verified = 1 ORDER BY created_at DESC LIMIT ?`,
+      [limit]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const recipients = rows.map((r) => normalizeEmail(String(r.email ?? ''))).filter(Boolean)
+  if (dryRun) {
+    return c.json({ ok: true, dryRun: true, recipients: recipients.length, limit })
+  }
+
+  let sent = 0
+  for (const to of recipients) {
+    const res = await sendEmailViaMailChannels(c.env, to, subject, baseText, html)
+    if (!res.ok) {
+      const now = nowIso()
+      try {
+        await db
+          .prepare('INSERT INTO notice_deliveries (id, notice_id, channel, status, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .bind(uuidOrFallback('notice_delivery'), id, 'email', 'failed', String(res.error ?? '').slice(0, 1000), now)
+          .run()
+      } catch {
+        // ignore
+      }
+      return c.json({ error: res.error ?? 'send_failed', sent, recipients: recipients.length }, (res.status ?? 502) as any)
+    }
+    sent += 1
+  }
+
+  const now = nowIso()
+  try {
+    await db.prepare('UPDATE notices SET mail_sent_at = ?, updated_at = ? WHERE id = ?').bind(now, now, id).run()
+    await db
+      .prepare('INSERT INTO notice_deliveries (id, notice_id, channel, status, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(uuidOrFallback('notice_delivery'), id, 'email', 'sent', `sent=${sent}`, now)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true, sent, recipients: recipients.length, limit })
+})
+
+app.post('/cms/notices/:id/send-push', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  const db = c.env.DB as D1Database
+  const now = nowIso()
+  try {
+    const row = await db.prepare('SELECT id FROM notices WHERE id = ? LIMIT 1').bind(id).first<any>()
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    await db.prepare('UPDATE notices SET push_sent_at = ?, updated_at = ? WHERE id = ?').bind(now, now, id).run()
+    await db
+      .prepare('INSERT INTO notice_deliveries (id, notice_id, channel, status, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(uuidOrFallback('notice_delivery'), id, 'push', 'sent', 'push_provider_not_configured', now)
+      .run()
+    return c.json({ ok: true, warning: 'push_provider_not_configured' })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -2068,6 +2857,23 @@ app.post('/cms/cast-profiles/unapproved/:id/reject', async (c) => {
       )
       .bind(now, (admin as any).adminId ?? '', reason.trim(), id)
       .run()
+
+    // Best-effort: notify submitter by email
+    try {
+      const row = await c.env.DB.prepare('SELECT email FROM cast_profile_requests WHERE id = ? LIMIT 1').bind(id).first<any>()
+      const to = normalizeEmail(String(row?.email ?? ''))
+      if (to) {
+        const subject = '【推しドラ】キャストプロフィール申請が否認されました'
+        const text = `申請が否認されました。\n\n理由: ${reason.trim()}\n\n必要に応じて内容を修正し、再申請してください。\n`
+        const mailRes = await sendEmailViaMailChannels(c.env, to, subject, text)
+        if (!mailRes.ok) {
+          return c.json({ ok: true, warning: mailRes.error })
+        }
+      }
+    } catch {
+      // ignore notification failure
+    }
+
     return c.json({ ok: true })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
@@ -2371,7 +3177,7 @@ async function sendSmsViaTwilio(env: Env['Bindings'], to: string, body: string) 
   return { ok: true }
 }
 
-async function sendEmailViaMailChannels(env: Env['Bindings'], to: string, subject: string, text: string) {
+async function sendEmailViaMailChannels(env: Env['Bindings'], to: string, subject: string, text: string, html?: string) {
   const from = (env.MAIL_FROM ?? '').trim()
   const fromName = (env.MAIL_FROM_NAME ?? 'Oshidora').trim() || 'Oshidora'
   if (!from) {
@@ -2382,11 +3188,16 @@ async function sendEmailViaMailChannels(env: Env['Bindings'], to: string, subjec
     }
   }
 
+  const content = [{ type: 'text/plain', value: text }]
+  if (html && String(html).trim()) {
+    content.push({ type: 'text/html', value: String(html) })
+  }
+
   const payload = {
     personalizations: [{ to: [{ email: to }] }],
     from: { email: from, name: fromName },
     subject,
-    content: [{ type: 'text/plain', value: text }],
+    content,
   }
 
   const res = await fetch('https://api.mailchannels.net/tx/v1/send', {
@@ -2400,6 +3211,15 @@ async function sendEmailViaMailChannels(env: Env['Bindings'], to: string, subjec
     return { ok: false, error: `MailChannels error: ${res.status} ${msg}`.slice(0, 500), status: 502 }
   }
   return { ok: true }
+}
+
+function escapeHtml(input: string): string {
+  return String(input)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 async function requireAuth(c: any) {
@@ -2496,6 +3316,12 @@ function uuidOrFallback(prefix: string) {
   const hasUuid = Boolean((globalThis as any).crypto?.randomUUID)
   const id = hasUuid ? crypto.randomUUID() : `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
   return id
+}
+
+async function sha256Base64Url(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(String(value))
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return base64UrlEncode(digest)
 }
 
 function clampText(value: unknown, maxLen: number) {
@@ -2720,15 +3546,6 @@ app.put('/v1/r2/assets/:path*', async (c) => {
   return c.json({ publicUrl: `${publicBaseUrl}/${keyRaw}` })
 })
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
 function shareHtml(opts: {
   title: string
   description?: string
@@ -2805,6 +3622,14 @@ app.get('/share/cast/:castId', (c) => {
 app.get('/v1/stream/playback/:videoId', async (c) => {
   const videoId = c.req.param('videoId')?.trim()
   if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+
+  // Best-effort analytics: record a play event (never blocks playback).
+  try {
+    const userId = await optionalAuthUserId(c)
+    await tryLogVideoPlay({ db: c.env.DB ?? null, videoId, userId })
+  } catch {
+    // ignore
+  }
 
   const accountId = c.env.CLOUDFLARE_ACCOUNT_ID
   const token = c.env.CLOUDFLARE_STREAM_API_TOKEN
@@ -2888,6 +3713,14 @@ app.get('/v1/stream/playback/:videoId', async (c) => {
 app.get('/v1/stream/signed-playback/:videoId', async (c) => {
   const videoId = c.req.param('videoId')?.trim()
   if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+
+  // Best-effort analytics: record a play event (never blocks playback).
+  try {
+    const userId = await optionalAuthUserId(c)
+    await tryLogVideoPlay({ db: c.env.DB ?? null, videoId, userId })
+  } catch {
+    // ignore
+  }
 
   const keyId = c.env.CLOUDFLARE_STREAM_SIGNING_KEY_ID
   const jwkRaw = c.env.CLOUDFLARE_STREAM_SIGNING_KEY_JWK ?? c.env.CLOUDFLARE_STREAM_SIGNING_KEY_SECRET
@@ -4540,4 +5373,19 @@ app.post('/v1/auth/sms/verify', async (c) => {
   return c.json({ ok: true, token, stage: 'full' })
 })
 
-export default app
+export default {
+  fetch: app.fetch,
+  scheduled: async (controller: any, env: Env['Bindings'], ctx: ExecutionContext) => {
+    // Scheduled publishing runs every 5 minutes.
+    if (String(controller?.cron ?? '') === '*/5 * * * *') {
+      ctx.waitUntil(runScheduledVideoPublishing(env).then(() => undefined))
+      return
+    }
+
+    // Rankings compute runs daily.
+    if (String(controller?.cron ?? '') === '10 0 * * *') {
+      ctx.waitUntil(runCmsRankingsDaily(env).then(() => undefined))
+      return
+    }
+  },
+}
