@@ -654,38 +654,6 @@ export function VideoPlayerScreen({
                 </IconButton>
               ) : null}
             </View>
-
-            {(onPrevEpisode || onNextEpisode) ? (
-              <View style={styles.topRight}>
-                {onPrevEpisode ? (
-                  <IconButton
-                    label="前のエピソード"
-                    disabled={canPrevEpisode === false}
-                    onPress={() => {
-                      if (canPrevEpisode === false) return
-                      setControlsVisible(true)
-                      onPrevEpisode()
-                    }}
-                  >
-                    <ChevronLeftIcon />
-                  </IconButton>
-                ) : null}
-
-                {onNextEpisode ? (
-                  <IconButton
-                    label="次のエピソード"
-                    disabled={canNextEpisode === false}
-                    onPress={() => {
-                      if (canNextEpisode === false) return
-                      setControlsVisible(true)
-                      onNextEpisode()
-                    }}
-                  >
-                    <ChevronRightIcon />
-                  </IconButton>
-                ) : null}
-              </View>
-            ) : null}
           </View>
         ) : null}
 
@@ -694,6 +662,21 @@ export function VideoPlayerScreen({
           <View style={styles.controlsWrap} pointerEvents="box-none">
             <View style={styles.controlsCard}>
               <View style={styles.controlsRow}>
+                {onPrevEpisode ? (
+                  <IconButton
+                    label="前のエピソード"
+                    disabled={canPrevEpisode === false}
+                    onPress={() => {
+                      if (canPrevEpisode === false) return
+                      cancelAutoHide()
+                      setControlsVisible(true)
+                      onPrevEpisode()
+                    }}
+                  >
+                    <ChevronLeftIcon />
+                  </IconButton>
+                ) : null}
+
                 <IconButton
                   label="10秒戻る"
                   onPress={() => {
@@ -728,6 +711,21 @@ export function VideoPlayerScreen({
                 >
                   <Forward10Icon />
                 </IconButton>
+
+                {onNextEpisode ? (
+                  <IconButton
+                    label="次のエピソード"
+                    disabled={canNextEpisode === false}
+                    onPress={() => {
+                      if (canNextEpisode === false) return
+                      cancelAutoHide()
+                      setControlsVisible(true)
+                      onNextEpisode()
+                    }}
+                  >
+                    <ChevronRightIcon />
+                  </IconButton>
+                ) : null}
 
                 <Text style={styles.timeText}>
                   {formatTime(playback.positionMillis)} / {formatTime(playback.durationMillis)}

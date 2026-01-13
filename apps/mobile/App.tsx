@@ -290,6 +290,8 @@ function screenToWebHash(screen: Screen): string {
     case 'workDetail':
       return '#/work'
     case 'videoPlayer':
+      // Player supports deep link params via hash query (workId, episodeId).
+      // Keep a bare path as a safe default.
       return '#/play'
     case 'top':
       return '#/debug'
@@ -298,6 +300,16 @@ function screenToWebHash(screen: Screen): string {
     default:
       return '#/welcome'
   }
+}
+
+function videoPlayerToWebHash(params: { workId: string; episodeId?: string | null }): string {
+  const workId = String(params.workId || '').trim()
+  const episodeId = String(params.episodeId || '').trim()
+  const qs = new URLSearchParams()
+  if (workId) qs.set('workId', workId)
+  if (episodeId) qs.set('episodeId', episodeId)
+  const q = qs.toString()
+  return q ? `#/play?${q}` : '#/play'
 }
 
 function tutorialIndexToWebHash(index: number): string {
@@ -2745,7 +2757,12 @@ export default function App() {
                 } else {
                   setPlayerEpisodeContext(null)
                 }
-                goTo('videoPlayer')
+                const firstEpisodeId = workForDetail.episodes[0]?.id
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                  window.location.hash = videoPlayerToWebHash({ workId: workIdForDetail, episodeId: firstEpisodeId })
+                } else {
+                  goTo('videoPlayer')
+                }
               }}
               style={StyleSheet.absoluteFill}
             >
@@ -2852,7 +2869,12 @@ export default function App() {
               } else {
                 setPlayerEpisodeContext(null)
               }
-              goTo('videoPlayer')
+              const firstEpisodeId = workForDetail.episodes[0]?.id
+              if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                window.location.hash = videoPlayerToWebHash({ workId: workIdForDetail, episodeId: firstEpisodeId })
+              } else {
+                goTo('videoPlayer')
+              }
             }}
           />
 
@@ -2904,7 +2926,11 @@ export default function App() {
                     } else {
                       setPlayerEpisodeContext(null)
                     }
-                    goTo('videoPlayer')
+                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                      window.location.hash = videoPlayerToWebHash({ workId: workIdForDetail, episodeId: e.id })
+                    } else {
+                      goTo('videoPlayer')
+                    }
                   }}
                 />
                   )
