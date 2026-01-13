@@ -637,6 +637,11 @@ export default function App() {
   // Player context (AXCMS-PL-001)
   const [playerVideoIdNoSub, setPlayerVideoIdNoSub] = useState<string>('75f3ddaf69ff44c43746c9492c3c4df5')
   const [playerVideoIdWithSub, setPlayerVideoIdWithSub] = useState<string | null>(null)
+  const [playerEpisodeContext, setPlayerEpisodeContext] = useState<{
+    workId: string
+    episodeIds: string[]
+    currentIndex: number
+  } | null>(null)
 
   const [screen, setScreen] = useState<Screen>('splash')
   const [history, setHistory] = useState<Screen[]>([])
@@ -2731,6 +2736,7 @@ export default function App() {
                 })
                 setPlayerVideoIdNoSub(streamSampleVideoId)
                 setPlayerVideoIdWithSub(streamSampleVideoId)
+                setPlayerEpisodeContext(null)
                 goTo('videoPlayer')
               }}
               style={StyleSheet.absoluteFill}
@@ -2829,6 +2835,7 @@ export default function App() {
               })
               setPlayerVideoIdNoSub(streamSampleVideoId)
               setPlayerVideoIdWithSub(null)
+              setPlayerEpisodeContext(null)
               goTo('videoPlayer')
             }}
           />
@@ -2839,6 +2846,8 @@ export default function App() {
             ) : (
               workForDetail.episodes.map((e) => (
                 (() => {
+                  const episodeIds = workForDetail.episodes.map((x) => x.id)
+                  const currentIndex = episodeIds.indexOf(e.id)
                   const key = `episode:${e.id}`
                   const requiredCoins = typeof (e as any).priceCoin === 'number' ? (e as any).priceCoin : 0
                   const purchased = purchasedTargets.has(key)
@@ -2870,6 +2879,15 @@ export default function App() {
                     })
                     setPlayerVideoIdNoSub(streamSampleVideoId)
                     setPlayerVideoIdWithSub(streamSampleVideoId)
+                    if (currentIndex >= 0) {
+                      setPlayerEpisodeContext({
+                        workId: workIdForDetail,
+                        episodeIds,
+                        currentIndex,
+                      })
+                    } else {
+                      setPlayerEpisodeContext(null)
+                    }
                     goTo('videoPlayer')
                   }}
                 />
@@ -3183,6 +3201,36 @@ export default function App() {
           videoIdNoSub={playerVideoIdNoSub}
           videoIdWithSub={playerVideoIdWithSub}
           onBack={goBack}
+          onPrevEpisode={
+            playerEpisodeContext
+              ? () => {
+                  const nextIndex = playerEpisodeContext.currentIndex - 1
+                  if (nextIndex < 0) return
+                  setPlayerEpisodeContext((prev) => (prev ? { ...prev, currentIndex: nextIndex } : prev))
+                  // TODO: When real episode video ids exist, resolve per episode id.
+                  setPlayerVideoIdNoSub(streamSampleVideoId)
+                  setPlayerVideoIdWithSub(streamSampleVideoId)
+                }
+              : undefined
+          }
+          onNextEpisode={
+            playerEpisodeContext
+              ? () => {
+                  const nextIndex = playerEpisodeContext.currentIndex + 1
+                  if (nextIndex >= playerEpisodeContext.episodeIds.length) return
+                  setPlayerEpisodeContext((prev) => (prev ? { ...prev, currentIndex: nextIndex } : prev))
+                  // TODO: When real episode video ids exist, resolve per episode id.
+                  setPlayerVideoIdNoSub(streamSampleVideoId)
+                  setPlayerVideoIdWithSub(streamSampleVideoId)
+                }
+              : undefined
+          }
+          canPrevEpisode={playerEpisodeContext ? playerEpisodeContext.currentIndex > 0 : undefined}
+          canNextEpisode={
+            playerEpisodeContext
+              ? playerEpisodeContext.currentIndex < playerEpisodeContext.episodeIds.length - 1
+              : undefined
+          }
         />
       ) : null}
 

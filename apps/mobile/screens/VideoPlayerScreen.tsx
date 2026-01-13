@@ -3,8 +3,9 @@ import * as ScreenCapture from 'expo-screen-capture'
 import * as ScreenOrientation from 'expo-screen-orientation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import Svg, { Path } from 'react-native-svg'
 
-import { PrimaryButton, SecondaryButton, THEME } from '../components'
+import { IconButton, PrimaryButton, SecondaryButton, THEME } from '../components'
 import { isDebugMockEnabled } from '../utils/api'
 
 type Props = {
@@ -12,6 +13,10 @@ type Props = {
   videoIdNoSub: string
   videoIdWithSub?: string | null
   onBack: () => void
+  onPrevEpisode?: () => void
+  onNextEpisode?: () => void
+  canPrevEpisode?: boolean
+  canNextEpisode?: boolean
 }
 
 const PUBLIC_FALLBACK_TEST_VIDEO_MP4 =
@@ -82,7 +87,16 @@ async function resolvePlaybackUrl(apiBaseUrl: string, videoId: string) {
   return { url: null as string | null, kind: 'error' as const, token: undefined, error: reason }
 }
 
-export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, onBack }: Props) {
+export function VideoPlayerScreen({
+  apiBaseUrl,
+  videoIdNoSub,
+  videoIdWithSub,
+  onBack,
+  onPrevEpisode,
+  onNextEpisode,
+  canPrevEpisode,
+  canNextEpisode,
+}: Props) {
   const { width, height } = useWindowDimensions()
 
   const isWeb = Platform.OS === 'web'
@@ -118,6 +132,14 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
     }
   }, [])
 
+  // On web (especially iOS Safari), RN layout measurements can diverge from the *visible* viewport.
+  // Treat `visualViewport` as the authoritative stage size.
+  useEffect(() => {
+    if (!isWeb) return
+    if (!webViewport) return
+    setStageSize({ width: webViewport.width, height: webViewport.height })
+  }, [isWeb, webViewport?.height, webViewport?.width])
+
   const canSubOn = Boolean(videoIdWithSub && videoIdWithSub.trim().length > 0)
 
   const [subOn, setSubOn] = useState(false)
@@ -143,6 +165,9 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   })
 
   const [seekBarWidth, setSeekBarWidth] = useState(0)
+
+  const [controlsVisible, setControlsVisible] = useState(true)
+  const autoHideTimerRef = useRef<any>(null)
 
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null)
 
@@ -237,6 +262,12 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
     setSubOn((v) => !v)
   }, [canSubOn])
 
+  const setSubOnValue = useCallback((next: boolean) => {
+    if (!canSubOn) return
+    if (next === subOn) return
+    void toggleSub()
+  }, [canSubOn, subOn, toggleSub])
+
   const showPrePlay = !hasStarted
 
   const clampMillis = useCallback((millis: number) => {
@@ -272,6 +303,168 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
     else void videoRef.current?.pauseAsync?.().catch(() => {})
   }, [uiShouldPlay])
 
+  const setShouldPlay = useCallback((next: boolean) => {
+    setUiShouldPlay(next)
+    if (next) void videoRef.current?.playAsync?.().catch(() => {})
+    else void videoRef.current?.pauseAsync?.().catch(() => {})
+  }, [])
+
+  const scheduleAutoHide = useCallback(() => {
+    if (autoHideTimerRef.current) {
+      clearTimeout(autoHideTimerRef.current)
+      autoHideTimerRef.current = null
+    }
+    autoHideTimerRef.current = setTimeout(() => {
+      setControlsVisible(false)
+      autoHideTimerRef.current = null
+    }, 3000)
+  }, [])
+
+  const cancelAutoHide = useCallback(() => {
+    if (autoHideTimerRef.current) {
+      clearTimeout(autoHideTimerRef.current)
+      autoHideTimerRef.current = null
+    }
+  }, [])
+
+  const onStageTap = useCallback(() => {
+    if (showPrePlay) return
+    // Tap anywhere on the stage toggles play/pause and shows controls.
+    setControlsVisible(true)
+
+    const next = !uiShouldPlay
+    setShouldPlay(next)
+
+    if (next) scheduleAutoHide()
+    else cancelAutoHide()
+  }, [cancelAutoHide, scheduleAutoHide, setShouldPlay, showPrePlay, uiShouldPlay])
+
+  const iconColor = THEME.text
+  const iconMutedColor = THEME.textMuted
+
+  const CloseIcon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M6 6L18 18" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
+      <Path d="M18 6L6 18" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
+    </Svg>
+  )
+
+  const EyeOffIcon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M3 3l18 18"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M10.6 10.7a2 2 0 0 0 2.7 2.7"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M7.6 7.7C5.3 9.2 3.8 11.2 3 12c.9 1 2.8 3.2 5.6 4.8C9.8 17.5 11 18 12 18c.8 0 1.7-.3 2.6-.8"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M14.5 14.6c.8-.6 1.2-1.5 1.2-2.6 0-1.9-1.6-3.5-3.5-3.5-1 0-2 .4-2.6 1.2"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M12 6c3.8 0 7.2 2.6 9 6-.4.7-1.1 1.8-2.2 2.9"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  )
+
+  const CcIcon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M8.6 14.2c-.4.4-.9.6-1.5.6-1.2 0-2.1-1-2.1-2.2 0-1.2.9-2.2 2.1-2.2.6 0 1.1.2 1.5.6"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M17 14.2c-.4.4-.9.6-1.5.6-1.2 0-2.1-1-2.1-2.2 0-1.2.9-2.2 2.1-2.2.6 0 1.1.2 1.5.6"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+      />
+    </Svg>
+  )
+
+  const ChevronLeftIcon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M15 18l-6-6 6-6" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+  const ChevronRightIcon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M9 6l6 6-6 6" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+
+  const PlayIcon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M10 8l8 4-8 4V8Z" fill={color} />
+    </Svg>
+  )
+  const PauseIcon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M7 6h3v12H7V6Z" fill={color} />
+      <Path d="M14 6h3v12h-3V6Z" fill={color} />
+    </Svg>
+  )
+
+  const Replay10Icon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M7 7V4L3 8l4 4V9" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M7 9a8 8 0 1 1 2.3 5.7" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M12 10v5" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
+      <Path d="M15 15v-5l-2 1" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+  const Forward10Icon = ({ color = iconColor }: { color?: string }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M17 7V4l4 4-4 4V9" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M17 9a8 8 0 1 0-2.3 5.7" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M12 10v5" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
+      <Path d="M15 15v-5l-2 1" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+
+  useEffect(() => {
+    // Auto-hide controls once playback has started a bit.
+    if (!hasStarted) return
+    if (!controlsVisible) return
+    if (!uiShouldPlay) return
+    if (!(playback.positionMillis > 1200)) return
+    scheduleAutoHide()
+    return () => {
+      if (autoHideTimerRef.current) {
+        clearTimeout(autoHideTimerRef.current)
+        autoHideTimerRef.current = null
+      }
+    }
+  }, [controlsVisible, hasStarted, playback.positionMillis, scheduleAutoHide, uiShouldPlay])
+
   const seekProgress = useMemo(() => {
     const d = playback.durationMillis
     if (!(d > 0)) return 0
@@ -300,6 +493,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
           : null,
       ]}
       onLayout={(e) => {
+        if (isWeb) return
         const w = e.nativeEvent.layout.width
         const h = e.nativeEvent.layout.height
         if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
@@ -307,6 +501,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
         }
       }}
     >
+      {/** Use a consistent stage basis for constraints */}
       <View
         ref={videoWrapRef}
         style={[
@@ -314,8 +509,8 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
           {
             width: fittedLayout.width,
             height: fittedLayout.height,
-            maxWidth: stageSize?.width ?? width,
-            maxHeight: stageSize?.height ?? height,
+            maxWidth: stageSize?.width ?? (isWeb ? webViewport?.width ?? width : width),
+            maxHeight: stageSize?.height ?? (isWeb ? webViewport?.height ?? height : height),
           },
         ]}
       >
@@ -326,6 +521,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
               videoRef.current = el
             }}
             style={styles.video}
+            videoStyle={styles.videoInner}
             source={{ uri: playUrl }}
             useNativeControls={false}
             resizeMode={ResizeMode.CONTAIN}
@@ -393,22 +589,124 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
           </View>
         )}
 
-        {/* Custom minimal controls */}
+        {/* Tap stage to toggle play/pause (behind controls) */}
         {hasStarted && playUrl ? (
+          <Pressable
+            onPress={onStageTap}
+            style={StyleSheet.absoluteFillObject}
+            accessibilityRole="button"
+            accessibilityLabel={uiShouldPlay ? '一時停止' : '再生'}
+          />
+        ) : null}
+
+        {/* Top bar */}
+        {controlsVisible ? (
+          <View style={styles.topBar} pointerEvents="box-none">
+            <View style={styles.topLeft}>
+              <IconButton
+                label="閉じる"
+                onPress={() => {
+                  cancelAutoHide()
+                  setControlsVisible(true)
+                  onBack()
+                }}
+              >
+                <CloseIcon />
+              </IconButton>
+
+              <IconButton
+                label="UI非表示"
+                onPress={() => {
+                  cancelAutoHide()
+                  setControlsVisible(false)
+                }}
+              >
+                <EyeOffIcon />
+              </IconButton>
+
+              {canSubOn ? (
+                <IconButton
+                  label={subOn ? '字幕OFF' : '字幕ON'}
+                  onPress={() => setSubOnValue(!subOn)}
+                >
+                  <CcIcon color={subOn ? iconColor : iconMutedColor} />
+                </IconButton>
+              ) : null}
+            </View>
+
+            {(onPrevEpisode || onNextEpisode) ? (
+              <View style={styles.topRight}>
+                {onPrevEpisode ? (
+                  <IconButton
+                    label="前のエピソード"
+                    disabled={canPrevEpisode === false}
+                    onPress={() => {
+                      if (canPrevEpisode === false) return
+                      setControlsVisible(true)
+                      onPrevEpisode()
+                    }}
+                  >
+                    <ChevronLeftIcon />
+                  </IconButton>
+                ) : null}
+
+                {onNextEpisode ? (
+                  <IconButton
+                    label="次のエピソード"
+                    disabled={canNextEpisode === false}
+                    onPress={() => {
+                      if (canNextEpisode === false) return
+                      setControlsVisible(true)
+                      onNextEpisode()
+                    }}
+                  >
+                    <ChevronRightIcon />
+                  </IconButton>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Custom minimal controls */}
+        {hasStarted && playUrl && controlsVisible ? (
           <View style={styles.controlsWrap} pointerEvents="box-none">
             <View style={styles.controlsCard}>
               <View style={styles.controlsRow}>
-                <Pressable onPress={() => seekRelative(-10_000)} style={styles.ctrlBtn}>
-                  <Text style={styles.ctrlBtnText}>-10s</Text>
-                </Pressable>
+                <IconButton
+                  label="10秒戻る"
+                  onPress={() => {
+                    setControlsVisible(true)
+                    seekRelative(-10_000)
+                    if (uiShouldPlay) scheduleAutoHide()
+                  }}
+                >
+                  <Replay10Icon />
+                </IconButton>
 
-                <Pressable onPress={togglePlayPause} style={[styles.ctrlBtn, styles.ctrlBtnPrimary]}>
-                  <Text style={[styles.ctrlBtnText, styles.ctrlBtnPrimaryText]}>{uiShouldPlay ? '一時停止' : '再生'}</Text>
-                </Pressable>
+                <IconButton
+                  label={uiShouldPlay ? '一時停止' : '再生'}
+                  onPress={() => {
+                    setControlsVisible(true)
+                    togglePlayPause()
+                    const next = !uiShouldPlay
+                    if (next) scheduleAutoHide()
+                    else cancelAutoHide()
+                  }}
+                >
+                  {uiShouldPlay ? <PauseIcon /> : <PlayIcon />}
+                </IconButton>
 
-                <Pressable onPress={() => seekRelative(10_000)} style={styles.ctrlBtn}>
-                  <Text style={styles.ctrlBtnText}>+10s</Text>
-                </Pressable>
+                <IconButton
+                  label="10秒進む"
+                  onPress={() => {
+                    setControlsVisible(true)
+                    seekRelative(10_000)
+                    if (uiShouldPlay) scheduleAutoHide()
+                  }}
+                >
+                  <Forward10Icon />
+                </IconButton>
 
                 <Text style={styles.timeText}>
                   {formatTime(playback.positionMillis)} / {formatTime(playback.durationMillis)}
@@ -422,6 +720,10 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
                   if (Number.isFinite(w) && w > 0) setSeekBarWidth(w)
                 }}
                 onStartShouldSetResponder={() => true}
+                onResponderGrant={() => {
+                  setControlsVisible(true)
+                  cancelAutoHide()
+                }}
                 onResponderRelease={(e: any) => {
                   if (!(seekBarWidth > 0)) return
                   const x = Number(e?.nativeEvent?.locationX)
@@ -429,6 +731,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
                   const ratio = Math.max(0, Math.min(1, x / seekBarWidth))
                   const next = ratio * (playback.durationMillis || 0)
                   void setPositionMillis(next)
+                  if (uiShouldPlay) scheduleAutoHide()
                 }}
               >
                 <View style={styles.seekTrackBg} />
@@ -456,13 +759,6 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
           </View>
         ) : null}
 
-        {/* Overlay controls (minimal) */}
-        <View style={styles.topBar}>
-          <Pressable onPress={onBack} style={styles.topButton}>
-            <Text style={styles.topButtonText}>戻る</Text>
-          </Pressable>
-        </View>
-
         {showPrePlay ? (
           <View style={styles.prePlayOverlay}>
             <View style={styles.prePlayCard}>
@@ -472,13 +768,13 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
               <View style={styles.subRow}>
                 <SecondaryButton
                   label="字幕なし"
-                  onPress={() => setSubOn(false)}
+                  onPress={() => setSubOnValue(false)}
                   disabled={subOn === false}
                 />
                 <View style={styles.gap} />
                 <SecondaryButton
                   label="字幕あり"
-                  onPress={() => setSubOn(true)}
+                  onPress={() => setSubOnValue(true)}
                   disabled={!canSubOn || subOn === true}
                 />
               </View>
@@ -526,6 +822,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   video: {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+  },
+  videoInner: {
+    position: 'relative',
     width: '100%',
     height: '100%',
   },
@@ -549,27 +851,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  topLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   topRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  topButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
+  showUiWrap: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
   },
-  topButtonDisabled: {
-    opacity: 0.5,
-  },
-  topButtonText: {
-    color: THEME.text,
-    fontSize: 12,
-    fontWeight: '800',
-  },
+  // topBar now uses IconButton
   controlsWrap: {
     position: 'absolute',
     left: 14,
@@ -588,26 +885,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  ctrlBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-  },
-  ctrlBtnPrimary: {
-    backgroundColor: THEME.accent,
-    borderColor: THEME.accent,
-  },
-  ctrlBtnText: {
-    color: THEME.text,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  ctrlBtnPrimaryText: {
-    color: '#111827',
-  },
+  // bottom controls now use IconButton
   timeText: {
     marginLeft: 'auto',
     color: THEME.textMuted,
