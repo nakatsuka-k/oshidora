@@ -1,4 +1,4 @@
-name: Deploy Pages (oshidora-web)
+name: Deploy Pages (oshidra-web)
 
 on:
   push:
@@ -37,7 +37,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           npx wrangler pages deploy apps/mobile/dist \
-            --project-name oshidora-web \
+            --project-name oshidra-web \
             --branch main \
             --commit-hash "${GITHUB_SHA}" \
             --commit-message "${GITHUB_REPOSITORY}@${GITHUB_SHA}"

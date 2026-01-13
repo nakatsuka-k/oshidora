@@ -49,3 +49,5 @@ yarn-error.*
 
 # Logs
 *.log
+.secrets.local.md
+.secrets.*.md

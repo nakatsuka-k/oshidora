@@ -301,7 +301,14 @@ const app = new Hono<Env>()
 
 // In local dev we sometimes don't set AUTH_JWT_SECRET. When debug codes are enabled, we fall back to
 // an in-memory secret so login can proceed (tokens become invalid after server restart).
-const DEV_FALLBACK_JWT_SECRET = crypto.randomUUID()
+let DEV_FALLBACK_JWT_SECRET: string | null = null
+
+function getDevFallbackJwtSecret() {
+  if (DEV_FALLBACK_JWT_SECRET) return DEV_FALLBACK_JWT_SECRET
+  // Must not generate random values in global scope (Cloudflare Workers restriction).
+  DEV_FALLBACK_JWT_SECRET = crypto.randomUUID()
+  return DEV_FALLBACK_JWT_SECRET
+}
 
 function isMockRequest(c: any) {
   // Safety: only allow mock mode when explicitly enabled for debugging.
@@ -315,8 +322,9 @@ function isMockRequest(c: any) {
 function getAuthJwtSecret(env: Env['Bindings']): string | null {
   const explicit = String(env.AUTH_JWT_SECRET ?? '').trim()
   if (explicit) return explicit
-  if (shouldReturnDebugCodes(env)) return DEV_FALLBACK_JWT_SECRET
-  return null
+  // Fallback secret so auth can still function in misconfigured environments.
+  // NOTE: Tokens will become invalid after a worker restart. Set AUTH_JWT_SECRET in production.
+  return getDevFallbackJwtSecret()
 }
 
 const MOCK_CMS_FEATURED_SLOTS: Record<string, string[]> = {
@@ -340,7 +348,7 @@ app.get('/health', (c) => c.text('ok'))
 
 app.post('/cms/auth/login', async (c) => {
   if (isMockRequest(c)) {
-    const token = await makeJwtHs256(DEV_FALLBACK_JWT_SECRET, {
+    const token = await makeJwtHs256(getDevFallbackJwtSecret(), {
       kind: 'cms',
       role: 'Admin',
       adminId: 'mock-admin',
