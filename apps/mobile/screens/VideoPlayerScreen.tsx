@@ -98,6 +98,10 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   const [hasStarted, setHasStarted] = useState(false)
   const [pendingAutoPlay, setPendingAutoPlay] = useState(false)
 
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null)
+
+  const [stageSize, setStageSize] = useState<{ width: number; height: number } | null>(null)
+
   const [pendingResume, setPendingResume] = useState<{
     positionMillis: number
     shouldPlay: boolean
@@ -109,6 +113,26 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
 
   const videoRef = useRef<Video | null>(null)
   const videoWrapRef = useRef<any>(null)
+
+  const fittedLayout = useMemo(() => {
+    const stageW = Math.max(1, stageSize?.width ?? width)
+    const stageH = Math.max(1, stageSize?.height ?? height)
+    const maxW = stageW
+    const maxH = stageH
+
+    const srcW = naturalSize?.width ?? 0
+    const srcH = naturalSize?.height ?? 0
+    if (!(srcW > 0 && srcH > 0)) return { width: maxW, height: maxH }
+
+    const ar = srcW / srcH
+    const containerAr = maxW / maxH
+    if (containerAr > ar) {
+      // Container is wider -> fit by height
+      return { width: Math.round(maxH * ar), height: maxH }
+    }
+    // Container is taller -> fit by width
+    return { width: maxW, height: Math.round(maxW / ar) }
+  }, [height, naturalSize, stageSize, width])
 
   const load = useCallback(async () => {
     setPlayUrl(null)
@@ -167,8 +191,28 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   const showPrePlay = !hasStarted
 
   return (
-    <View style={[styles.root, isWeb ? { width, height } : null]}>
-      <View ref={videoWrapRef} style={[styles.videoWrap, { height }, isWeb ? { width } : null]}>
+    <View
+      style={[styles.root, isWeb ? { width, height } : null]}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width
+        const h = e.nativeEvent.layout.height
+        if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+          setStageSize({ width: w, height: h })
+        }
+      }}
+    >
+      <View
+        ref={videoWrapRef}
+        style={[
+          styles.videoWrap,
+          {
+            width: fittedLayout.width,
+            height: fittedLayout.height,
+            maxWidth: stageSize?.width ?? width,
+            maxHeight: stageSize?.height ?? height,
+          },
+        ]}
+      >
         {playUrl ? (
           <Video
             key={`${selectedVideoId}:${playUrl}`}
@@ -185,7 +229,22 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
               setPendingAutoPlay(false)
               void videoRef.current?.playAsync?.().catch(() => {})
             }}
+            onReadyForDisplay={(e: any) => {
+              const ns = e?.naturalSize
+              const w = Number(ns?.width)
+              const h = Number(ns?.height)
+              if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+                setNaturalSize({ width: w, height: h })
+              }
+            }}
             onPlaybackStatusUpdate={(status: any) => {
+              // Capture natural size from status when available (platform-dependent).
+              const w = Number(status?.naturalSize?.width ?? status?.videoWidth)
+              const h = Number(status?.naturalSize?.height ?? status?.videoHeight)
+              if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+                setNaturalSize({ width: w, height: h })
+              }
+
               if (pendingAutoPlay && status?.isLoaded) {
                 setPendingAutoPlay(false)
                 void videoRef.current?.playAsync?.().catch(() => {})
@@ -270,14 +329,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: THEME.bg,
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   videoWrap: {
-    flex: 1,
     backgroundColor: THEME.bg,
-    width: '100%',
-    height: '100%',
     position: 'relative',
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
   },
   video: {
     width: '100%',

@@ -3,10 +3,12 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, V
 import RenderHtml from 'react-native-render-html'
 import { ScreenContainer, THEME } from '../components'
 import { apiFetch } from '../utils/api'
+import { getMockNoticeDetail } from '../utils/mockNotices'
 
 type NoticeDetailScreenProps = {
   apiBaseUrl: string
   noticeId: string
+  mock: boolean
   onBack: () => void
 }
 
@@ -21,7 +23,7 @@ type NoticeDetailResponse = {
   item: NoticeDetail | null
 }
 
-export function NoticeDetailScreen({ apiBaseUrl, noticeId, onBack }: NoticeDetailScreenProps) {
+export function NoticeDetailScreen({ apiBaseUrl, noticeId, mock, onBack }: NoticeDetailScreenProps) {
   const { width } = useWindowDimensions()
   const contentWidth = Math.max(1, Math.min(828, Math.round(width - 32)))
 
@@ -34,6 +36,13 @@ export function NoticeDetailScreen({ apiBaseUrl, noticeId, onBack }: NoticeDetai
 
     if (!noticeId) {
       setItem(null)
+      setLoading(false)
+      setError('')
+      return
+    }
+
+    if (mock) {
+      setItem(getMockNoticeDetail(noticeId))
       setLoading(false)
       setError('')
       return
@@ -58,7 +67,7 @@ export function NoticeDetailScreen({ apiBaseUrl, noticeId, onBack }: NoticeDetai
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, noticeId])
+  }, [apiBaseUrl, noticeId, mock])
 
   const title = item?.title ?? 'お知らせ詳細'
 

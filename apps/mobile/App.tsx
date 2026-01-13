@@ -2050,7 +2050,7 @@ export default function App() {
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
           onOpenVideo={(id) => openWorkDetail(id)}
-          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           tag={videoListTag}
           onChangeTag={setVideoListTag}
         />
@@ -2071,7 +2071,7 @@ export default function App() {
         <CastSearchScreen
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
-          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           onOpenProfile={(cast) => {
             if (!requireLogin('profile')) return
             setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
@@ -2088,7 +2088,7 @@ export default function App() {
         <CastSearchResultScreen
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
-          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           keyword={castSearchKeyword}
           onBack={() => {
             goBack()
@@ -2105,7 +2105,7 @@ export default function App() {
         <VideoSearchScreen
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
-          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           onOpenVideo={(id) => openWorkDetail(id)}
           onOpenProfile={(cast) => {
             if (!requireLogin('profile')) return
@@ -2119,7 +2119,7 @@ export default function App() {
         <WorkSearchScreen
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
-          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           onOpenVideo={(id) => openWorkDetail(id)}
         />
       ) : null}
@@ -2131,7 +2131,7 @@ export default function App() {
           loggedIn={loggedIn}
           userEmail={loginEmail || registerEmail}
           userType={debugUserType}
-          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           onNavigate={(screenKey) => {
             if (screenKey === 'coinPurchase') {
               setCoinGrantPrimaryReturnTo('mypage')
@@ -2358,6 +2358,7 @@ export default function App() {
         <NoticeListScreen
           apiBaseUrl={apiBaseUrl}
           loggedIn={loggedIn || debugAuthBypass}
+          mock={debugMock}
           onBack={goBack}
           onOpenDetail={(id) => {
             setSelectedNoticeId(id)
@@ -2370,6 +2371,7 @@ export default function App() {
         <NoticeDetailScreen
           apiBaseUrl={apiBaseUrl}
           noticeId={selectedNoticeId}
+          mock={debugMock}
           onBack={goBack}
         />
       ) : null}
@@ -2728,7 +2730,7 @@ export default function App() {
                   lastPlayedAt: Date.now(),
                 })
                 setPlayerVideoIdNoSub(streamSampleVideoId)
-                setPlayerVideoIdWithSub(null)
+                setPlayerVideoIdWithSub(streamSampleVideoId)
                 goTo('videoPlayer')
               }}
               style={StyleSheet.absoluteFill}
@@ -2742,7 +2744,6 @@ export default function App() {
           </View>
 
           <View style={styles.titleBlock}>
-            <Text style={styles.h1}>{workForDetail.title || '—'}</Text>
             <Text style={styles.h2}>{workForDetail.subtitle || '—'}</Text>
           </View>
 
@@ -2868,7 +2869,7 @@ export default function App() {
                       lastPlayedAt: Date.now(),
                     })
                     setPlayerVideoIdNoSub(streamSampleVideoId)
-                    setPlayerVideoIdWithSub(null)
+                    setPlayerVideoIdWithSub(streamSampleVideoId)
                     goTo('videoPlayer')
                   }}
                 />

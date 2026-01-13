@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
 import { apiFetch } from '../utils/api'
+import { getMockNoticeListItems } from '../utils/mockNotices'
 
 type NoticeListScreenProps = {
   apiBaseUrl: string
   loggedIn: boolean
+  mock: boolean
   onBack: () => void
   onOpenDetail: (id: string) => void
 }
@@ -21,7 +23,7 @@ type NoticeListResponse = {
   items: NoticeListItem[]
 }
 
-export function NoticeListScreen({ apiBaseUrl, loggedIn, onBack, onOpenDetail }: NoticeListScreenProps) {
+export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDetail }: NoticeListScreenProps) {
   const [items, setItems] = useState<NoticeListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -41,6 +43,13 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, onBack, onOpenDetail }:
 
   useEffect(() => {
     let cancelled = false
+
+    if (mock) {
+      setItems(getMockNoticeListItems())
+      setLoading(false)
+      setError('')
+      return
+    }
 
     if (!loggedIn) {
       setItems([])
@@ -70,7 +79,7 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, onBack, onOpenDetail }:
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, loggedIn])
+  }, [apiBaseUrl, loggedIn, mock])
 
   return (
     <ScreenContainer title="お知らせ" onBack={onBack} scroll>
