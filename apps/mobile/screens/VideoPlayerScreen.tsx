@@ -1,7 +1,6 @@
 import { ResizeMode, Video } from 'expo-av'
 import * as ScreenCapture from 'expo-screen-capture'
 import * as ScreenOrientation from 'expo-screen-orientation'
-import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 
@@ -85,7 +84,6 @@ async function resolvePlaybackUrl(apiBaseUrl: string, videoId: string) {
 
 export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, onBack }: Props) {
   const { width, height } = useWindowDimensions()
-  const isLandscape = width > height
 
   const isWeb = Platform.OS === 'web'
 
@@ -98,7 +96,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   }, [canSubOn, subOn, videoIdNoSub, videoIdWithSub])
 
   const [hasStarted, setHasStarted] = useState(false)
-  const [fullscreenRequested, setFullscreenRequested] = useState(false)
+  const [pendingAutoPlay, setPendingAutoPlay] = useState(false)
 
   const [pendingResume, setPendingResume] = useState<{
     positionMillis: number
@@ -106,45 +104,19 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
   } | null>(null)
 
   const [playUrl, setPlayUrl] = useState<string | null>(null)
-  const [playToken, setPlayToken] = useState<string | null>(null)
   const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'signed-mp4' | 'hls' | 'mp4' | 'fallback' | 'error' | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const videoRef = useRef<Video | null>(null)
   const videoWrapRef = useRef<any>(null)
 
-  const requestFullscreen = useCallback(() => {
-    // Best-effort fullscreen. Web APIs require a user gesture.
-    if (Platform.OS === 'web') {
-      const el = videoWrapRef.current as any
-      const fn = el?.requestFullscreen || el?.webkitRequestFullscreen || el?.msRequestFullscreen
-      if (typeof fn === 'function') {
-        try {
-          void fn.call(el)
-        } catch {
-          // ignore
-        }
-      }
-      return
-    }
-
-    try {
-      // expo-av: present native fullscreen player (best-effort).
-      void (videoRef.current as any)?.presentFullscreenPlayer?.()
-    } catch {
-      // ignore
-    }
-  }, [])
-
   const load = useCallback(async () => {
     setPlayUrl(null)
-    setPlayToken(null)
     setPlayUrlKind(null)
     setLoadError(null)
 
     const resolved = await resolvePlaybackUrl(apiBaseUrl, selectedVideoId)
     setPlayUrl(resolved.url ?? null)
-    setPlayToken(resolved.token || null)
     setPlayUrlKind(resolved.kind)
     setLoadError(resolved.error)
   }, [apiBaseUrl, selectedVideoId])
@@ -196,8 +168,7 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
 
   return (
     <View style={[styles.root, isWeb ? { width, height } : null]}>
-      <StatusBar hidden />
-      <View ref={videoWrapRef} style={[styles.videoWrap, isWeb ? { width, height } : null]}>
+      <View ref={videoWrapRef} style={[styles.videoWrap, { height }, isWeb ? { width } : null]}>
         {playUrl ? (
           <Video
             key={`${selectedVideoId}:${playUrl}`}
@@ -209,10 +180,15 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
             useNativeControls
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay={hasStarted}
+            onLoad={() => {
+              if (!pendingAutoPlay) return
+              setPendingAutoPlay(false)
+              void videoRef.current?.playAsync?.().catch(() => {})
+            }}
             onPlaybackStatusUpdate={(status: any) => {
-              if (fullscreenRequested && status?.isLoaded) {
-                setFullscreenRequested(false)
-                requestFullscreen()
+              if (pendingAutoPlay && status?.isLoaded) {
+                setPendingAutoPlay(false)
+                void videoRef.current?.playAsync?.().catch(() => {})
               }
 
               if (!pendingResume) return
@@ -268,9 +244,10 @@ export function VideoPlayerScreen({ apiBaseUrl, videoIdNoSub, videoIdWithSub, on
               <PrimaryButton
                 label="再生する"
                 onPress={() => {
-                  setFullscreenRequested(true)
                   setHasStarted(true)
-                  requestFullscreen()
+                  // Start playback exactly when the user presses play.
+                  setPendingAutoPlay(true)
+                  void videoRef.current?.playAsync?.().catch(() => {})
                 }}
                 disabled={!playUrl || playUrlKind === 'error'}
               />

@@ -1,0 +1,28 @@
+[1;33m🚀 Starting oshidora...[0m
+[1;33m🗄️  Running database migrations...[0m
+
+> db:migrate:local
+> npm --prefix apps/api run db:migrate:local
+
+
+> db:migrate:local
+> wrangler d1 migrations apply oshidora-db --local
+
+
+ ⛅️ wrangler 4.54.0 (update available 4.58.0)
+─────────────────────────────────────────────
+Resource location: local 
+
+Use --remote if you want to access the remote instance.
+
+✅ No migrations to apply!
+[1;33m🚀 Starting API server...[0m
+[1;33m📡 API will run on http://127.0.0.1:8787[0m
+[1;33m⏳ Waiting for API server to be ready...[0m
+[0;32m✅ API server is ready![0m
+[1;33m🚀 Starting Mobile (Expo Web) server...[0m
+[1;33m🚀 Starting Admin (Expo Web) server on port 8082...[0m
+[1;33m⏳ Waiting for Mobile server to be ready...[0m
+[1;33m
+⏹️  Shutting down...[0m
+[1;33m🔌 Killing listeners on port 8787: 48335[0m
