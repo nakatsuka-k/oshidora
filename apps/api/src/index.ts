@@ -3720,8 +3720,8 @@ app.get('/v1/stream/playback/:videoId', async (c) => {
   }
 })
 
-// HMAC-HS256 署名付き Stream URL エンドポイント（簡易版）
-// Cloudflare Stream の Signed URL が必須の場合はこちらを使用
+// Cloudflare Stream RS256 署名付き再生トークン（/token エンドポイント）
+// Cloudflare が RS256 署名トークンを生成し、customer-<ACCOUNT_ID>.cloudflarestream.com に埋め込む形式
 app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {
   const videoId = c.req.param('videoId')?.trim()
   if (!videoId) return c.json({ error: 'videoId is required' }, 400)
@@ -3734,43 +3734,74 @@ app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {
     // ignore
   }
 
-  const signingSecret = c.env.CLOUDFLARE_STREAM_SIGNING_SECRET
-  if (!signingSecret) {
+  const accountId = c.env.CLOUDFLARE_ACCOUNT_ID
+  const token = c.env.CLOUDFLARE_STREAM_API_TOKEN
+
+  if (!accountId || !token) {
     return c.json(
       {
-        error: 'Cloudflare Stream HMAC signing is not configured',
-        required: ['CLOUDFLARE_STREAM_SIGNING_SECRET'],
-        note: 'Set CLOUDFLARE_STREAM_SIGNING_SECRET to enable signed playback URLs.',
+        error: 'Cloudflare Stream API is not configured',
+        required: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_STREAM_API_TOKEN'],
       },
       500
     )
   }
 
   try {
-    // JWT 署名トークンを生成（有効期限：24時間）
+    // Cloudflare の /token エンドポイントで RS256 署名トークンを生成
+    // 有効期限：24時間
     const expiresInSeconds = 24 * 60 * 60
-    const payload = {
-      sub: videoId,
-      kid: 'default',
+    
+    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}/token`
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ttl: expiresInSeconds,
+      }),
+    })
+
+    const data = (await resp.json().catch(() => null)) as
+      | {
+          success: boolean
+          result?: { token?: string }
+          errors?: any[]
+        }
+      | null
+
+    if (!resp.ok || !data?.success || !data?.result?.token) {
+      console.error('Token generation failed:', resp.status, data?.errors)
+      return c.json(
+        {
+          error: 'Failed to generate Cloudflare Stream token',
+          status: resp.status,
+          errors: data?.errors ?? [],
+        },
+        502
+      )
     }
-    const token = await makeJwtHs256(signingSecret, payload, expiresInSeconds)
+
+    const signedToken = data.result.token
     const exp = Math.floor(Date.now() / 1000) + expiresInSeconds
 
-    // トークンパラメータ付きの再生URL
-    const tokenParam = `token=${encodeURIComponent(token)}`
+    // トークンをパスに埋める形式の URL を構築（Cloudflare 公式形式）
+    const baseUrl = `https://customer-${accountId}.cloudflarestream.com/${signedToken}`
 
     return c.json({
       videoId,
-      token,
+      token: signedToken,
       expiresAt: new Date(exp * 1000).toISOString(),
       expiresAtUnix: exp,
-      iframeUrl: `https://iframe.videodelivery.net/${videoId}?${tokenParam}`,
-      hlsUrl: `https://videodelivery.net/${videoId}/manifest/video.m3u8?${tokenParam}`,
-      dashUrl: `https://videodelivery.net/${videoId}/manifest/video.mpd?${tokenParam}`,
-      mp4Url: `https://videodelivery.net/${videoId}/downloads/default.mp4?${tokenParam}`,
+      iframeUrl: `${baseUrl}/iframe`,
+      hlsUrl: `${baseUrl}/manifest/video.m3u8`,
+      dashUrl: `${baseUrl}/manifest/video.mpd`,
+      mp4Url: `${baseUrl}/downloads/default.mp4`,
     })
   } catch (err) {
-    console.error('HMAC signing error:', err)
+    console.error('Token request error:', err)
     return c.json(
       {
         error: 'Failed to generate signed token',
