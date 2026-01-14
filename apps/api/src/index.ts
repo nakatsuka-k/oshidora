@@ -547,7 +547,7 @@ app.get('/cms/categories', async (c) => {
 
   let rows: any[] = []
   try {
-    rows = await d1All(db, 'SELECT id, name, enabled, created_at, updated_at FROM categories ORDER BY name ASC')
+    rows = await d1All(db, 'SELECT id, name, enabled, parent_id, created_at, updated_at FROM categories ORDER BY name ASC')
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -557,6 +557,7 @@ app.get('/cms/categories', async (c) => {
     id: String(r.id ?? ''),
     name: String(r.name ?? ''),
     enabled: Number(r.enabled ?? 0) === 1,
+    parentId: r.parent_id === null || r.parent_id === undefined ? '' : String(r.parent_id ?? ''),
     createdAt: String(r.created_at ?? ''),
     updatedAt: String(r.updated_at ?? ''),
   }))
@@ -572,13 +573,14 @@ app.get('/cms/categories/:id', async (c) => {
   if (!id) return c.json({ error: 'id is required' }, 400)
 
   try {
-    const row = await d1First(db, 'SELECT id, name, enabled, created_at, updated_at FROM categories WHERE id = ? LIMIT 1', [id])
+    const row = await d1First(db, 'SELECT id, name, enabled, parent_id, created_at, updated_at FROM categories WHERE id = ? LIMIT 1', [id])
     if (!row) return c.json({ error: 'not_found' }, 404)
     return c.json({
       item: {
         id: String((row as any).id ?? ''),
         name: String((row as any).name ?? ''),
         enabled: Number((row as any).enabled ?? 0) === 1,
+        parentId: (row as any).parent_id === null || (row as any).parent_id === undefined ? '' : String((row as any).parent_id ?? ''),
         createdAt: String((row as any).created_at ?? ''),
         updatedAt: String((row as any).updated_at ?? ''),
       },
@@ -595,16 +597,20 @@ app.post('/cms/categories', async (c) => {
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
   const db = c.env.DB as D1Database
 
-  type Body = { name?: unknown; enabled?: unknown }
+  type Body = { name?: unknown; enabled?: unknown; parentId?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const name = clampText(body.name, 80)
   const enabled = body.enabled === undefined ? 1 : parseBool01(body.enabled)
+  const parentId = body.parentId === undefined ? '' : clampText(body.parentId, 80)
   if (!name) return c.json({ error: 'name is required' }, 400)
 
   const createdAt = nowIso()
   const id = uuidOrFallback('cat')
   try {
-    await db.prepare('INSERT INTO categories (id, name, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').bind(id, name, enabled, createdAt, createdAt).run()
+    await db
+      .prepare('INSERT INTO categories (id, name, enabled, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(id, name, enabled, parentId || null, createdAt, createdAt)
+      .run()
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -620,13 +626,78 @@ app.put('/cms/categories/:id', async (c) => {
   const id = String(c.req.param('id') ?? '').trim()
   if (!id) return c.json({ error: 'id is required' }, 400)
 
-  type Body = { name?: unknown; enabled?: unknown }
+  type Body = { name?: unknown; enabled?: unknown; parentId?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const name = body.name === undefined ? null : clampText(body.name, 80)
   const enabled = body.enabled === undefined ? null : parseBool01(body.enabled)
+  const parentId = body.parentId === undefined ? null : clampText(body.parentId, 80)
   const updatedAt = nowIso()
   try {
-    await db.prepare('UPDATE categories SET name = COALESCE(?, name), enabled = COALESCE(?, enabled), updated_at = ? WHERE id = ?').bind(name, enabled, updatedAt, id).run()
+    const nextParent = parentId === null ? null : parentId || null
+    await db
+      .prepare('UPDATE categories SET name = COALESCE(?, name), enabled = COALESCE(?, enabled), parent_id = COALESCE(?, parent_id), updated_at = ? WHERE id = ?')
+      .bind(name, enabled, nextParent, updatedAt, id)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true })
+})
+
+// Category -> videos (CMS)
+app.get('/cms/categories/:id/videos', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(
+      db,
+      `SELECT v.id, v.work_id, COALESCE(w.title, '') AS work_title, v.title, v.thumbnail_url, v.created_at
+       FROM video_categories vc
+       JOIN videos v ON v.id = vc.video_id
+       LEFT JOIN works w ON w.id = v.work_id
+       WHERE vc.category_id = ?
+       ORDER BY vc.sort_order ASC, v.created_at DESC
+       LIMIT 500`,
+      [id]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({
+    items: rows.map((r) => ({
+      id: String(r.id ?? ''),
+      workId: String(r.work_id ?? ''),
+      workTitle: String(r.work_title ?? ''),
+      title: String(r.title ?? ''),
+      thumbnailUrl: String(r.thumbnail_url ?? ''),
+      createdAt: String(r.created_at ?? ''),
+    })),
+  })
+})
+
+app.put('/cms/categories/:id/videos', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { videoIds?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const videoIds = parseIdList(body.videoIds)
+
+  try {
+    await replaceLinks(db, { table: 'video_categories', leftKey: 'category_id', leftId: id, rightKey: 'video_id', rightIds: videoIds })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -643,7 +714,7 @@ app.get('/cms/tags', async (c) => {
 
   let rows: any[] = []
   try {
-    rows = await d1All(db, 'SELECT id, name, created_at, updated_at FROM tags ORDER BY name ASC')
+    rows = await d1All(db, 'SELECT id, name, category_id, created_at, updated_at FROM tags ORDER BY name ASC')
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -652,6 +723,7 @@ app.get('/cms/tags', async (c) => {
   const items = rows.map((r) => ({
     id: String(r.id ?? ''),
     name: String(r.name ?? ''),
+    categoryId: String(r.category_id ?? ''),
     createdAt: String(r.created_at ?? ''),
     updatedAt: String(r.updated_at ?? ''),
   }))
@@ -667,12 +739,13 @@ app.get('/cms/tags/:id', async (c) => {
   if (!id) return c.json({ error: 'id is required' }, 400)
 
   try {
-    const row = await d1First(db, 'SELECT id, name, created_at, updated_at FROM tags WHERE id = ? LIMIT 1', [id])
+    const row = await d1First(db, 'SELECT id, name, category_id, created_at, updated_at FROM tags WHERE id = ? LIMIT 1', [id])
     if (!row) return c.json({ error: 'not_found' }, 404)
     return c.json({
       item: {
         id: String((row as any).id ?? ''),
         name: String((row as any).name ?? ''),
+        categoryId: String((row as any).category_id ?? ''),
         createdAt: String((row as any).created_at ?? ''),
         updatedAt: String((row as any).updated_at ?? ''),
       },
@@ -873,14 +946,18 @@ app.post('/cms/tags', async (c) => {
   if (!admin.ok) return c.json({ error: admin.error }, admin.status)
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
   const db = c.env.DB as D1Database
-  type Body = { name?: unknown }
+  type Body = { name?: unknown; categoryId?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const name = clampText(body.name, 80)
+  const categoryId = clampText(body.categoryId, 64)
   if (!name) return c.json({ error: 'name is required' }, 400)
   const createdAt = nowIso()
   const id = uuidOrFallback('tag')
   try {
-    await db.prepare('INSERT INTO tags (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').bind(id, name, createdAt, createdAt).run()
+    await db
+      .prepare('INSERT INTO tags (id, name, category_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(id, name, categoryId || '', createdAt, createdAt)
+      .run()
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -895,12 +972,16 @@ app.put('/cms/tags/:id', async (c) => {
   const db = c.env.DB as D1Database
   const id = String(c.req.param('id') ?? '').trim()
   if (!id) return c.json({ error: 'id is required' }, 400)
-  type Body = { name?: unknown }
+  type Body = { name?: unknown; categoryId?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const name = body.name === undefined ? null : clampText(body.name, 80)
+  const categoryId = body.categoryId === undefined ? null : clampText(body.categoryId, 64)
   const updatedAt = nowIso()
   try {
-    await db.prepare('UPDATE tags SET name = COALESCE(?, name), updated_at = ? WHERE id = ?').bind(name, updatedAt, id).run()
+    await db
+      .prepare('UPDATE tags SET name = COALESCE(?, name), category_id = COALESCE(?, category_id), updated_at = ? WHERE id = ?')
+      .bind(name, categoryId, updatedAt, id)
+      .run()
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -920,6 +1001,7 @@ app.get('/cms/notices', async (c) => {
           id: 'N0001',
           subject: 'メンテナンスのお知らせ',
           body: '本文',
+          createdBy: { id: 'A0001', email: 'admin@example.com', name: 'Admin' },
           sentAt: '2026-01-12 03:00',
           status: 'scheduled',
           push: true,
@@ -937,6 +1019,7 @@ app.get('/cms/notices', async (c) => {
           id: 'N0002',
           subject: '新作公開',
           body: '本文',
+          createdBy: { id: 'A0001', email: 'admin@example.com', name: 'Admin' },
           sentAt: '2026-01-10 12:00',
           status: 'sent',
           push: false,
@@ -958,17 +1041,26 @@ app.get('/cms/notices', async (c) => {
   try {
     const rows = await d1All(
       db,
-      `SELECT id, subject, body, sent_at, status, push,
-              tags, mail_enabled, mail_format, mail_sent_at, push_title, push_body, push_sent_at,
-              created_at, updated_at
-       FROM notices
-       ORDER BY (sent_at = '') ASC, sent_at DESC, created_at DESC`
+      `SELECT n.id, n.subject, n.body, n.sent_at, n.status, n.push,
+              n.tags, n.mail_enabled, n.mail_format, n.mail_sent_at, n.push_title, n.push_body, n.push_sent_at,
+              n.created_by_admin_id, n.updated_by_admin_id,
+              COALESCE(a.email, '') AS created_by_email,
+              COALESCE(a.name, '') AS created_by_name,
+              n.created_at, n.updated_at
+       FROM notices n
+       LEFT JOIN cms_admins a ON a.id = n.created_by_admin_id
+       ORDER BY (n.sent_at = '') ASC, n.sent_at DESC, n.created_at DESC`
     )
     return c.json({
       items: rows.map((r: any) => ({
         id: String(r.id ?? ''),
         subject: String(r.subject ?? ''),
         body: String(r.body ?? ''),
+        createdBy: {
+          id: String(r.created_by_admin_id ?? ''),
+          email: String(r.created_by_email ?? ''),
+          name: String(r.created_by_name ?? ''),
+        },
         sentAt: String(r.sent_at ?? ''),
         status: String(r.status ?? 'draft'),
         push: Number(r.push ?? 0) === 1,
@@ -1101,9 +1193,9 @@ app.post('/cms/notices', async (c) => {
   try {
     await db
       .prepare(
-        'INSERT INTO notices (id, subject, body, sent_at, status, push, tags, mail_enabled, mail_format, mail_text, mail_html, mail_sent_at, push_title, push_body, push_sent_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO notices (id, subject, body, sent_at, status, push, tags, mail_enabled, mail_format, mail_text, mail_html, mail_sent_at, push_title, push_body, push_sent_at, created_by_admin_id, updated_by_admin_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
-      .bind(id, subject, text, sentAt, status, push, tags, mailEnabled, mailFormat, mailText, mailHtml, '', pushTitle, pushBody, '', now, now)
+      .bind(id, subject, text, sentAt, status, push, tags, mailEnabled, mailFormat, mailText, mailHtml, '', pushTitle, pushBody, '', admin.adminId ?? '', admin.adminId ?? '', now, now)
       .run()
     return c.json({ ok: true, id })
   } catch (err) {
@@ -1534,35 +1626,61 @@ app.get('/cms/users', async (c) => {
   if (!admin.ok) return c.json({ error: admin.error }, admin.status)
 
   const q = normalizeQuery(String(c.req.query('q') ?? ''))
+  const kind = String(c.req.query('kind') ?? '').trim() // '' | 'user' | 'cast'
+  const sort = String(c.req.query('sort') ?? '').trim() // '' | 'createdAt' | 'kind'
+  const kindAllowed = new Set(['', 'user', 'cast'])
+  if (!kindAllowed.has(kind)) return c.json({ error: 'invalid_kind' }, 400)
+  const sortAllowed = new Set(['', 'createdAt', 'kind'])
+  if (!sortAllowed.has(sort)) return c.json({ error: 'invalid_sort' }, 400)
 
   if (isMockRequest(c) || !c.env.DB) {
-    return c.json({
-      items: [
-        { id: 'U0001', email: 'usera@example.com', emailVerified: true, phone: '', phoneVerified: false, createdAt: '2026-01-10T00:00:00.000Z' },
-        { id: 'U0002', email: 'castb@example.com', emailVerified: false, phone: '', phoneVerified: false, createdAt: '2026-01-09T00:00:00.000Z' },
-      ].filter((u) => (!q ? true : normalizeQuery(u.email).includes(q))),
-    })
+    const base = [
+      { id: 'U0001', email: 'usera@example.com', emailVerified: true, phone: '', phoneVerified: false, createdAt: '2026-01-10T00:00:00.000Z', kind: 'user' },
+      { id: 'U0002', email: 'castb@example.com', emailVerified: false, phone: '', phoneVerified: false, createdAt: '2026-01-09T00:00:00.000Z', kind: 'cast' },
+    ].filter((u) => (!q ? true : normalizeQuery(u.email).includes(q)))
+
+    const filtered = kind ? base.filter((u) => u.kind === kind) : base
+    const sorted = sort === 'kind'
+      ? filtered.slice().sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'cast' ? -1 : 1))
+      : filtered
+
+    return c.json({ items: sorted })
   }
 
   const db = c.env.DB as D1Database
   try {
-    const rows = q
-      ? await d1All(
-          db,
-          `SELECT id, email, email_verified, phone, phone_verified, created_at, updated_at
-           FROM users
-           WHERE lower(email) LIKE ?
-           ORDER BY created_at DESC
-           LIMIT 200`,
-          [`%${q}%`]
-        )
-      : await d1All(
-          db,
-          `SELECT id, email, email_verified, phone, phone_verified, created_at, updated_at
-           FROM users
-           ORDER BY created_at DESC
-           LIMIT 200`
-        )
+    const clauses: string[] = []
+    const binds: any[] = []
+
+    if (q) {
+      clauses.push('lower(u.email) LIKE ?')
+      binds.push(`%${q}%`)
+    }
+
+    // kind = 'cast' means approved cast profile exists.
+    if (kind === 'cast') {
+      clauses.push(`EXISTS (SELECT 1 FROM cast_profile_requests cpr WHERE cpr.user_id = u.id AND cpr.status = 'approved')`)
+    }
+    if (kind === 'user') {
+      clauses.push(`NOT EXISTS (SELECT 1 FROM cast_profile_requests cpr WHERE cpr.user_id = u.id AND cpr.status = 'approved')`)
+    }
+
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+    const orderBy = sort === 'kind'
+      ? `ORDER BY is_cast DESC, u.created_at DESC`
+      : `ORDER BY u.created_at DESC`
+
+    const rows = await d1All(
+      db,
+      `SELECT
+         u.id, u.email, u.email_verified, u.phone, u.phone_verified, u.created_at, u.updated_at,
+         CASE WHEN EXISTS (SELECT 1 FROM cast_profile_requests cpr WHERE cpr.user_id = u.id AND cpr.status = 'approved') THEN 1 ELSE 0 END AS is_cast
+       FROM users u
+       ${where}
+       ${orderBy}
+       LIMIT 200`,
+      binds
+    )
 
     return c.json({
       items: rows.map((r: any) => ({
@@ -1571,6 +1689,7 @@ app.get('/cms/users', async (c) => {
         emailVerified: Number(r.email_verified ?? 0) === 1,
         phone: r.phone === null || r.phone === undefined ? '' : String(r.phone ?? ''),
         phoneVerified: Number(r.phone_verified ?? 0) === 1,
+        kind: Number((r as any).is_cast ?? 0) === 1 ? 'cast' : 'user',
         createdAt: String(r.created_at ?? ''),
         updatedAt: String(r.updated_at ?? ''),
       })),
@@ -1612,12 +1731,49 @@ app.get('/cms/users/:id', async (c) => {
   }
 })
 
+// Create end-user account (CMS)
+app.post('/cms/users', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { email?: unknown; password?: unknown; phone?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = normalizeEmail(String(body.email ?? ''))
+  const password = String(body.password ?? '')
+  const phoneRaw = String(body.phone ?? '').trim()
+  const phone = phoneRaw ? clampText(phoneRaw, 30) : null
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (!password || password.length < 8) return c.json({ error: 'password_too_short' }, 400)
+
+  const { saltB64, hashB64 } = await hashPasswordForStorage(password)
+  const id = uuidOrFallback('usr')
+  const now = nowIso()
+
+  try {
+    await db
+      .prepare('INSERT INTO users (id, email, email_verified, phone, phone_verified, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, 0, ?, 0, ?, ?, ?, ?)')
+      .bind(id, email, phone, hashB64, saltB64, now, now)
+      .run()
+    return c.json({ ok: true, id })
+  } catch (err: any) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    // best-effort unique conflict
+    const msg = String(err?.message ?? '')
+    if (msg.includes('UNIQUE') || msg.toLowerCase().includes('unique')) return c.json({ error: 'email_already_exists' }, 409)
+    throw err
+  }
+})
+
 // Comments moderation (CMS)
 app.get('/cms/comments', async (c) => {
   const admin = await requireCmsAdmin(c)
   if (!admin.ok) return c.json({ error: admin.error }, admin.status)
 
   const status = String(c.req.query('status') ?? '').trim()
+  const contentId = String(c.req.query('contentId') ?? '').trim()
+  const episodeId = String(c.req.query('episodeId') ?? '').trim()
 
   if (isMockRequest(c) || !c.env.DB) {
     const base = [
@@ -1634,6 +1790,14 @@ app.get('/cms/comments', async (c) => {
     if (status) {
       where += ' AND c.status = ?'
       binds.push(status)
+    }
+    if (contentId) {
+      where += ' AND c.content_id = ?'
+      binds.push(contentId)
+    }
+    if (episodeId) {
+      where += ' AND c.episode_id = ?'
+      binds.push(episodeId)
     }
 
     const rows = await d1All(
@@ -1664,6 +1828,103 @@ app.get('/cms/comments', async (c) => {
         moderatedAt: r.moderated_at === null || r.moderated_at === undefined ? null : String(r.moderated_at ?? ''),
       })),
     })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Genres (CMS)
+app.get('/cms/genres', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(db, 'SELECT id, name, enabled, created_at, updated_at FROM genres ORDER BY name ASC')
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({
+    items: rows.map((r) => ({
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      enabled: Number(r.enabled ?? 0) === 1,
+      createdAt: String(r.created_at ?? ''),
+      updatedAt: String(r.updated_at ?? ''),
+    })),
+  })
+})
+
+app.get('/cms/genres/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  try {
+    const row = await d1First(db, 'SELECT id, name, enabled, created_at, updated_at FROM genres WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        name: String((row as any).name ?? ''),
+        enabled: Number((row as any).enabled ?? 0) === 1,
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/genres', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { name?: unknown; enabled?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = clampText(body.name, 80)
+  const enabled = body.enabled === undefined ? 1 : parseBool01(body.enabled)
+  if (!name) return c.json({ error: 'name is required' }, 400)
+
+  const createdAt = nowIso()
+  const id = uuidOrFallback('genre')
+  try {
+    await db.prepare('INSERT INTO genres (id, name, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').bind(id, name, enabled, createdAt, createdAt).run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true, id })
+})
+
+app.put('/cms/genres/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { name?: unknown; enabled?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = body.name === undefined ? null : clampText(body.name, 80)
+  const enabled = body.enabled === undefined ? null : parseBool01(body.enabled)
+  const updatedAt = nowIso()
+
+  try {
+    await db.prepare('UPDATE genres SET name = COALESCE(?, name), enabled = COALESCE(?, enabled), updated_at = ? WHERE id = ?').bind(name, enabled, updatedAt, id).run()
+    return c.json({ ok: true })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -1935,7 +2196,7 @@ app.get('/cms/casts', async (c) => {
 
   let rows: any[] = []
   try {
-    rows = await d1All(db, 'SELECT id, name, role, thumbnail_url, created_at, updated_at FROM casts ORDER BY name ASC')
+    rows = await d1All(db, 'SELECT id, name, role, thumbnail_url, category_id, created_at, updated_at FROM casts ORDER BY name ASC')
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -1946,6 +2207,7 @@ app.get('/cms/casts', async (c) => {
     name: String(r.name ?? ''),
     role: String(r.role ?? ''),
     thumbnailUrl: String(r.thumbnail_url ?? ''),
+    categoryId: r.category_id === null || r.category_id === undefined ? '' : String(r.category_id ?? ''),
     createdAt: String(r.created_at ?? ''),
     updatedAt: String(r.updated_at ?? ''),
   }))
@@ -1962,7 +2224,7 @@ app.get('/cms/casts/:id', async (c) => {
 
   let row: any = null
   try {
-    row = await d1First(db, 'SELECT id, name, role, thumbnail_url, created_at, updated_at FROM casts WHERE id = ?', [id])
+    row = await d1First(db, 'SELECT id, name, role, thumbnail_url, category_id, created_at, updated_at FROM casts WHERE id = ?', [id])
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -2019,6 +2281,7 @@ app.get('/cms/casts/:id', async (c) => {
       name: String(row.name ?? ''),
       role: String(row.role ?? ''),
       thumbnailUrl: String(row.thumbnail_url ?? ''),
+      categoryId: row.category_id === null || row.category_id === undefined ? '' : String(row.category_id ?? ''),
       createdAt: String(row.created_at ?? ''),
       updatedAt: String(row.updated_at ?? ''),
     },
@@ -2048,19 +2311,20 @@ app.post('/cms/casts', async (c) => {
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
   const db = c.env.DB as D1Database
 
-  type Body = { name?: unknown; role?: unknown; thumbnailUrl?: unknown }
+  type Body = { name?: unknown; role?: unknown; thumbnailUrl?: unknown; categoryId?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const name = clampText(body.name, 120)
   const role = clampText(body.role, 80)
   const thumbnailUrl = clampText(body.thumbnailUrl, 500)
+  const categoryId = clampText(body.categoryId, 80)
   if (!name) return c.json({ error: 'name is required' }, 400)
 
   const createdAt = nowIso()
   const id = uuidOrFallback('cast')
   try {
     await db
-      .prepare('INSERT INTO casts (id, name, role, thumbnail_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(id, name, role, thumbnailUrl, createdAt, createdAt)
+      .prepare('INSERT INTO casts (id, name, role, thumbnail_url, category_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, name, role, thumbnailUrl, categoryId || null, createdAt, createdAt)
       .run()
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
@@ -2077,22 +2341,127 @@ app.put('/cms/casts/:id', async (c) => {
   const id = String(c.req.param('id') ?? '').trim()
   if (!id) return c.json({ error: 'id is required' }, 400)
 
-  type Body = { name?: unknown; role?: unknown; thumbnailUrl?: unknown }
+  type Body = { name?: unknown; role?: unknown; thumbnailUrl?: unknown; categoryId?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const name = body.name === undefined ? null : clampText(body.name, 120)
   const role = body.role === undefined ? null : clampText(body.role, 80)
   const thumbnailUrl = body.thumbnailUrl === undefined ? null : clampText(body.thumbnailUrl, 500)
+  const categoryId = body.categoryId === undefined ? null : clampText(body.categoryId, 80)
   const updatedAt = nowIso()
   try {
     await db
-      .prepare('UPDATE casts SET name = COALESCE(?, name), role = COALESCE(?, role), thumbnail_url = COALESCE(?, thumbnail_url), updated_at = ? WHERE id = ?')
-      .bind(name, role, thumbnailUrl, updatedAt, id)
+      .prepare('UPDATE casts SET name = COALESCE(?, name), role = COALESCE(?, role), thumbnail_url = COALESCE(?, thumbnail_url), category_id = COALESCE(?, category_id), updated_at = ? WHERE id = ?')
+      .bind(name, role, thumbnailUrl, categoryId || null, updatedAt, id)
       .run()
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
   }
   return c.json({ ok: true })
+})
+
+// Cast categories (CMS)
+app.get('/cms/cast-categories', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(db, 'SELECT id, name, enabled, created_at, updated_at FROM cast_categories ORDER BY name ASC')
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({
+    items: rows.map((r) => ({
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      enabled: Number(r.enabled ?? 0) === 1,
+      createdAt: String(r.created_at ?? ''),
+      updatedAt: String(r.updated_at ?? ''),
+    })),
+  })
+})
+
+app.get('/cms/cast-categories/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  try {
+    const row = await d1First(db, 'SELECT id, name, enabled, created_at, updated_at FROM cast_categories WHERE id = ? LIMIT 1', [id])
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        name: String((row as any).name ?? ''),
+        enabled: Number((row as any).enabled ?? 0) === 1,
+        createdAt: String((row as any).created_at ?? ''),
+        updatedAt: String((row as any).updated_at ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/cast-categories', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { name?: unknown; enabled?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = clampText(body.name, 80)
+  const enabled = body.enabled === undefined ? 1 : parseBool01(body.enabled)
+  if (!name) return c.json({ error: 'name is required' }, 400)
+
+  const createdAt = nowIso()
+  const id = uuidOrFallback('cast_cat')
+  try {
+    await db
+      .prepare('INSERT INTO cast_categories (id, name, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(id, name, enabled, createdAt, createdAt)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+  return c.json({ ok: true, id })
+})
+
+app.put('/cms/cast-categories/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { name?: unknown; enabled?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const name = body.name === undefined ? null : clampText(body.name, 80)
+  const enabled = body.enabled === undefined ? null : parseBool01(body.enabled)
+  const updatedAt = nowIso()
+
+  try {
+    await db
+      .prepare('UPDATE cast_categories SET name = COALESCE(?, name), enabled = COALESCE(?, enabled), updated_at = ? WHERE id = ?')
+      .bind(name, enabled, updatedAt, id)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
 })
 
 // Works
@@ -2279,11 +2648,103 @@ app.get('/cms/videos', async (c) => {
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
   const db = c.env.DB as D1Database
 
+  const q = String(c.req.query('q') ?? '').trim()
+  const workId = String(c.req.query('workId') ?? '').trim()
+  const publishedRaw = String(c.req.query('published') ?? '').trim()
+  const categoryId = String(c.req.query('categoryId') ?? '').trim()
+  const tagId = String(c.req.query('tagId') ?? '').trim()
+  const castId = String(c.req.query('castId') ?? '').trim()
+  const genreId = String(c.req.query('genreId') ?? '').trim()
+  const sort = String(c.req.query('sort') ?? '').trim() // created_desc (default), created_asc, scheduled_asc, title_asc
+
+  const limitRaw = String(c.req.query('limit') ?? '').trim()
+  const limitParsed = limitRaw ? Number.parseInt(limitRaw, 10) : 200
+  const limit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 500) : 200
+
+  const where: string[] = ['1=1']
+  const binds: any[] = []
+
+  if (q) {
+    const like = `%${q}%`
+    where.push('(v.title LIKE ? OR v.description LIKE ? OR COALESCE(w.title, \'\') LIKE ?)')
+    binds.push(like, like, like)
+  }
+  if (workId) {
+    where.push('v.work_id = ?')
+    binds.push(workId)
+  }
+  if (publishedRaw === '1' || publishedRaw === '0') {
+    where.push('v.published = ?')
+    binds.push(publishedRaw === '1' ? 1 : 0)
+  }
+  if (categoryId) {
+    where.push('EXISTS (SELECT 1 FROM video_categories vc WHERE vc.video_id = v.id AND vc.category_id = ?)')
+    binds.push(categoryId)
+  }
+  if (tagId) {
+    where.push('EXISTS (SELECT 1 FROM video_tags vt WHERE vt.video_id = v.id AND vt.tag_id = ?)')
+    binds.push(tagId)
+  }
+  if (castId) {
+    where.push('EXISTS (SELECT 1 FROM video_casts vca WHERE vca.video_id = v.id AND vca.cast_id = ?)')
+    binds.push(castId)
+  }
+  if (genreId) {
+    where.push('EXISTS (SELECT 1 FROM video_genres vg WHERE vg.video_id = v.id AND vg.genre_id = ?)')
+    binds.push(genreId)
+  }
+
+  const orderBy = (() => {
+    switch (sort) {
+      case 'created_asc':
+        return 'v.created_at ASC'
+      case 'scheduled_asc':
+        return 'CASE WHEN v.scheduled_at IS NULL OR v.scheduled_at = \'\' THEN 1 ELSE 0 END ASC, v.scheduled_at ASC, v.created_at DESC'
+      case 'title_asc':
+        return 'v.title ASC, v.created_at DESC'
+      case 'created_desc':
+      default:
+        return 'v.created_at DESC'
+    }
+  })()
+
   let rows: any[] = []
   try {
     rows = await d1All(
       db,
-      'SELECT v.id, v.work_id, w.title AS work_title, v.title, v.description, v.stream_video_id, v.thumbnail_url, v.published, v.scheduled_at, v.created_at, v.updated_at FROM videos v LEFT JOIN works w ON w.id = v.work_id ORDER BY v.created_at DESC'
+      `SELECT
+         v.id, v.work_id, COALESCE(w.title, '') AS work_title,
+         v.title, v.description,
+         v.stream_video_id, COALESCE(v.stream_video_id_clean, '') AS stream_video_id_clean, COALESCE(v.stream_video_id_subtitled, '') AS stream_video_id_subtitled,
+         v.thumbnail_url,
+         v.published,
+         v.scheduled_at,
+         v.episode_no,
+         COALESCE(v.rating_avg, 0) AS rating_avg,
+         COALESCE(v.review_count, 0) AS review_count,
+         COALESCE((SELECT group_concat(DISTINCT c.name)
+                   FROM video_casts vc
+                   JOIN casts c ON c.id = vc.cast_id
+                   WHERE vc.video_id = v.id), '') AS cast_names,
+         COALESCE((SELECT group_concat(DISTINCT cat.name)
+                   FROM video_categories vcat
+                   JOIN categories cat ON cat.id = vcat.category_id
+                   WHERE vcat.video_id = v.id), '') AS category_names,
+         COALESCE((SELECT group_concat(DISTINCT t.name)
+                   FROM video_tags vt
+                   JOIN tags t ON t.id = vt.tag_id
+                   WHERE vt.video_id = v.id), '') AS tag_names,
+         COALESCE((SELECT group_concat(DISTINCT g.name)
+                   FROM video_genres vg
+                   JOIN genres g ON g.id = vg.genre_id
+                   WHERE vg.video_id = v.id), '') AS genre_names,
+         v.created_at, v.updated_at
+       FROM videos v
+       LEFT JOIN works w ON w.id = v.work_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY ${orderBy}
+       LIMIT ?`,
+      [...binds, limit]
     )
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
@@ -2297,13 +2758,22 @@ app.get('/cms/videos', async (c) => {
     title: String(r.title ?? ''),
     description: String(r.description ?? ''),
     streamVideoId: String(r.stream_video_id ?? ''),
+    streamVideoIdClean: String(r.stream_video_id_clean ?? ''),
+    streamVideoIdSubtitled: String(r.stream_video_id_subtitled ?? ''),
     thumbnailUrl: String(r.thumbnail_url ?? ''),
     published: Number(r.published ?? 0) === 1,
     scheduledAt: r.scheduled_at === null || r.scheduled_at === undefined ? null : String(r.scheduled_at ?? ''),
+    episodeNo: r.episode_no === null || r.episode_no === undefined ? null : Number(r.episode_no ?? 0),
+    ratingAvg: Number(r.rating_avg ?? 0) || 0,
+    reviewCount: Number(r.review_count ?? 0) || 0,
+    castNames: String(r.cast_names ?? ''),
+    categoryNames: String(r.category_names ?? ''),
+    tagNames: String(r.tag_names ?? ''),
+    genreNames: String(r.genre_names ?? ''),
     createdAt: String(r.created_at ?? ''),
     updatedAt: String(r.updated_at ?? ''),
   }))
-  return c.json({ items })
+  return c.json({ items, limit })
 })
 
 app.get('/cms/videos/:id', async (c) => {
@@ -2318,7 +2788,7 @@ app.get('/cms/videos/:id', async (c) => {
   try {
     row = await d1First(
       db,
-      'SELECT v.id, v.work_id, w.title AS work_title, v.title, v.description, v.stream_video_id, v.thumbnail_url, v.published, v.scheduled_at, v.created_at, v.updated_at FROM videos v LEFT JOIN works w ON w.id = v.work_id WHERE v.id = ?',
+      'SELECT v.id, v.work_id, w.title AS work_title, v.title, v.description, v.stream_video_id, COALESCE(v.stream_video_id_clean, \'\') AS stream_video_id_clean, COALESCE(v.stream_video_id_subtitled, \'\') AS stream_video_id_subtitled, v.thumbnail_url, v.published, v.scheduled_at, v.episode_no, COALESCE(v.rating_avg, 0) AS rating_avg, COALESCE(v.review_count, 0) AS review_count, v.created_at, v.updated_at FROM videos v LEFT JOIN works w ON w.id = v.work_id WHERE v.id = ?',
       [id]
     )
   } catch (err) {
@@ -2327,9 +2797,28 @@ app.get('/cms/videos/:id', async (c) => {
   }
   if (!row) return c.json({ error: 'not_found' }, 404)
 
-  const categoryIds = (await d1All(db, 'SELECT category_id FROM video_categories WHERE video_id = ? ORDER BY sort_order ASC', [id])).map((r) => String(r.category_id ?? '')).filter(Boolean)
-  const tagIds = (await d1All(db, 'SELECT tag_id FROM video_tags WHERE video_id = ? ORDER BY created_at ASC', [id])).map((r) => String(r.tag_id ?? '')).filter(Boolean)
-  const castIds = (await d1All(db, 'SELECT cast_id FROM video_casts WHERE video_id = ? ORDER BY sort_order ASC', [id])).map((r) => String(r.cast_id ?? '')).filter(Boolean)
+  const [categoryIds, tagIds, castIds, genreIds, playsRow, coinsRow, commentsRow] = await Promise.all([
+    d1All(db, 'SELECT category_id FROM video_categories WHERE video_id = ? ORDER BY sort_order ASC', [id]),
+    d1All(db, 'SELECT tag_id FROM video_tags WHERE video_id = ? ORDER BY created_at ASC', [id]),
+    d1All(db, 'SELECT cast_id FROM video_casts WHERE video_id = ? ORDER BY sort_order ASC', [id]),
+    d1All(db, 'SELECT genre_id FROM video_genres WHERE video_id = ? ORDER BY created_at ASC', [id]),
+    d1First(db, 'SELECT COUNT(*) AS n FROM video_play_events WHERE video_id = ?', [id]),
+    d1First(db, 'SELECT COALESCE(SUM(amount), 0) AS n FROM coin_spend_events WHERE video_id = ? AND amount > 0', [id]),
+    d1First(
+      db,
+      'SELECT COUNT(*) AS n FROM comments WHERE deleted = 0 AND content_id = ? AND (episode_id = ? OR episode_id = ?)',
+      [String((row as any).work_id ?? ''), id, String((row as any).episode_no ?? '')]
+    ),
+  ])
+
+  const categoryIdList = (categoryIds as any[]).map((r) => String((r as any).category_id ?? '')).filter(Boolean)
+  const tagIdList = (tagIds as any[]).map((r) => String((r as any).tag_id ?? '')).filter(Boolean)
+  const castIdList = (castIds as any[]).map((r) => String((r as any).cast_id ?? '')).filter(Boolean)
+  const genreIdList = (genreIds as any[]).map((r) => String((r as any).genre_id ?? '')).filter(Boolean)
+
+  const playsCount = Number((playsRow as any)?.n ?? 0)
+  const coinsSpent = Number((coinsRow as any)?.n ?? 0)
+  const commentsCount = Number((commentsRow as any)?.n ?? 0)
 
   return c.json({
     item: {
@@ -2339,14 +2828,25 @@ app.get('/cms/videos/:id', async (c) => {
       title: String(row.title ?? ''),
       description: String(row.description ?? ''),
       streamVideoId: String(row.stream_video_id ?? ''),
+      streamVideoIdClean: String((row as any).stream_video_id_clean ?? ''),
+      streamVideoIdSubtitled: String((row as any).stream_video_id_subtitled ?? ''),
       thumbnailUrl: String(row.thumbnail_url ?? ''),
       published: Number(row.published ?? 0) === 1,
       scheduledAt: row.scheduled_at === null || row.scheduled_at === undefined ? null : String(row.scheduled_at ?? ''),
+      episodeNo: (row as any).episode_no === null || (row as any).episode_no === undefined ? null : Number((row as any).episode_no ?? 0),
+      ratingAvg: Number((row as any).rating_avg ?? 0) || 0,
+      reviewCount: Number((row as any).review_count ?? 0) || 0,
       createdAt: String(row.created_at ?? ''),
       updatedAt: String(row.updated_at ?? ''),
-      categoryIds,
-      tagIds,
-      castIds,
+      categoryIds: categoryIdList,
+      tagIds: tagIdList,
+      castIds: castIdList,
+      genreIds: genreIdList,
+    },
+    stats: {
+      playsCount,
+      coinsSpent,
+      commentsCount,
     },
   })
 })
@@ -2362,25 +2862,33 @@ app.post('/cms/videos', async (c) => {
     title?: unknown
     description?: unknown
     streamVideoId?: unknown
+    streamVideoIdClean?: unknown
+    streamVideoIdSubtitled?: unknown
     thumbnailUrl?: unknown
     published?: unknown
     scheduledAt?: unknown
+    episodeNo?: unknown
     categoryIds?: unknown
     tagIds?: unknown
     castIds?: unknown
+    genreIds?: unknown
   }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const workId = String(body.workId ?? '').trim()
   const title = clampText(body.title, 200)
   const description = clampText(body.description, 5000)
   const streamVideoId = clampText(body.streamVideoId, 120)
+  const streamVideoIdClean = clampText(body.streamVideoIdClean, 120)
+  const streamVideoIdSubtitled = clampText(body.streamVideoIdSubtitled, 120)
   const thumbnailUrl = clampText(body.thumbnailUrl, 500)
   const published = body.published === undefined ? 0 : parseBool01(body.published)
   const scheduledAtRaw = body.scheduledAt === undefined ? undefined : String(body.scheduledAt ?? '').trim()
   const scheduledAt = scheduledAtRaw === undefined ? null : scheduledAtRaw || null
+  const episodeNo = body.episodeNo === undefined ? null : Number(body.episodeNo)
   const categoryIds = parseIdList(body.categoryIds)
   const tagIds = parseIdList(body.tagIds)
   const castIds = parseIdList(body.castIds)
+  const genreIds = parseIdList(body.genreIds)
 
   if (!workId) return c.json({ error: 'workId is required' }, 400)
   if (!title) return c.json({ error: 'title is required' }, 400)
@@ -2389,13 +2897,14 @@ app.post('/cms/videos', async (c) => {
   const id = uuidOrFallback('vid')
   try {
     await db
-      .prepare('INSERT INTO videos (id, work_id, title, description, stream_video_id, thumbnail_url, published, scheduled_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(id, workId, title, description, streamVideoId, thumbnailUrl, published, scheduledAt, createdAt, createdAt)
+      .prepare('INSERT INTO videos (id, work_id, title, description, stream_video_id, stream_video_id_clean, stream_video_id_subtitled, thumbnail_url, published, scheduled_at, episode_no, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, workId, title, description, streamVideoId, streamVideoIdClean, streamVideoIdSubtitled, thumbnailUrl, published, scheduledAt, Number.isFinite(episodeNo as any) ? episodeNo : null, createdAt, createdAt)
       .run()
 
     await replaceLinks(db, { table: 'video_categories', leftKey: 'video_id', leftId: id, rightKey: 'category_id', rightIds: categoryIds })
     await replaceLinks(db, { table: 'video_tags', leftKey: 'video_id', leftId: id, rightKey: 'tag_id', rightIds: tagIds })
     await replaceCastLinks(db, { table: 'video_casts', leftKey: 'video_id', leftId: id, castIds })
+    await replaceLinks(db, { table: 'video_genres', leftKey: 'video_id', leftId: id, rightKey: 'genre_id', rightIds: genreIds })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -2416,12 +2925,16 @@ app.put('/cms/videos/:id', async (c) => {
     title?: unknown
     description?: unknown
     streamVideoId?: unknown
+    streamVideoIdClean?: unknown
+    streamVideoIdSubtitled?: unknown
     thumbnailUrl?: unknown
     published?: unknown
     scheduledAt?: unknown
+    episodeNo?: unknown
     categoryIds?: unknown
     tagIds?: unknown
     castIds?: unknown
+    genreIds?: unknown
   }
   const body = (await c.req.json().catch(() => ({}))) as Body
 
@@ -2449,6 +2962,14 @@ app.put('/cms/videos/:id', async (c) => {
     sets.push('stream_video_id = ?')
     binds.push(clampText(body.streamVideoId, 120))
   }
+  if (body.streamVideoIdClean !== undefined) {
+    sets.push('stream_video_id_clean = ?')
+    binds.push(clampText(body.streamVideoIdClean, 120))
+  }
+  if (body.streamVideoIdSubtitled !== undefined) {
+    sets.push('stream_video_id_subtitled = ?')
+    binds.push(clampText(body.streamVideoIdSubtitled, 120))
+  }
   if (body.thumbnailUrl !== undefined) {
     sets.push('thumbnail_url = ?')
     binds.push(clampText(body.thumbnailUrl, 500))
@@ -2462,6 +2983,11 @@ app.put('/cms/videos/:id', async (c) => {
     const scheduledAt = scheduledAtRaw ? scheduledAtRaw : null
     sets.push('scheduled_at = ?')
     binds.push(scheduledAt)
+  }
+  if (body.episodeNo !== undefined) {
+    const n = Number(body.episodeNo)
+    sets.push('episode_no = ?')
+    binds.push(Number.isFinite(n) ? n : null)
   }
 
   sets.push('updated_at = ?')
@@ -2482,11 +3008,98 @@ app.put('/cms/videos/:id', async (c) => {
       const castIds = parseIdList(body.castIds)
       await replaceCastLinks(db, { table: 'video_casts', leftKey: 'video_id', leftId: id, castIds })
     }
+    if (body.genreIds !== undefined) {
+      const genreIds = parseIdList(body.genreIds)
+      await replaceLinks(db, { table: 'video_genres', leftKey: 'video_id', leftId: id, rightKey: 'genre_id', rightIds: genreIds })
+    }
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
   }
   return c.json({ ok: true })
+})
+
+// Per-video recommendations (CMS)
+app.get('/cms/videos/:id/recommendations', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(
+      db,
+      `SELECT
+         vr.recommended_video_id AS id,
+         vr.sort_order AS sort_order,
+         v.work_id AS work_id,
+         COALESCE(w.title, '') AS work_title,
+         v.title AS title,
+         v.thumbnail_url AS thumbnail_url
+       FROM video_recommendations vr
+       JOIN videos v ON v.id = vr.recommended_video_id
+       LEFT JOIN works w ON w.id = v.work_id
+       WHERE vr.video_id = ?
+       ORDER BY vr.sort_order ASC, vr.created_at ASC`,
+      [id]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({
+    videoId: id,
+    items: rows.map((r) => ({
+      id: String(r.id ?? ''),
+      sortOrder: Number(r.sort_order ?? 0),
+      workId: String(r.work_id ?? ''),
+      workTitle: String(r.work_title ?? ''),
+      title: String(r.title ?? ''),
+      thumbnailUrl: String(r.thumbnail_url ?? ''),
+    })),
+  })
+})
+
+app.put('/cms/videos/:id/recommendations', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = { videoIds?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  if (!Array.isArray(body.videoIds)) return c.json({ error: 'videoIds must be an array' }, 400)
+
+  const videoIds = Array.from(
+    new Set(
+      body.videoIds
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean)
+    )
+  )
+  if (videoIds.length > 200) return c.json({ error: 'too_many_items' }, 400)
+
+  const createdAt = nowIso()
+  try {
+    await db.prepare('DELETE FROM video_recommendations WHERE video_id = ?').bind(id).run()
+    for (let i = 0; i < videoIds.length; i++) {
+      await db
+        .prepare('INSERT INTO video_recommendations (video_id, recommended_video_id, sort_order, created_at) VALUES (?, ?, ?, ?)')
+        .bind(id, videoIds[i], i, createdAt)
+        .run()
+    }
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true, videoId: id, count: videoIds.length })
 })
 
 // ---- CMS: Featured videos (Recommend/Pickup slots) ----
@@ -3947,7 +4560,6 @@ app.get('/v1/stream/signed-playback/:videoId', async (c) => {
   })
 })
 
-// Client upload (Direct Upload URL)
 app.post('/v1/stream/direct-upload', async (c) => {
   const accountId = c.env.CLOUDFLARE_ACCOUNT_ID
   const token = c.env.CLOUDFLARE_STREAM_API_TOKEN

@@ -2,6 +2,7 @@ name = "oshidra-api"
 account_id = "c6270d2ac0aefb2ca6ce6831cbc9ca30"
 main = "src/index.ts"
 compatibility_date = "2026-01-02"
+route = "https://api.oshidra.com/*"
 
 [triggers]
 # Every 5 minutes: execute scheduled publishing.
@@ -21,6 +22,7 @@ database_id = "1f7de46f-7b0c-4150-ae76-6dd762a23f71"
 # Production environment
 [env.production]
 name = "oshidra-api"
+route = "https://api.oshidra.com/*"
 
 [env.production.triggers]
 crons = ["*/5 * * * *", "10 0 * * *"]

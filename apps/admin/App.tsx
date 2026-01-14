@@ -1,8 +1,9 @@
 import { StatusBar } from 'expo-status-bar'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Animated,
   Image,
+  Modal,
   Platform,
   PanResponder,
   Pressable,
@@ -13,6 +14,8 @@ import {
   TextInput,
   View,
 } from 'react-native'
+
+const tus: typeof import('tus-js-client') | null = Platform.OS === 'web' ? (require('tus-js-client') as any) : null
 
 type Screen = 'login' | 'app'
 
@@ -48,6 +51,7 @@ type RouteId =
   // ユーザー管理
   | 'users'
   | 'user-detail'
+  | 'user-new'
   // お知らせ
   | 'notices'
   | 'notice-detail'
@@ -65,6 +69,12 @@ type RouteId =
   | 'tags'
   | 'tag-edit'
   | 'tag-new'
+  | 'genres'
+  | 'genre-detail'
+  | 'genre-new'
+  | 'cast-categories'
+  | 'cast-category-detail'
+  | 'cast-category-new'
   | 'coin'
   | 'coin-setting-detail'
   | 'coin-setting-new'
@@ -88,17 +98,89 @@ const STORAGE_KEY = 'oshidra_admin_token_v1'
 const STORAGE_EMAIL_KEY = 'oshidra_admin_email_v1'
 const STORAGE_DEV_MODE_KEY = 'oshidra_admin_dev_mode_v1'
 const STORAGE_API_OVERRIDE_KEY = 'oshidra_admin_api_base_override_v1'
+const STORAGE_UPLOADER_OVERRIDE_KEY = 'oshidra_admin_uploader_base_override_v1'
 const STORAGE_DEV_POS_KEY = 'oshidra_admin_dev_pos_v1'
 const STORAGE_DEBUG_OVERLAY_POS_KEY = 'oshidra_admin_debug_overlay_pos_v1'
 const STORAGE_MOCK_KEY = 'oshidra_admin_mock_v1'
 
+const UNAUTHORIZED_EVENT = 'oshidra-admin:unauthorized'
+let unauthorizedEventEmitted = false
+
 type CmsApiConfig = {
   apiBase: string
+  uploaderBase: string
   token: string
   mock: boolean
 }
 
 const CmsApiContext = createContext<CmsApiConfig | null>(null)
+
+type ConfirmOptions = {
+  title?: string
+  okText?: string
+  cancelText?: string
+  danger?: boolean
+}
+
+type DialogContextValue = {
+  confirm: (message: string, options?: ConfirmOptions) => Promise<boolean>
+}
+
+const DialogContext = createContext<DialogContextValue | null>(null)
+
+function useDialog() {
+  const v = useContext(DialogContext)
+  if (!v) throw new Error('Dialog is not configured')
+  return v
+}
+
+function DialogProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<{
+    open: boolean
+    message: string
+    options: ConfirmOptions
+    resolve: ((v: boolean) => void) | null
+  }>({ open: false, message: '', options: {}, resolve: null })
+
+  const confirm = useCallback((message: string, options: ConfirmOptions = {}) => {
+    return new Promise<boolean>((resolve) => {
+      setState({ open: true, message, options, resolve })
+    })
+  }, [])
+
+  const close = useCallback((result: boolean) => {
+    setState((prev) => {
+      try {
+        prev.resolve?.(result)
+      } catch {
+        // ignore
+      }
+      return { open: false, message: '', options: {}, resolve: null }
+    })
+  }, [])
+
+  return (
+    <DialogContext.Provider value={{ confirm }}>
+      {children}
+      <Modal transparent animationType="fade" visible={state.open} onRequestClose={() => close(false)}>
+        <Pressable onPress={() => close(false)} style={styles.dialogOverlay}>
+          <Pressable onPress={() => {}} style={styles.dialogCard}>
+            <Text style={styles.dialogTitle}>{state.options.title || '確認'}</Text>
+            <Text style={styles.dialogMessage}>{state.message}</Text>
+            <View style={styles.dialogActionsRow}>
+              <Pressable onPress={() => close(false)} style={styles.dialogBtn}>
+                <Text style={styles.dialogBtnText}>{state.options.cancelText || 'キャンセル'}</Text>
+              </Pressable>
+              <Pressable onPress={() => close(true)} style={[styles.dialogBtn, state.options.danger ? styles.dialogBtnDanger : styles.dialogBtnOk]}>
+                <Text style={[styles.dialogBtnText, styles.dialogBtnOkText]}>{state.options.okText || 'OK'}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </DialogContext.Provider>
+  )
+}
 
 function useCmsApi() {
   const v = useContext(CmsApiContext)
@@ -113,8 +195,8 @@ function csvToIdList(text: string): string[] {
     .filter(Boolean)
 }
 
-async function cmsFetchJson<T>(cfg: CmsApiConfig, path: string, init?: RequestInit): Promise<T> {
-  const base = (cfg.apiBase || '').replace(/\/$/, '')
+async function cmsFetchJsonWithBase<T>(cfg: CmsApiConfig, baseUrl: string, path: string, init?: RequestInit): Promise<T> {
+  const base = (baseUrl || '').replace(/\/$/, '')
   if (!base) throw new Error('API Base が未設定です')
   if (!cfg.token) throw new Error('セッションが切れました')
 
@@ -127,11 +209,50 @@ async function cmsFetchJson<T>(cfg: CmsApiConfig, path: string, init?: RequestIn
     },
   })
   const json = (await res.json().catch(() => ({}))) as any
+
+  if (res.status === 401) {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      // Ensure a bad/expired remembered token doesn't keep auto-logging in.
+      safeLocalStorageRemove(STORAGE_KEY)
+
+      if (!unauthorizedEventEmitted) {
+        let dispatched = false
+        try {
+          window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail: { path } }))
+          dispatched = true
+        } catch {
+          try {
+            window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+            dispatched = true
+          } catch {
+            dispatched = false
+          }
+        }
+
+        if (!dispatched) {
+          try {
+            window.location.href = '/login'
+          } catch {
+            // ignore
+          }
+        }
+
+        // Only suppress future emissions if we actually notified the app.
+        unauthorizedEventEmitted = dispatched
+      }
+    }
+    throw new Error('セッションが切れました')
+  }
+
   if (!res.ok) {
     const msg = json && json.error ? String(json.error) : '通信に失敗しました。時間をおいて再度お試しください'
     throw new Error(msg)
   }
   return json as T
+}
+
+async function cmsFetchJson<T>(cfg: CmsApiConfig, path: string, init?: RequestInit): Promise<T> {
+  return cmsFetchJsonWithBase<T>(cfg, cfg.apiBase, path, init)
 }
 
 function isValidEmail(email: string): boolean {
@@ -407,6 +528,21 @@ function getApiBaseFromLocation(): string {
   return 'https://api.oshidra.com'
 }
 
+function getUploaderBaseFromLocation(): string {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return ''
+
+  const override = safeLocalStorageGet(STORAGE_UPLOADER_OVERRIDE_KEY).trim()
+  if (override) return override.replace(/\/$/, '')
+
+  const url = new URL(window.location.href)
+  const q = String(url.searchParams.get('uploader') || '').trim()
+  if (q) return q.replace(/\/$/, '')
+
+  // Default (production)
+  // Local development can override via ?uploader=http://localhost:8788 or Uploader Base Override in /dev.
+  return 'https://assets-uploader.oshidra.com'
+}
+
 function safeJsonParse<T>(value: string, fallback: T): T {
   try {
     return JSON.parse(value) as T
@@ -555,10 +691,18 @@ type ActivityItem = {
   route: RouteId
 }
 
-function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) {
+function DashboardScreen({
+  onNavigate,
+  onOpenScheduledDetail,
+}: {
+  onNavigate: (id: RouteId) => void
+  onOpenScheduledDetail?: (id: string) => void
+}) {
   const cfg = useCmsApi()
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
+
+  const [scheduledRows, setScheduledRows] = useState<Array<{ id: string; title: string; scheduledAt: string; status: string }>>([])
 
   const [kpis, setKpis] = useState<KPIItem[]>(() => [
     { id: 'users_total', label: '総ユーザー数', value: '—', route: 'users' },
@@ -593,13 +737,24 @@ function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) 
     setBanner('')
     void (async () => {
       try {
-        const [summary, videos, comments, actors] = await Promise.all([
+        const [summaryRes, videosRes, commentsRes, actorsRes, scheduledRes] = await Promise.allSettled([
           cmsFetchJson<any>(cfg, '/cms/dashboard/summary'),
           cmsFetchJson<{ items: any[] }>(cfg, '/cms/videos/unapproved'),
           cmsFetchJson<{ items: any[] }>(cfg, '/cms/comments?status=pending'),
           cmsFetchJson<{ items: any[] }>(cfg, '/cms/cast-profiles/unapproved'),
+          cmsFetchJson<{ items: any[] }>(cfg, '/cms/videos/scheduled'),
         ])
         if (!mounted) return
+
+        if (summaryRes.status !== 'fulfilled') {
+          throw summaryRes.reason
+        }
+
+        const summary = summaryRes.value
+        const videos = videosRes.status === 'fulfilled' ? videosRes.value : { items: [] as any[] }
+        const comments = commentsRes.status === 'fulfilled' ? commentsRes.value : { items: [] as any[] }
+        const actors = actorsRes.status === 'fulfilled' ? actorsRes.value : { items: [] as any[] }
+        const scheduled = scheduledRes.status === 'fulfilled' ? scheduledRes.value : { items: [] as any[] }
 
         setKpis([
           { id: 'users_total', label: '総ユーザー数', value: String(summary?.usersTotal ?? 0), route: 'users' },
@@ -633,6 +788,20 @@ function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) 
             route: 'unapproved-actor-accounts',
           },
         ])
+
+        setScheduledRows(
+          (scheduled.items ?? []).map((r) => {
+            const scheduledAtRaw = (r as any).scheduledAt
+            const scheduledAt = scheduledAtRaw ? String(scheduledAtRaw).slice(0, 19).replace('T', ' ') : ''
+            const status = String((r as any).status ?? 'scheduled')
+            return {
+              id: String((r as any).id ?? ''),
+              title: String((r as any).title ?? ''),
+              scheduledAt,
+              status: status === 'cancelled' ? '取消' : '配信予約',
+            }
+          })
+        )
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -665,6 +834,45 @@ function DashboardScreen({ onNavigate }: { onNavigate: (id: RouteId) => void }) 
               <Text style={styles.kpiValue}>{it.value}</Text>
             </Pressable>
           ))}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.pageHeaderRow}>
+          <Text style={styles.sectionTitle}>配信予定動画（直近）</Text>
+          <Pressable onPress={() => onNavigate('videos-scheduled')} style={styles.smallBtnPrimary}>
+            <Text style={styles.smallBtnPrimaryText}>一覧へ</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.table}>
+          {busy && scheduledRows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
+
+          {scheduledRows.slice(0, 5).map((r) => (
+            <Pressable
+              key={r.id}
+              onPress={() => (onOpenScheduledDetail ? onOpenScheduledDetail(r.id) : onNavigate('videos-scheduled'))}
+              style={styles.tableRow}
+            >
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>{r.title || r.id}</Text>
+                <Text style={styles.tableDetail}>{`${r.scheduledAt || '—'} / ${r.status}`}</Text>
+              </View>
+              <View style={styles.tableRight}>
+                <Text style={styles.linkText}>詳細</Text>
+              </View>
+            </Pressable>
+          ))}
+
+          {!busy && scheduledRows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>配信予定がありません</Text>
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -765,10 +973,17 @@ function SelectField({
   onChange: (next: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
   const selectedLabel = useMemo(() => {
     const hit = options.find((o) => o.value === value)
     return hit ? hit.label : ''
   }, [options, value])
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return options
+    return options.filter((o) => `${o.label} ${o.value}`.toLowerCase().includes(needle))
+  }, [options, q])
 
   return (
     <View style={styles.field}>
@@ -777,22 +992,187 @@ function SelectField({
         <Pressable onPress={() => setOpen((v) => !v)} style={styles.selectBtn}>
           <Text style={styles.selectText}>{selectedLabel || placeholder}</Text>
         </Pressable>
-        {open ? (
-          <View style={styles.selectMenu}>
-            {options.map((o) => (
-              <Pressable
-                key={o.value}
-                onPress={() => {
-                  onChange(o.value)
-                  setOpen(false)
-                }}
-                style={styles.selectMenuItem}
-              >
-                <Text style={styles.selectMenuText}>{o.label}</Text>
+
+        <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
+          <Pressable onPress={() => setOpen(false)} style={styles.pickerModalOverlay}>
+            <Pressable onPress={() => {}} style={styles.pickerModalCard}>
+              <View style={styles.pickerModalHeader}>
+                <Text style={styles.pickerModalTitle}>{label}</Text>
+                <Pressable onPress={() => setOpen(false)} style={styles.pickerModalClose}>
+                  <Text style={styles.pickerModalCloseText}>×</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.selectSearchWrap}>
+                <TextInput
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder="検索（名前 / ID）"
+                  placeholderTextColor={COLORS.muted}
+                  autoCapitalize="none"
+                  style={styles.selectSearchInput}
+                />
+              </View>
+
+              <ScrollView style={styles.pickerModalList} contentContainerStyle={styles.pickerModalListContent} keyboardShouldPersistTaps="handled">
+                {filtered.map((o) => {
+                  const selected = o.value === value
+                  return (
+                    <Pressable
+                      key={o.value}
+                      onPress={() => {
+                        onChange(o.value)
+                        setOpen(false)
+                      }}
+                      style={styles.pickerModalItem}
+                    >
+                      <Text style={styles.multiSelectCheck}>{selected ? '✓' : ' '}</Text>
+                      <Text style={styles.pickerModalItemText}>{o.label}</Text>
+                    </Pressable>
+                  )
+                })}
+                {filtered.length === 0 ? (
+                  <View style={styles.selectMenuEmpty}>
+                    <Text style={styles.selectMenuDetailText}>該当なし</Text>
+                  </View>
+                ) : null}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      </View>
+    </View>
+  )
+}
+
+type MultiSelectOption = { label: string; value: string; detail?: string }
+
+function MultiSelectField({
+  label,
+  values,
+  placeholder,
+  options,
+  onChange,
+  searchPlaceholder,
+}: {
+  label: string
+  values: string[]
+  placeholder: string
+  options: MultiSelectOption[]
+  onChange: (next: string[]) => void
+  searchPlaceholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+
+  const selectedSet = useMemo(() => new Set(values), [values])
+
+  const selectedOptions = useMemo(() => {
+    if (!values.length) return [] as MultiSelectOption[]
+    const byId = new Map(options.map((o) => [o.value, o] as const))
+    return values.map((id) => byId.get(id) ?? { value: id, label: id }).filter(Boolean)
+  }, [options, values])
+
+  const summary = useMemo(() => {
+    if (!values.length) return placeholder
+    const first = selectedOptions.slice(0, 2).map((o) => o.label).join(' / ')
+    const rest = values.length - Math.min(values.length, 2)
+    return rest > 0 ? `${first} +${rest}` : first
+  }, [placeholder, selectedOptions, values.length])
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return options
+    return options.filter((o) => `${o.label} ${o.value} ${o.detail ?? ''}`.toLowerCase().includes(needle))
+  }, [options, q])
+
+  const toggle = useCallback(
+    (id: string) => {
+      const next = new Set(values)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      onChange(Array.from(next))
+    },
+    [onChange, values]
+  )
+
+  const remove = useCallback(
+    (id: string) => {
+      const next = values.filter((v) => v !== id)
+      onChange(next)
+    },
+    [onChange, values]
+  )
+
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.selectWrap}>
+        <Pressable onPress={() => setOpen((v) => !v)} style={styles.selectBtn}>
+          <Text style={styles.selectText}>{summary}</Text>
+        </Pressable>
+
+        {values.length ? (
+          <View style={styles.multiChipsWrap}>
+            {selectedOptions.map((o) => (
+              <Pressable key={o.value} onPress={() => remove(o.value)} style={styles.multiChip}>
+                <Text style={styles.multiChipText} numberOfLines={1}>
+                  {o.label}
+                </Text>
+                <Text style={styles.multiChipRemove}>×</Text>
               </Pressable>
             ))}
           </View>
         ) : null}
+
+
+        <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
+          <Pressable onPress={() => setOpen(false)} style={styles.pickerModalOverlay}>
+            <Pressable onPress={() => {}} style={styles.pickerModalCard}>
+              <View style={styles.pickerModalHeader}>
+                <Text style={styles.pickerModalTitle}>{label}</Text>
+                <Pressable onPress={() => setOpen(false)} style={styles.pickerModalClose}>
+                  <Text style={styles.pickerModalCloseText}>×</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.selectSearchWrap}>
+                <TextInput
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder={searchPlaceholder || '検索（名前 / ID）'}
+                  placeholderTextColor={COLORS.muted}
+                  autoCapitalize="none"
+                  style={styles.selectSearchInput}
+                />
+              </View>
+
+              <ScrollView style={styles.pickerModalList} contentContainerStyle={styles.pickerModalListContent} keyboardShouldPersistTaps="handled">
+                {filtered.map((o) => {
+                  const selected = selectedSet.has(o.value)
+                  return (
+                    <Pressable key={o.value} onPress={() => toggle(o.value)} style={styles.pickerModalItem}>
+                      <Text style={styles.multiSelectCheck}>{selected ? '✓' : ' '}</Text>
+                      <View style={styles.multiSelectTextCol}>
+                        <Text style={styles.pickerModalItemText}>{o.label}</Text>
+                        {o.detail ? <Text style={styles.selectMenuDetailText}>{o.detail}</Text> : null}
+                      </View>
+                    </Pressable>
+                  )
+                })}
+                {filtered.length === 0 ? (
+                  <View style={styles.selectMenuEmpty}>
+                    <Text style={styles.selectMenuDetailText}>該当なし</Text>
+                  </View>
+                ) : null}
+              </ScrollView>
+
+              <Pressable onPress={() => setOpen(false)} style={styles.pickerModalDoneBtn}>
+                <Text style={styles.pickerModalDoneText}>完了</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </View>
     </View>
   )
@@ -802,26 +1182,48 @@ type VideoRow = {
   id: string
   thumbnailUrl: string
   title: string
+  workId: string
   workName: string
   episodeLabel: string
-  kind: '本編' | 'ショート'
   subtitles: 'あり' | 'なし'
   status: '公開' | '非公開'
-  views: number
   rating: number
+  reviewCount: number
   createdAt: string
 }
 
 function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: string) => void; onGoUpload: () => void }) {
   const cfg = useCmsApi()
+  const { confirm } = useDialog()
   const [works, setWorks] = useState<Array<{ id: string; title: string }>>([])
-  const workNames = useMemo(() => ['全て', ...works.map((w) => w.title || w.id)], [works])
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
+  const [tags, setTags] = useState<Array<{ id: string; name: string }>>([])
+  const [casts, setCasts] = useState<Array<{ id: string; name: string }>>([])
+  const [genres, setGenres] = useState<Array<{ id: string; name: string }>>([])
 
-  const [qTitle, setQTitle] = useState('')
-  const [qWork, setQWork] = useState('')
+  const workOptions = useMemo(
+    () => [{ label: '全て', value: '' }, ...works.map((w) => ({ label: w.title || w.id, value: w.id }))],
+    [works]
+  )
+  const categoryOptions = useMemo(
+    () => [{ label: '全て', value: '' }, ...categories.map((c) => ({ label: c.name || c.id, value: c.id }))],
+    [categories]
+  )
+  const tagOptions = useMemo(() => [{ label: '全て', value: '' }, ...tags.map((t) => ({ label: t.name || t.id, value: t.id }))], [tags])
+  const castOptions = useMemo(() => [{ label: '全て', value: '' }, ...casts.map((c) => ({ label: c.name || c.id, value: c.id }))], [casts])
+  const genreOptions = useMemo(
+    () => [{ label: '全て', value: '' }, ...genres.map((g) => ({ label: g.name || g.id, value: g.id }))],
+    [genres]
+  )
+
+  const [qText, setQText] = useState('')
+  const [qWorkId, setQWorkId] = useState('')
   const [qStatus, setQStatus] = useState('')
-  const [qSubtitles, setQSubtitles] = useState('')
-  const [qKind, setQKind] = useState('')
+  const [qCategoryId, setQCategoryId] = useState('')
+  const [qTagId, setQTagId] = useState('')
+  const [qCastId, setQCastId] = useState('')
+  const [qGenreId, setQGenreId] = useState('')
+  const [qSort, setQSort] = useState<'created_desc' | 'created_asc' | 'scheduled_asc' | 'title_asc'>('created_desc')
   const [qFrom, setQFrom] = useState('')
   const [qTo, setQTo] = useState('')
 
@@ -829,35 +1231,74 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const loadVideos = useCallback(
+    async (opts?: { q?: string; workId?: string; published?: '' | '0' | '1'; categoryId?: string; tagId?: string; castId?: string; genreId?: string; sort?: string }) => {
+      const qs = new URLSearchParams()
+      const q = (opts?.q ?? '').trim()
+      if (q) qs.set('q', q)
+      const workId = (opts?.workId ?? '').trim()
+      if (workId) qs.set('workId', workId)
+      const published = opts?.published ?? ''
+      if (published) qs.set('published', published)
+      const categoryId = (opts?.categoryId ?? '').trim()
+      if (categoryId) qs.set('categoryId', categoryId)
+      const tagId = (opts?.tagId ?? '').trim()
+      if (tagId) qs.set('tagId', tagId)
+      const castId = (opts?.castId ?? '').trim()
+      if (castId) qs.set('castId', castId)
+      const genreId = (opts?.genreId ?? '').trim()
+      if (genreId) qs.set('genreId', genreId)
+      const sort = (opts?.sort ?? '').trim()
+      if (sort) qs.set('sort', sort)
+      qs.set('limit', '500')
+
+      const json = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/videos${qs.toString() ? `?${qs.toString()}` : ''}`)
+      setRows(
+        (json.items ?? []).map((v) => {
+          const createdAt = String(v.createdAt || '').slice(0, 19).replace('T', ' ')
+          const episodeNo = v.episodeNo === null || v.episodeNo === undefined ? null : Number(v.episodeNo)
+          const episodeLabel = episodeNo === null || !Number.isFinite(episodeNo) ? '—' : `#${episodeNo}`
+          const subtitles = String(v.streamVideoIdSubtitled ?? '') ? 'あり' : 'なし'
+          return {
+            id: String(v.id ?? ''),
+            thumbnailUrl: String(v.thumbnailUrl ?? ''),
+            title: String(v.title ?? ''),
+            workId: String(v.workId ?? ''),
+            workName: String(v.workTitle ?? v.workId ?? ''),
+            episodeLabel,
+            subtitles,
+            status: v.published ? '公開' : '非公開',
+            rating: Number(v.ratingAvg ?? 0) || 0,
+            reviewCount: Number(v.reviewCount ?? 0) || 0,
+            createdAt,
+          }
+        })
+      )
+    },
+    [cfg]
+  )
+
   useEffect(() => {
     let mounted = true
     setBusy(true)
     setBanner('')
     void (async () => {
       try {
-        const [worksJson, videosJson] = await Promise.all([
+        const [worksJson, catsJson, tagsJson, castsJson, genresJson] = await Promise.all([
           cmsFetchJson<{ items: Array<{ id: string; title: string }> }>(cfg, '/cms/works'),
-          cmsFetchJson<{
-            items: Array<{ id: string; title: string; workId: string; workTitle: string; thumbnailUrl: string; published: boolean; createdAt: string }>
-          }>(cfg, '/cms/videos'),
+          cmsFetchJson<{ items: any[] }>(cfg, '/cms/categories'),
+          cmsFetchJson<{ items: any[] }>(cfg, '/cms/tags'),
+          cmsFetchJson<{ items: any[] }>(cfg, '/cms/casts'),
+          cmsFetchJson<{ items: any[] }>(cfg, '/cms/genres'),
         ])
         if (!mounted) return
         setWorks(worksJson.items)
-        setRows(
-          videosJson.items.map((v) => ({
-            id: v.id,
-            thumbnailUrl: v.thumbnailUrl || '',
-            title: v.title,
-            workName: v.workTitle || v.workId,
-            episodeLabel: '—',
-            kind: '本編',
-            subtitles: 'なし',
-            status: v.published ? '公開' : '非公開',
-            views: 0,
-            rating: 0,
-            createdAt: String(v.createdAt || '').slice(0, 19).replace('T', ' '),
-          }))
-        )
+        setCategories((catsJson.items ?? []).map((c) => ({ id: String(c.id ?? ''), name: String(c.name ?? '') })).filter((c) => c.id))
+        setTags((tagsJson.items ?? []).map((t) => ({ id: String(t.id ?? ''), name: String(t.name ?? '') })).filter((t) => t.id))
+        setCasts((castsJson.items ?? []).map((c) => ({ id: String(c.id ?? ''), name: String(c.name ?? '') })).filter((c) => c.id))
+        setGenres((genresJson.items ?? []).map((g) => ({ id: String(g.id ?? ''), name: String(g.name ?? '') })).filter((g) => g.id))
+
+        await loadVideos({ q: '', sort: 'created_desc' })
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -869,36 +1310,33 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
     return () => {
       mounted = false
     }
-  }, [cfg])
+  }, [cfg, loadVideos])
 
   const [page, setPage] = useState(1)
   const [pageInput, setPageInput] = useState('1')
   const pageSize = 20
 
   const reset = useCallback(() => {
-    setQTitle('')
-    setQWork('')
+    setQText('')
+    setQWorkId('')
     setQStatus('')
-    setQSubtitles('')
-    setQKind('')
+    setQCategoryId('')
+    setQTagId('')
+    setQCastId('')
+    setQGenreId('')
+    setQSort('created_desc')
     setQFrom('')
     setQTo('')
     setPage(1)
   }, [])
 
   const filtered = useMemo(() => {
-    const title = qTitle.trim()
     return rows.filter((r) => {
-      if (title && !r.title.includes(title)) return false
-      if (qWork && qWork !== '全て' && r.workName !== qWork) return false
-      if (qStatus && r.status !== qStatus) return false
-      if (qSubtitles && r.subtitles !== qSubtitles) return false
-      if (qKind && r.kind !== qKind) return false
       if (qFrom && r.createdAt.slice(0, 10) < qFrom) return false
       if (qTo && r.createdAt.slice(0, 10) > qTo) return false
       return true
     })
-  }, [qFrom, qKind, qStatus, qSubtitles, qTitle, qTo, qWork, rows])
+  }, [qFrom, qTo, rows])
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(filtered.length / pageSize)), [filtered.length])
 
@@ -917,14 +1355,11 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
   }, [page])
 
   const togglePublish = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const row = rows.find((r) => r.id === id)
       if (!row) return
       const next = row.status === '公開' ? '非公開' : '公開'
-      let ok = true
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-        ok = window.confirm(`${row.title} を「${next}」に切り替えますか？`)
-      }
+      const ok = await confirm(`${row.title} を「${next}」に切り替えますか？`, { title: '公開状態の変更' })
       if (!ok) return
 
       setBusy(true)
@@ -944,7 +1379,7 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
         }
       })()
     },
-    [cfg, rows]
+    [cfg, confirm, rows]
   )
 
   return (
@@ -966,16 +1401,16 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
         <Text style={styles.sectionTitle}>検索・絞り込み</Text>
         <View style={styles.filtersGrid}>
           <View style={styles.field}>
-            <Text style={styles.label}>動画タイトル</Text>
-            <TextInput value={qTitle} onChangeText={setQTitle} placeholder="部分一致" style={styles.input} />
+            <Text style={styles.label}>検索</Text>
+            <TextInput value={qText} onChangeText={setQText} placeholder="タイトル / 説明 / 作品" style={styles.input} />
           </View>
 
           <SelectField
             label="作品名"
-            value={qWork}
+            value={qWorkId}
             placeholder="選択"
-            options={workNames.map((w) => ({ label: w, value: w }))}
-            onChange={setQWork}
+            options={workOptions}
+            onChange={setQWorkId}
           />
 
           <SelectField
@@ -991,27 +1426,30 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
           />
 
           <SelectField
-            label="字幕"
-            value={qSubtitles}
+            label="カテゴリ"
+            value={qCategoryId}
             placeholder="選択"
-            options={[
-              { label: '全て', value: '' },
-              { label: '字幕あり', value: 'あり' },
-              { label: '字幕なし', value: 'なし' },
-            ]}
-            onChange={setQSubtitles}
+            options={categoryOptions}
+            onChange={setQCategoryId}
           />
 
+          <SelectField label="タグ" value={qTagId} placeholder="選択" options={tagOptions} onChange={setQTagId} />
+
+          <SelectField label="キャスト" value={qCastId} placeholder="選択" options={castOptions} onChange={setQCastId} />
+
+          <SelectField label="ジャンル" value={qGenreId} placeholder="選択" options={genreOptions} onChange={setQGenreId} />
+
           <SelectField
-            label="動画種別"
-            value={qKind}
+            label="並び順"
+            value={qSort}
             placeholder="選択"
             options={[
-              { label: '全て', value: '' },
-              { label: '本編', value: '本編' },
-              { label: 'ショート', value: 'ショート' },
+              { label: '登録日（新しい順）', value: 'created_desc' },
+              { label: '登録日（古い順）', value: 'created_asc' },
+              { label: '公開予定日（早い順）', value: 'scheduled_asc' },
+              { label: 'タイトル（昇順）', value: 'title_asc' },
             ]}
-            onChange={setQKind}
+            onChange={(v) => setQSort(v as any)}
           />
 
           <View style={styles.field}>
@@ -1026,7 +1464,34 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
         </View>
 
         <View style={styles.filterActions}>
-          <Pressable onPress={() => setPage(1)} style={styles.btnPrimary}>
+          <Pressable
+            disabled={busy}
+            onPress={() => {
+              setPage(1)
+              setBusy(true)
+              setBanner('')
+              void (async () => {
+                try {
+                  const published = qStatus === '公開' ? '1' : qStatus === '非公開' ? '0' : ''
+                  await loadVideos({
+                    q: qText,
+                    workId: qWorkId,
+                    published,
+                    categoryId: qCategoryId,
+                    tagId: qTagId,
+                    castId: qCastId,
+                    genreId: qGenreId,
+                    sort: qSort,
+                  })
+                } catch (e) {
+                  setBanner(e instanceof Error ? e.message : String(e))
+                } finally {
+                  setBusy(false)
+                }
+              })()
+            }}
+            style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}
+          >
             <Text style={styles.btnPrimaryText}>検索</Text>
           </Pressable>
           <Pressable onPress={reset} style={styles.btnSecondary}>
@@ -1045,10 +1510,9 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
                 'サムネイル',
                 '動画タイトル',
                 '作品名',
-                '話数 / 種別',
+                '話数',
                 '字幕',
                 '公開状態',
-                '再生回数',
                 '評価',
                 '登録日',
                 '操作',
@@ -1071,11 +1535,10 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
                 </View>
                 <Text style={styles.videoCell}>{r.title}</Text>
                 <Text style={styles.videoCell}>{r.workName}</Text>
-                <Text style={styles.videoCell}>{`${r.episodeLabel} / ${r.kind}`}</Text>
+                <Text style={styles.videoCell}>{r.episodeLabel}</Text>
                 <Text style={styles.videoCell}>{r.subtitles}</Text>
                 <Text style={styles.videoCell}>{r.status}</Text>
-                <Text style={styles.videoCell}>{String(r.views)}</Text>
-                <Text style={styles.videoCell}>{r.rating.toFixed(1)}</Text>
+                <Text style={styles.videoCell}>{`${r.rating.toFixed(1)} (${r.reviewCount})`}</Text>
                 <Text style={styles.videoCell}>{r.createdAt}</Text>
                 <View style={[styles.videoCell, styles.actionsCell]}>
                   <Pressable onPress={() => onOpenDetail(r.id)} style={styles.smallBtn}>
@@ -1084,7 +1547,7 @@ function VideoListScreen({ onOpenDetail, onGoUpload }: { onOpenDetail: (id: stri
                   <Pressable onPress={() => onOpenDetail(r.id)} style={styles.smallBtn}>
                     <Text style={styles.smallBtnText}>編集</Text>
                   </Pressable>
-                  <Pressable disabled={busy} onPress={() => togglePublish(r.id)} style={[styles.smallBtnPrimary, busy ? styles.btnDisabled : null]}>
+                  <Pressable disabled={busy} onPress={() => void togglePublish(r.id)} style={[styles.smallBtnPrimary, busy ? styles.btnDisabled : null]}>
                     <Text style={styles.smallBtnPrimaryText}>{r.status === '公開' ? '非公開' : '公開'}</Text>
                   </Pressable>
                 </View>
@@ -1225,6 +1688,7 @@ function UnapprovedActorAccountsListScreen({ onOpenDetail }: { onOpenDetail: (id
 
 function UnapprovedActorAccountDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
   const cfg = useCmsApi()
+  const { confirm } = useDialog()
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
   const [item, setItem] = useState<null | { id: string; name: string; email: string; submittedAt: string; draft: any }>(null)
@@ -1259,13 +1723,9 @@ function UnapprovedActorAccountDetailScreen({ id, onBack }: { id: string; onBack
     }
   }, [cfg, id])
 
-  const approve = useCallback(() => {
-    let ok = true
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-      ok = window.confirm('この俳優アカウントを承認しますか？')
-    }
+  const approve = useCallback(async () => {
+    const ok = await confirm('この俳優アカウントを承認しますか？', { title: '承認' })
     if (!ok) return
-
     setBusy(true)
     setBanner('')
     void (async () => {
@@ -1278,18 +1738,15 @@ function UnapprovedActorAccountDetailScreen({ id, onBack }: { id: string; onBack
         setBusy(false)
       }
     })()
-  }, [cfg, id, onBack])
+  }, [cfg, confirm, id, onBack])
 
-  const reject = useCallback(() => {
+  const reject = useCallback(async () => {
     const reason = rejectReason.trim()
     if (!reason) {
       setBanner('否認コメントを入力してください')
       return
     }
-    let ok = true
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-      ok = window.confirm('この俳優アカウントを否認しますか？')
-    }
+    const ok = await confirm('この俳優アカウントを否認しますか？', { title: '否認', danger: true, okText: '否認' })
     if (!ok) return
 
     setBusy(true)
@@ -1308,7 +1765,7 @@ function UnapprovedActorAccountDetailScreen({ id, onBack }: { id: string; onBack
         setBusy(false)
       }
     })()
-  }, [cfg, id, onBack, rejectReason])
+  }, [cfg, confirm, id, onBack, rejectReason])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -1354,7 +1811,7 @@ function UnapprovedActorAccountDetailScreen({ id, onBack }: { id: string; onBack
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>操作</Text>
         <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={approve} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+          <Pressable disabled={busy} onPress={() => void approve()} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '処理中…' : '承認'}</Text>
           </Pressable>
         </View>
@@ -1364,7 +1821,7 @@ function UnapprovedActorAccountDetailScreen({ id, onBack }: { id: string; onBack
           <TextInput value={rejectReason} onChangeText={setRejectReason} style={[styles.input, { minHeight: 90 }]} multiline />
         </View>
         <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={reject} style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}>
+          <Pressable disabled={busy} onPress={() => void reject()} style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnSecondaryText}>{busy ? '処理中…' : '否認'}</Text>
           </Pressable>
         </View>
@@ -1456,6 +1913,7 @@ function UnapprovedVideosListScreen({ onOpenDetail }: { onOpenDetail: (id: strin
 
 function UnapprovedVideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
   const cfg = useCmsApi()
+  const { confirm } = useDialog()
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
   const [item, setItem] = useState<
@@ -1504,13 +1962,9 @@ function UnapprovedVideoDetailScreen({ id, onBack }: { id: string; onBack: () =>
     }
   }, [cfg, id])
 
-  const approve = useCallback(() => {
-    let ok = true
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-      ok = window.confirm('この動画を承認しますか？')
-    }
+  const approve = useCallback(async () => {
+    const ok = await confirm('この動画を承認しますか？', { title: '承認' })
     if (!ok) return
-
     setBusy(true)
     setBanner('')
     void (async () => {
@@ -1523,18 +1977,15 @@ function UnapprovedVideoDetailScreen({ id, onBack }: { id: string; onBack: () =>
         setBusy(false)
       }
     })()
-  }, [cfg, id, onBack])
+  }, [cfg, confirm, id, onBack])
 
-  const reject = useCallback(() => {
+  const reject = useCallback(async () => {
     const reason = rejectReason.trim()
     if (!reason) {
       setBanner('否認理由を入力してください')
       return
     }
-    let ok = true
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-      ok = window.confirm('この動画を否認しますか？')
-    }
+    const ok = await confirm('この動画を否認しますか？', { title: '否認', danger: true, okText: '否認' })
     if (!ok) return
 
     setBusy(true)
@@ -1553,7 +2004,7 @@ function UnapprovedVideoDetailScreen({ id, onBack }: { id: string; onBack: () =>
         setBusy(false)
       }
     })()
-  }, [cfg, id, onBack, rejectReason])
+  }, [cfg, confirm, id, onBack, rejectReason])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -1613,7 +2064,7 @@ function UnapprovedVideoDetailScreen({ id, onBack }: { id: string; onBack: () =>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>操作</Text>
         <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={approve} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+          <Pressable disabled={busy} onPress={() => void approve()} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '処理中…' : '承認'}</Text>
           </Pressable>
         </View>
@@ -1622,7 +2073,7 @@ function UnapprovedVideoDetailScreen({ id, onBack }: { id: string; onBack: () =>
           <TextInput value={rejectReason} onChangeText={setRejectReason} style={[styles.input, { minHeight: 90 }]} multiline />
         </View>
         <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={reject} style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}>
+          <Pressable disabled={busy} onPress={() => void reject()} style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnSecondaryText}>{busy ? '処理中…' : '否認'}</Text>
           </Pressable>
         </View>
@@ -1805,22 +2256,54 @@ function ScheduledVideoDetailScreen({ id, onBack }: { id: string; onBack: () => 
   )
 }
 
-function VideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
+function VideoDetailScreen({
+  id,
+  onBack,
+  onGoComments,
+  onOpenVideo,
+}: {
+  id: string
+  onBack: () => void
+  onGoComments?: (workId: string, episodeId: string) => void
+  onOpenVideo?: (id: string) => void
+}) {
   const cfg = useCmsApi()
   const [title, setTitle] = useState('')
   const [workId, setWorkId] = useState('')
   const [desc, setDesc] = useState('')
   const [streamVideoId, setStreamVideoId] = useState('')
+  const [streamVideoIdClean, setStreamVideoIdClean] = useState('')
+  const [streamVideoIdSubtitled, setStreamVideoIdSubtitled] = useState('')
   const [thumbnailUrl, setThumbnailUrl] = useState('')
   const [scheduledAt, setScheduledAt] = useState('')
+  const [episodeNoText, setEpisodeNoText] = useState('')
   const [categoryIdsText, setCategoryIdsText] = useState('')
   const [tagIdsText, setTagIdsText] = useState('')
   const [castIdsText, setCastIdsText] = useState('')
+  const [genreIdsText, setGenreIdsText] = useState('')
   const [published, setPublished] = useState(true)
+  const [ratingAvg, setRatingAvg] = useState(0)
+  const [reviewCount, setReviewCount] = useState(0)
+  const [playsCount, setPlaysCount] = useState(0)
+  const [commentsCount, setCommentsCount] = useState(0)
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const [recommendations, setRecommendations] = useState<
+    Array<{ id: string; title: string; workTitle: string; thumbnailUrl: string }>
+  >([])
+  const [recoSearchQ, setRecoSearchQ] = useState('')
+  const [recoSearchBusy, setRecoSearchBusy] = useState(false)
+  const [recoSearchRows, setRecoSearchRows] = useState<
+    Array<{ id: string; title: string; workTitle: string; thumbnailUrl: string }>
+  >([])
+  const [manualRecoVideoId, setManualRecoVideoId] = useState('')
+
   const [workOptions, setWorkOptions] = useState<Array<{ label: string; value: string }>>([])
+  const [categoryOptions, setCategoryOptions] = useState<MultiSelectOption[]>([])
+  const [tagOptions, setTagOptions] = useState<MultiSelectOption[]>([])
+  const [castOptions, setCastOptions] = useState<MultiSelectOption[]>([])
+  const [genreOptions, setGenreOptions] = useState<MultiSelectOption[]>([])
   useEffect(() => {
     let mounted = true
     void (async () => {
@@ -1828,6 +2311,55 @@ function VideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
         const json = await cmsFetchJson<{ items: Array<{ id: string; title: string }> }>(cfg, '/cms/works')
         if (!mounted) return
         setWorkOptions(json.items.map((w) => ({ label: w.title || w.id, value: w.id })))
+      } catch {
+        // ignore
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
+
+  useEffect(() => {
+    let mounted = true
+    void (async () => {
+      try {
+        const [catsJson, tagsJson, castsJson, genresJson] = await Promise.all([
+          cmsFetchJson<{ items: Array<{ id: string; name: string; enabled?: boolean }> }>(cfg, '/cms/categories'),
+          cmsFetchJson<{ items: Array<{ id: string; name: string }> }>(cfg, '/cms/tags'),
+          cmsFetchJson<{ items: Array<{ id: string; name: string; role?: string }> }>(cfg, '/cms/casts'),
+          cmsFetchJson<{ items: Array<{ id: string; name: string }> }>(cfg, '/cms/genres'),
+        ])
+        if (!mounted) return
+        setCategoryOptions(
+          (catsJson.items ?? []).map((c) => ({
+            value: String(c.id ?? ''),
+            label: String(c.name ?? '') || String(c.id ?? ''),
+            detail: `${String(c.id ?? '')}${c.enabled === false ? ' / 無効' : ''}`,
+          }))
+        )
+        setTagOptions(
+          (tagsJson.items ?? []).map((t) => ({
+            value: String(t.id ?? ''),
+            label: String(t.name ?? '') || String(t.id ?? ''),
+            detail: String(t.id ?? ''),
+          }))
+        )
+        setCastOptions(
+          (castsJson.items ?? []).map((c) => ({
+            value: String(c.id ?? ''),
+            label: String(c.name ?? '') || String(c.id ?? ''),
+            detail: `${String(c.id ?? '')}${c.role ? ` / ${String(c.role)}` : ''}`,
+          }))
+        )
+
+        setGenreOptions(
+          (genresJson.items ?? []).map((g) => ({
+            value: String(g.id ?? ''),
+            label: String(g.name ?? '') || String(g.id ?? ''),
+            detail: String(g.id ?? ''),
+          }))
+        )
       } catch {
         // ignore
       }
@@ -1851,31 +2383,73 @@ function VideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
             title: string
             description: string
             streamVideoId: string
+            streamVideoIdClean?: string
+            streamVideoIdSubtitled?: string
             thumbnailUrl: string
             scheduledAt: string | null
+            episodeNo?: number | null
             published: boolean
             categoryIds: string[]
             tagIds: string[]
             castIds: string[]
+            genreIds?: string[]
+            ratingAvg?: number
+            reviewCount?: number
           }
+          stats?: { playsCount?: number; commentsCount?: number }
         }>(cfg, `/cms/videos/${encodeURIComponent(id)}`)
         if (!mounted) return
         setWorkId(json.item.workId || '')
         setTitle(json.item.title || '')
         setDesc(json.item.description || '')
         setStreamVideoId(json.item.streamVideoId || '')
+        setStreamVideoIdClean(String((json.item as any).streamVideoIdClean ?? ''))
+        setStreamVideoIdSubtitled(String((json.item as any).streamVideoIdSubtitled ?? ''))
         setThumbnailUrl(json.item.thumbnailUrl || '')
         setScheduledAt(json.item.scheduledAt || '')
+        const ep = (json.item as any).episodeNo
+        setEpisodeNoText(ep === null || ep === undefined || !Number.isFinite(Number(ep)) ? '' : String(Number(ep)))
         setPublished(Boolean(json.item.published))
         setCategoryIdsText((json.item.categoryIds || []).join(', '))
         setTagIdsText((json.item.tagIds || []).join(', '))
         setCastIdsText((json.item.castIds || []).join(', '))
+
+        setGenreIdsText((((json.item as any).genreIds as any[]) ?? []).map((v) => String(v ?? '').trim()).filter(Boolean).join(', '))
+
+        setRatingAvg(Number((json.item as any).ratingAvg ?? 0) || 0)
+        setReviewCount(Number((json.item as any).reviewCount ?? 0) || 0)
+        setPlaysCount(Number((json as any).stats?.playsCount ?? 0) || 0)
+        setCommentsCount(Number((json as any).stats?.commentsCount ?? 0) || 0)
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
       } finally {
         if (!mounted) return
         setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/videos/${encodeURIComponent(id)}/recommendations`)
+        if (!mounted) return
+        setRecommendations(
+          (json.items ?? []).map((r) => ({
+            id: String(r.id ?? ''),
+            title: String(r.title ?? ''),
+            workTitle: String(r.workTitle ?? ''),
+            thumbnailUrl: String(r.thumbnailUrl ?? ''),
+          }))
+        )
+      } catch {
+        // ignore
       }
     })()
     return () => {
@@ -1896,12 +2470,16 @@ function VideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
             title,
             description: desc,
             streamVideoId,
+            streamVideoIdClean,
+            streamVideoIdSubtitled,
             thumbnailUrl,
             scheduledAt,
+            episodeNo: episodeNoText.trim() ? Number(episodeNoText) : null,
             published,
             categoryIds: csvToIdList(categoryIdsText),
             tagIds: csvToIdList(tagIdsText),
             castIds: csvToIdList(castIdsText),
+            genreIds: csvToIdList(genreIdsText),
           }),
         })
         setBanner('保存しました')
@@ -1911,7 +2489,80 @@ function VideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
         setBusy(false)
       }
     })()
-  }, [castIdsText, categoryIdsText, cfg, desc, id, published, scheduledAt, streamVideoId, tagIdsText, thumbnailUrl, title, workId])
+  }, [castIdsText, categoryIdsText, cfg, desc, episodeNoText, genreIdsText, id, published, scheduledAt, streamVideoId, streamVideoIdClean, streamVideoIdSubtitled, tagIdsText, thumbnailUrl, title, workId])
+
+  const moveReco = useCallback((videoId: string, dir: -1 | 1) => {
+    setRecommendations((prev) => {
+      const i = prev.findIndex((v) => v.id === videoId)
+      if (i < 0) return prev
+      const j = i + dir
+      if (j < 0 || j >= prev.length) return prev
+      const next = prev.slice()
+      const tmp = next[i]
+      next[i] = next[j]
+      next[j] = tmp
+      return next
+    })
+  }, [])
+
+  const removeReco = useCallback((videoId: string) => {
+    setRecommendations((prev) => prev.filter((v) => v.id !== videoId))
+  }, [])
+
+  const addReco = useCallback((row: { id: string; title: string; workTitle: string; thumbnailUrl: string }) => {
+    const vid = String(row.id || '').trim()
+    if (!vid) return
+    setRecommendations((prev) => {
+      if (prev.some((v) => v.id === vid)) return prev
+      return [...prev, { id: vid, title: String(row.title ?? ''), workTitle: String(row.workTitle ?? ''), thumbnailUrl: String(row.thumbnailUrl ?? '') }]
+    })
+  }, [])
+
+  const onSearchReco = useCallback(() => {
+    const q = recoSearchQ.trim()
+    if (!q) {
+      setRecoSearchRows([])
+      return
+    }
+    setRecoSearchBusy(true)
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/videos?q=${encodeURIComponent(q)}&limit=50`)
+        setRecoSearchRows(
+          (json.items ?? []).map((v) => ({
+            id: String(v.id ?? ''),
+            title: String(v.title ?? ''),
+            workTitle: String(v.workTitle ?? ''),
+            thumbnailUrl: String(v.thumbnailUrl ?? ''),
+          }))
+        )
+      } catch {
+        // ignore
+      } finally {
+        setRecoSearchBusy(false)
+      }
+    })()
+  }, [cfg, recoSearchQ])
+
+  const onSaveReco = useCallback(() => {
+    if (!id) return
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        await cmsFetchJson(cfg, `/cms/videos/${encodeURIComponent(id)}/recommendations`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ videoIds: recommendations.map((v) => v.id) }),
+        })
+        setBanner('おすすめを保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id, recommendations])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -1934,6 +2585,10 @@ function VideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
           <Text style={styles.label}>動画ID</Text>
           <Text style={styles.readonlyText}>{id || '—'}</Text>
         </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>評価</Text>
+          <Text style={styles.readonlyText}>{`${(Number(ratingAvg) || 0).toFixed(2)}（${Number(reviewCount) || 0}件） / 再生:${Number(playsCount) || 0} / コメント:${Number(commentsCount) || 0}`}</Text>
+        </View>
         <SelectField label="作品" value={workId} placeholder="選択" options={workOptions} onChange={setWorkId} />
         <View style={styles.field}>
           <Text style={styles.label}>タイトル</Text>
@@ -1948,8 +2603,20 @@ function VideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
           <TextInput value={streamVideoId} onChangeText={setStreamVideoId} style={styles.input} autoCapitalize="none" />
         </View>
         <View style={styles.field}>
+          <Text style={styles.label}>Stream Video ID（クリーン）</Text>
+          <TextInput value={streamVideoIdClean} onChangeText={setStreamVideoIdClean} style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Stream Video ID（字幕）</Text>
+          <TextInput value={streamVideoIdSubtitled} onChangeText={setStreamVideoIdSubtitled} style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.field}>
           <Text style={styles.label}>サムネURL</Text>
           <TextInput value={thumbnailUrl} onChangeText={setThumbnailUrl} style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>話数（episodeNo）</Text>
+          <TextInput value={episodeNoText} onChangeText={setEpisodeNoText} style={styles.input} keyboardType="numeric" />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>配信予定日時（ISO文字列）</Text>
@@ -1959,21 +2626,144 @@ function VideoDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
           <Text style={styles.devLabel}>公開</Text>
           <Switch value={published} onValueChange={setPublished} />
         </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>カテゴリID（カンマ区切り）</Text>
-          <TextInput value={categoryIdsText} onChangeText={setCategoryIdsText} style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>タグID（カンマ区切り）</Text>
-          <TextInput value={tagIdsText} onChangeText={setTagIdsText} style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>出演者ID（カンマ区切り）</Text>
-          <TextInput value={castIdsText} onChangeText={setCastIdsText} style={styles.input} autoCapitalize="none" />
-        </View>
+        <MultiSelectField
+          label="カテゴリ（複数選択）"
+          values={csvToIdList(categoryIdsText)}
+          placeholder="選択"
+          options={categoryOptions}
+          onChange={(ids) => setCategoryIdsText(ids.join(', '))}
+          searchPlaceholder="カテゴリ検索（名前 / ID）"
+        />
+        <MultiSelectField
+          label="タグ（複数選択）"
+          values={csvToIdList(tagIdsText)}
+          placeholder="選択"
+          options={tagOptions}
+          onChange={(ids) => setTagIdsText(ids.join(', '))}
+          searchPlaceholder="タグ検索（名前 / ID）"
+        />
+        <MultiSelectField
+          label="出演者（複数選択）"
+          values={csvToIdList(castIdsText)}
+          placeholder="選択"
+          options={castOptions}
+          onChange={(ids) => setCastIdsText(ids.join(', '))}
+          searchPlaceholder="出演者検索（名前 / ID）"
+        />
+        <MultiSelectField
+          label="ジャンル（複数選択）"
+          values={csvToIdList(genreIdsText)}
+          placeholder="選択"
+          options={genreOptions}
+          onChange={(ids) => setGenreIdsText(ids.join(', '))}
+          searchPlaceholder="ジャンル検索（名前 / ID）"
+        />
         <View style={styles.filterActions}>
           <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+          </Pressable>
+          {onGoComments && workId && id ? (
+            <Pressable
+              disabled={busy}
+              onPress={() => onGoComments(workId, id)}
+              style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}
+            >
+              <Text style={styles.btnSecondaryText}>コメント一覧へ</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{`この動画のおすすめ（${recommendations.length}件）`}</Text>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>手動追加（動画ID）</Text>
+          <View style={styles.row}>
+            <TextInput value={manualRecoVideoId} onChangeText={setManualRecoVideoId} style={[styles.input, { flex: 1 }]} autoCapitalize="none" />
+            <Pressable
+              onPress={() => {
+                const vid = manualRecoVideoId.trim()
+                if (!vid) return
+                addReco({ id: vid, title: '', workTitle: '', thumbnailUrl: '' })
+                setManualRecoVideoId('')
+              }}
+              style={styles.smallBtnPrimary}
+            >
+              <Text style={styles.smallBtnPrimaryText}>追加</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>検索して追加</Text>
+          <View style={styles.row}>
+            <TextInput value={recoSearchQ} onChangeText={setRecoSearchQ} style={[styles.input, { flex: 1 }]} placeholder="タイトル/作品/ID" />
+            <Pressable disabled={recoSearchBusy} onPress={onSearchReco} style={[styles.smallBtn, recoSearchBusy ? styles.btnDisabled : null]}>
+              <Text style={styles.smallBtnText}>{recoSearchBusy ? '検索中…' : '検索'}</Text>
+            </Pressable>
+          </View>
+          {recoSearchRows.length ? (
+            <View style={styles.table}>
+              {recoSearchRows.map((v) => (
+                <View key={v.id} style={styles.tableRow}>
+                  {onOpenVideo ? (
+                    <Pressable onPress={() => onOpenVideo(v.id)} style={styles.tableLeft}>
+                      <Text style={styles.tableLabel}>{v.title || v.id}</Text>
+                      <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
+                    </Pressable>
+                  ) : (
+                    <View style={styles.tableLeft}>
+                      <Text style={styles.tableLabel}>{v.title || v.id}</Text>
+                      <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
+                    </View>
+                  )}
+                  <Pressable onPress={() => addReco(v)} style={styles.smallBtnPrimary}>
+                    <Text style={styles.smallBtnPrimaryText}>追加</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.table}>
+          {recommendations.map((v, idx) => (
+            <View key={v.id} style={styles.tableRow}>
+              {onOpenVideo ? (
+                <Pressable onPress={() => onOpenVideo(v.id)} style={styles.tableLeft}>
+                  <Text style={styles.tableLabel}>{`${idx + 1}. ${v.title || v.id}`}</Text>
+                  <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.tableLeft}>
+                  <Text style={styles.tableLabel}>{`${idx + 1}. ${v.title || v.id}`}</Text>
+                  <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
+                </View>
+              )}
+              <View style={styles.row}>
+                <Pressable onPress={() => moveReco(v.id, -1)} style={styles.smallBtn}>
+                  <Text style={styles.smallBtnText}>↑</Text>
+                </Pressable>
+                <Pressable onPress={() => moveReco(v.id, 1)} style={styles.smallBtn}>
+                  <Text style={styles.smallBtnText}>↓</Text>
+                </Pressable>
+                <Pressable onPress={() => removeReco(v.id)} style={styles.smallBtnDanger}>
+                  <Text style={styles.smallBtnDangerText}>削除</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+          {!recommendations.length ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>おすすめがありません</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSaveReco} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : 'おすすめ保存'}</Text>
           </Pressable>
         </View>
       </View>
@@ -1987,17 +2777,43 @@ function VideoUploadScreen({ onBack }: { onBack: () => void }) {
   const [desc, setDesc] = useState('')
   const [workId, setWorkId] = useState('')
   const [streamVideoId, setStreamVideoId] = useState('')
+  const [streamVideoIdClean, setStreamVideoIdClean] = useState('')
+  const [streamVideoIdSubtitled, setStreamVideoIdSubtitled] = useState('')
   const [thumbnailUrl, setThumbnailUrl] = useState('')
+  const [episodeNoText, setEpisodeNoText] = useState('')
   const [publish, setPublish] = useState(false)
+
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
+  const [thumbnailUploading, setThumbnailUploading] = useState(false)
+  const [thumbnailUploadMsg, setThumbnailUploadMsg] = useState('')
+
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadPct, setUploadPct] = useState(0)
+  const [uploadState, setUploadState] = useState<'idle' | 'creating' | 'uploading' | 'done' | 'error'>('idle')
+  const [uploadMsg, setUploadMsg] = useState('')
+  const uploadRef = useRef<any>(null)
+
+  const [streamProbe, setStreamProbe] = useState<{
+    loading: boolean
+    configured: boolean | null
+    readyToStream: boolean | null
+    status: string | null
+    error: string | null
+  }>({ loading: false, configured: null, readyToStream: null, status: null, error: null })
 
   const [categoryIdsText, setCategoryIdsText] = useState('')
   const [tagIdsText, setTagIdsText] = useState('')
   const [castIdsText, setCastIdsText] = useState('')
+  const [genreIdsText, setGenreIdsText] = useState('')
 
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
 
   const [workOptions, setWorkOptions] = useState<Array<{ label: string; value: string }>>([])
+  const [categoryOptions, setCategoryOptions] = useState<MultiSelectOption[]>([])
+  const [tagOptions, setTagOptions] = useState<MultiSelectOption[]>([])
+  const [castOptions, setCastOptions] = useState<MultiSelectOption[]>([])
+  const [genreOptions, setGenreOptions] = useState<MultiSelectOption[]>([])
   useEffect(() => {
     let mounted = true
     void (async () => {
@@ -2005,6 +2821,55 @@ function VideoUploadScreen({ onBack }: { onBack: () => void }) {
         const json = await cmsFetchJson<{ items: Array<{ id: string; title: string }> }>(cfg, '/cms/works')
         if (!mounted) return
         setWorkOptions(json.items.map((w) => ({ label: w.title || w.id, value: w.id })))
+      } catch {
+        // ignore
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
+
+  useEffect(() => {
+    let mounted = true
+    void (async () => {
+      try {
+        const [catsJson, tagsJson, castsJson, genresJson] = await Promise.all([
+          cmsFetchJson<{ items: Array<{ id: string; name: string; enabled?: boolean }> }>(cfg, '/cms/categories'),
+          cmsFetchJson<{ items: Array<{ id: string; name: string }> }>(cfg, '/cms/tags'),
+          cmsFetchJson<{ items: Array<{ id: string; name: string; role?: string }> }>(cfg, '/cms/casts'),
+          cmsFetchJson<{ items: Array<{ id: string; name: string }> }>(cfg, '/cms/genres'),
+        ])
+        if (!mounted) return
+        setCategoryOptions(
+          (catsJson.items ?? []).map((c) => ({
+            value: String(c.id ?? ''),
+            label: String(c.name ?? '') || String(c.id ?? ''),
+            detail: `${String(c.id ?? '')}${c.enabled === false ? ' / 無効' : ''}`,
+          }))
+        )
+        setTagOptions(
+          (tagsJson.items ?? []).map((t) => ({
+            value: String(t.id ?? ''),
+            label: String(t.name ?? '') || String(t.id ?? ''),
+            detail: String(t.id ?? ''),
+          }))
+        )
+        setCastOptions(
+          (castsJson.items ?? []).map((c) => ({
+            value: String(c.id ?? ''),
+            label: String(c.name ?? '') || String(c.id ?? ''),
+            detail: `${String(c.id ?? '')}${c.role ? ` / ${String(c.role)}` : ''}`,
+          }))
+        )
+
+        setGenreOptions(
+          (genresJson.items ?? []).map((g) => ({
+            value: String(g.id ?? ''),
+            label: String(g.name ?? '') || String(g.id ?? ''),
+            detail: String(g.id ?? ''),
+          }))
+        )
       } catch {
         // ignore
       }
@@ -2027,11 +2892,15 @@ function VideoUploadScreen({ onBack }: { onBack: () => void }) {
             title,
             description: desc,
             streamVideoId,
+            streamVideoIdClean,
+            streamVideoIdSubtitled,
             thumbnailUrl,
             published: publish,
+            episodeNo: episodeNoText.trim() ? Number(episodeNoText) : null,
             categoryIds: csvToIdList(categoryIdsText),
             tagIds: csvToIdList(tagIdsText),
             castIds: csvToIdList(castIdsText),
+            genreIds: csvToIdList(genreIdsText),
           }),
         })
         setBanner('登録しました')
@@ -2041,7 +2910,235 @@ function VideoUploadScreen({ onBack }: { onBack: () => void }) {
         setBusy(false)
       }
     })()
-  }, [castIdsText, categoryIdsText, cfg, desc, publish, streamVideoId, tagIdsText, thumbnailUrl, title, workId])
+  }, [castIdsText, categoryIdsText, cfg, desc, episodeNoText, genreIdsText, publish, streamVideoId, streamVideoIdClean, streamVideoIdSubtitled, tagIdsText, thumbnailUrl, title, workId])
+
+  const stopUpload = useCallback(() => {
+    try {
+      if (uploadRef.current && typeof uploadRef.current.abort === 'function') {
+        uploadRef.current.abort(true)
+      }
+    } catch {
+      // ignore
+    }
+    uploadRef.current = null
+    setUploadState('idle')
+    setUploadPct(0)
+    setUploadMsg('')
+  }, [])
+
+  const uploadThumbnail = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      setThumbnailUploadMsg('サムネイル画像アップロードはWeb版管理画面のみ対応です')
+      return
+    }
+    if (!thumbnailFile) {
+      setThumbnailUploadMsg('画像ファイルを選択してください')
+      return
+    }
+
+    setThumbnailUploading(true)
+    setThumbnailUploadMsg('画像アップロード中…')
+    void (async () => {
+      try {
+        const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
+          cfg,
+          cfg.uploaderBase,
+          '/cms/images',
+          {
+            method: 'PUT',
+            headers: {
+              'content-type': thumbnailFile.type || 'application/octet-stream',
+            },
+            body: thumbnailFile,
+          }
+        )
+
+        if (res.error || !res.data?.url) {
+          throw new Error(res.error || '画像アップロードに失敗しました')
+        }
+
+        setThumbnailUrl(res.data.url)
+        setThumbnailUploadMsg('画像アップロード完了')
+      } catch (e) {
+        setThumbnailUploadMsg(e instanceof Error ? e.message : String(e))
+      } finally {
+        setThumbnailUploading(false)
+      }
+    })()
+  }, [cfg, thumbnailFile])
+
+  const startStreamUpload = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      setUploadState('error')
+      setUploadMsg('アップロードはWeb版管理画面のみ対応です')
+      return
+    }
+    if (!uploadFile) {
+      setUploadState('error')
+      setUploadMsg('動画ファイルを選択してください')
+      return
+    }
+    if (!tus) {
+      setUploadState('error')
+      setUploadMsg('tus uploader が初期化できませんでした')
+      return
+    }
+
+    const maxBytes = 30 * 1024 * 1024 * 1024
+    if (typeof uploadFile.size === 'number' && uploadFile.size > maxBytes) {
+      setUploadState('error')
+      setUploadMsg('ファイルが大きすぎます（最大30GB）')
+      return
+    }
+
+    setUploadState('creating')
+    setUploadPct(0)
+    setUploadMsg('アップロードURL発行中…')
+
+    void (async () => {
+      try {
+        const tusEndpoint = new URL('/cms/stream/tus', cfg.uploaderBase).toString()
+        const uploaderBase = String(cfg.uploaderBase || '').replace(/\/$/, '')
+        let createdUid = ''
+
+        setUploadState('uploading')
+        setUploadMsg('アップロード開始中…')
+
+        const uploader = new tus.Upload(uploadFile, {
+          endpoint: tusEndpoint,
+          retryDelays: [0, 3000, 5000, 10000, 20000],
+          chunkSize: 50 * 1024 * 1024,
+          metadata: {
+            filename: uploadFile.name,
+            filetype: uploadFile.type || 'application/octet-stream',
+          },
+          onBeforeRequest: (req: any) => {
+            // Only attach CMS token when calling our uploader Worker. Do not leak it to upload.cloudflarestream.com.
+            try {
+              const url = typeof req?.getURL === 'function' ? String(req.getURL() || '') : ''
+              if (uploaderBase && url.startsWith(uploaderBase) && typeof req?.setHeader === 'function') {
+                req.setHeader('Authorization', `Bearer ${cfg.token}`)
+              }
+            } catch {
+              // ignore
+            }
+          },
+          onAfterResponse: (_req: any, res: any) => {
+            if (createdUid) return
+            try {
+              const getHeader = (name: string): string => {
+                if (res && typeof res.getHeader === 'function') return String(res.getHeader(name) || '')
+                if (res && typeof res.getResponseHeader === 'function') return String(res.getResponseHeader(name) || '')
+                return ''
+              }
+
+              const mediaId = (getHeader('Stream-Media-ID') || getHeader('stream-media-id')).trim()
+              const location = (getHeader('Location') || getHeader('location')).trim()
+
+              const inferred = (() => {
+                const m = (location || '').match(/\/stream\/([a-f0-9]{32})/i)
+                return m?.[1] || ''
+              })()
+
+              const uid = (mediaId || inferred).trim()
+              if (uid) {
+                createdUid = uid
+                setStreamVideoId(uid)
+              }
+            } catch {
+              // ignore
+            }
+          },
+          onError: (err: any) => {
+            setUploadState('error')
+            setUploadMsg(err instanceof Error ? err.message : String(err))
+          },
+          onProgress: (bytesUploaded: number, bytesTotal: number) => {
+            const pct = bytesTotal > 0 ? Math.floor((bytesUploaded / bytesTotal) * 100) : 0
+            setUploadPct(pct)
+          },
+          onSuccess: () => {
+            if (!createdUid) {
+              try {
+                const url = String((uploader as any).url || '').trim()
+                const m = url.match(/\/stream\/([a-f0-9]{32})/i)
+                const uid = (m?.[1] || '').trim()
+                if (uid) {
+                  createdUid = uid
+                  setStreamVideoId(uid)
+                }
+              } catch {
+                // ignore
+              }
+            }
+            setUploadState('done')
+            setUploadPct(100)
+            setUploadMsg('アップロード完了（Stream側の処理が終わるまで少し待つ場合があります）')
+          },
+        })
+
+        uploadRef.current = uploader
+        uploader.start()
+      } catch (e) {
+        setUploadState('error')
+        setUploadMsg(e instanceof Error ? e.message : String(e))
+      }
+    })()
+  }, [cfg, uploadFile])
+
+  useEffect(() => {
+    if (!streamVideoId.trim()) {
+      setStreamProbe({ loading: false, configured: null, readyToStream: null, status: null, error: null })
+      return
+    }
+
+    // Only auto-poll after a fresh upload succeeded.
+    if (uploadState !== 'done') return
+
+    let cancelled = false
+    let timer: any = null
+    const startedAt = Date.now()
+
+    const tick = async () => {
+      if (cancelled) return
+      setStreamProbe((prev) => ({ ...prev, loading: true, error: null }))
+      try {
+        const json = await cmsFetchJson<{
+          configured?: boolean
+          readyToStream?: boolean | null
+          status?: string | null
+        }>(cfg, `/v1/stream/playback/${encodeURIComponent(streamVideoId.trim())}`)
+
+        if (cancelled) return
+        const configured = json.configured !== undefined ? Boolean(json.configured) : true
+        const readyToStream = json.readyToStream === null || json.readyToStream === undefined ? null : Boolean(json.readyToStream)
+        const status = json.status === null || json.status === undefined ? null : String(json.status)
+
+        setStreamProbe({ loading: false, configured, readyToStream, status, error: null })
+
+        // Stop polling once the video is ready.
+        if (readyToStream === true) return
+      } catch (e) {
+        if (cancelled) return
+        setStreamProbe((prev) => ({
+          ...prev,
+          loading: false,
+          error: e instanceof Error ? e.message : String(e),
+        }))
+      }
+
+      // Avoid polling forever.
+      if (Date.now() - startedAt > 30 * 60 * 1000) return
+
+      timer = setTimeout(tick, 5000)
+    }
+
+    void tick()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [cfg, streamVideoId, uploadState])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2061,6 +3158,93 @@ function VideoUploadScreen({ onBack }: { onBack: () => void }) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>入力</Text>
         <SelectField label="作品" value={workId} placeholder="選択" options={workOptions} onChange={setWorkId} />
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Cloudflare Streamへアップロード（最大30GB）</Text>
+          {Platform.OS === 'web' ? (
+            <View>
+              <View style={{ marginTop: 6 }}>
+                {
+                  // Use native file input for web.
+                  // eslint-disable-next-line react/no-unknown-property
+                }
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e: any) => {
+                    const file = e?.target?.files?.[0] ?? null
+                    setUploadFile(file)
+                    setUploadPct(0)
+                    setUploadState('idle')
+                    setUploadMsg('')
+                  }}
+                />
+              </View>
+
+              {uploadFile ? (
+                <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>
+                  {`選択: ${uploadFile.name} / ${(uploadFile.size / (1024 * 1024)).toFixed(1)}MB`}
+                </Text>
+              ) : (
+                <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>動画ファイルを選択してください</Text>
+              )}
+
+              <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
+                <Pressable
+                  disabled={uploadState === 'creating' || uploadState === 'uploading' || !uploadFile}
+                  onPress={startStreamUpload}
+                  style={[styles.btnSecondary, (uploadState === 'creating' || uploadState === 'uploading' || !uploadFile) ? styles.btnDisabled : null]}
+                >
+                  <Text style={styles.btnSecondaryText}>
+                    {uploadState === 'creating'
+                      ? 'URL発行中…'
+                      : uploadState === 'uploading'
+                        ? `アップロード中… ${uploadPct}%`
+                        : uploadState === 'done'
+                          ? '再アップロード'
+                          : 'アップロード開始'}
+                  </Text>
+                </Pressable>
+                {uploadState === 'uploading' ? (
+                  <Pressable onPress={stopUpload} style={styles.btnSecondary}>
+                    <Text style={styles.btnSecondaryText}>中止</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {uploadState === 'uploading' || uploadState === 'done' ? (
+                <View style={styles.uploadBarOuter}>
+                  <View style={[styles.uploadBarInner, { width: `${Math.min(100, Math.max(0, uploadPct))}%` }]} />
+                </View>
+              ) : null}
+
+              {uploadMsg ? <Text style={[styles.selectMenuDetailText, { marginTop: 8 }]}>{uploadMsg}</Text> : null}
+              {streamVideoId ? (
+                <View style={{ marginTop: 6 }}>
+                  <Text style={styles.selectMenuDetailText}>{`Stream Video ID: ${streamVideoId}`}</Text>
+                  {uploadState === 'done' ? (
+                    <Text style={[styles.selectMenuDetailText, { marginTop: 4 }]}>
+                      {streamProbe.loading
+                        ? 'Stream状況確認中…'
+                        : streamProbe.error
+                          ? `Stream状況取得エラー: ${streamProbe.error}`
+                          : streamProbe.configured === false
+                            ? 'Stream設定が未構成の可能性があります'
+                            : streamProbe.readyToStream === true
+                              ? 'エンコード完了（再生可能）'
+                              : streamProbe.status
+                                ? `エンコード中…（status: ${streamProbe.status}）`
+                                : 'エンコード中…'}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={styles.selectMenuDetailText}>Web版管理画面でアップロードできます</Text>
+          )}
+        </View>
+
         <View style={styles.field}>
           <Text style={styles.label}>タイトル</Text>
           <TextInput value={title} onChangeText={setTitle} style={styles.input} />
@@ -2074,25 +3258,87 @@ function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           <TextInput value={streamVideoId} onChangeText={setStreamVideoId} placeholder="Cloudflare Stream の videoId" style={styles.input} autoCapitalize="none" />
         </View>
         <View style={styles.field}>
+          <Text style={styles.label}>Stream Video ID（クリーン）</Text>
+          <TextInput value={streamVideoIdClean} onChangeText={setStreamVideoIdClean} style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Stream Video ID（字幕）</Text>
+          <TextInput value={streamVideoIdSubtitled} onChangeText={setStreamVideoIdSubtitled} style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.field}>
           <Text style={styles.label}>サムネURL</Text>
+          <Text style={styles.selectMenuDetailText}>推奨サイズ: 16:9（例: 1280×720）</Text>
+          {Platform.OS === 'web' ? (
+            <View style={{ marginTop: 6 }}>
+              {
+                // eslint-disable-next-line react/no-unknown-property
+              }
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(e: any) => {
+                  const file = e?.target?.files?.[0] ?? null
+                  setThumbnailFile(file)
+                  setThumbnailUploadMsg('')
+                }}
+              />
+              <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}
+              >
+                <Pressable
+                  disabled={thumbnailUploading || !thumbnailFile}
+                  onPress={uploadThumbnail}
+                  style={[styles.btnSecondary, (thumbnailUploading || !thumbnailFile) ? styles.btnDisabled : null]}
+                >
+                  <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : '画像をアップロードしてURLに反映'}</Text>
+                </Pressable>
+                {thumbnailUploadMsg ? (
+                  <Text style={[styles.selectMenuDetailText, { marginLeft: 10, alignSelf: 'center' }]}>{thumbnailUploadMsg}</Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
           <TextInput value={thumbnailUrl} onChangeText={setThumbnailUrl} placeholder="https://..." style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>話数（episodeNo）</Text>
+          <TextInput value={episodeNoText} onChangeText={setEpisodeNoText} style={styles.input} keyboardType="numeric" />
         </View>
         <View style={styles.devRow}>
           <Text style={styles.devLabel}>公開（簡易）</Text>
           <Switch value={publish} onValueChange={setPublish} />
         </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>カテゴリID（カンマ区切り）</Text>
-          <TextInput value={categoryIdsText} onChangeText={setCategoryIdsText} style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>タグID（カンマ区切り）</Text>
-          <TextInput value={tagIdsText} onChangeText={setTagIdsText} style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>出演者ID（カンマ区切り）</Text>
-          <TextInput value={castIdsText} onChangeText={setCastIdsText} style={styles.input} autoCapitalize="none" />
-        </View>
+        <MultiSelectField
+          label="カテゴリ（複数選択）"
+          values={csvToIdList(categoryIdsText)}
+          placeholder="選択"
+          options={categoryOptions}
+          onChange={(ids) => setCategoryIdsText(ids.join(', '))}
+          searchPlaceholder="カテゴリ検索（名前 / ID）"
+        />
+        <MultiSelectField
+          label="タグ（複数選択）"
+          values={csvToIdList(tagIdsText)}
+          placeholder="選択"
+          options={tagOptions}
+          onChange={(ids) => setTagIdsText(ids.join(', '))}
+          searchPlaceholder="タグ検索（名前 / ID）"
+        />
+        <MultiSelectField
+          label="出演者（複数選択）"
+          values={csvToIdList(castIdsText)}
+          placeholder="選択"
+          options={castOptions}
+          onChange={(ids) => setCastIdsText(ids.join(', '))}
+          searchPlaceholder="出演者検索（名前 / ID）"
+        />
+        <MultiSelectField
+          label="ジャンル（複数選択）"
+          values={csvToIdList(genreIdsText)}
+          placeholder="選択"
+          options={genreOptions}
+          onChange={(ids) => setGenreIdsText(ids.join(', '))}
+          searchPlaceholder="ジャンル検索（名前 / ID）"
+        />
         <View style={styles.filterActions}>
           <Pressable disabled={busy} onPress={onCreate} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '登録中…' : '登録'}</Text>
@@ -2173,12 +3419,19 @@ function WorkEditScreen({ title, id, onBack }: { title: string; id: string; onBa
   const [workTitle, setWorkTitle] = useState('')
   const [desc, setDesc] = useState('')
   const [thumbnailUrl, setThumbnailUrl] = useState('')
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
+  const [thumbnailUploading, setThumbnailUploading] = useState(false)
+  const [thumbnailUploadMsg, setThumbnailUploadMsg] = useState('')
   const [categoryIdsText, setCategoryIdsText] = useState('')
   const [tagIdsText, setTagIdsText] = useState('')
   const [castIdsText, setCastIdsText] = useState('')
   const [published, setPublished] = useState(false)
   const [busy, setBusy] = useState(false)
   const [banner, setBanner] = useState('')
+
+  const [categoryOptions, setCategoryOptions] = useState<MultiSelectOption[]>([])
+  const [tagOptions, setTagOptions] = useState<MultiSelectOption[]>([])
+  const [castOptions, setCastOptions] = useState<MultiSelectOption[]>([])
 
   useEffect(() => {
     if (!id) return
@@ -2220,6 +3473,46 @@ function WorkEditScreen({ title, id, onBack }: { title: string; id: string; onBa
     }
   }, [cfg, id])
 
+  useEffect(() => {
+    let mounted = true
+    void (async () => {
+      try {
+        const [catsJson, tagsJson, castsJson] = await Promise.all([
+          cmsFetchJson<{ items: Array<{ id: string; name: string; enabled?: boolean }> }>(cfg, '/cms/categories'),
+          cmsFetchJson<{ items: Array<{ id: string; name: string }> }>(cfg, '/cms/tags'),
+          cmsFetchJson<{ items: Array<{ id: string; name: string; role?: string }> }>(cfg, '/cms/casts'),
+        ])
+        if (!mounted) return
+        setCategoryOptions(
+          (catsJson.items ?? []).map((c) => ({
+            value: String(c.id ?? ''),
+            label: String(c.name ?? '') || String(c.id ?? ''),
+            detail: `${String(c.id ?? '')}${c.enabled === false ? ' / 無効' : ''}`,
+          }))
+        )
+        setTagOptions(
+          (tagsJson.items ?? []).map((t) => ({
+            value: String(t.id ?? ''),
+            label: String(t.name ?? '') || String(t.id ?? ''),
+            detail: String(t.id ?? ''),
+          }))
+        )
+        setCastOptions(
+          (castsJson.items ?? []).map((c) => ({
+            value: String(c.id ?? ''),
+            label: String(c.name ?? '') || String(c.id ?? ''),
+            detail: `${String(c.id ?? '')}${c.role ? ` / ${String(c.role)}` : ''}`,
+          }))
+        )
+      } catch {
+        // ignore
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg])
+
   const onSave = useCallback(() => {
     setBusy(true)
     setBanner('')
@@ -2256,6 +3549,47 @@ function WorkEditScreen({ title, id, onBack }: { title: string; id: string; onBa
     })()
   }, [castIdsText, categoryIdsText, cfg, desc, id, published, tagIdsText, thumbnailUrl, workTitle])
 
+  const uploadThumbnail = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      setThumbnailUploadMsg('サムネイル画像アップロードはWeb版管理画面のみ対応です')
+      return
+    }
+    if (!thumbnailFile) {
+      setThumbnailUploadMsg('画像ファイルを選択してください')
+      return
+    }
+
+    setThumbnailUploading(true)
+    setThumbnailUploadMsg('画像アップロード中…')
+    void (async () => {
+      try {
+        const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
+          cfg,
+          cfg.uploaderBase,
+          '/cms/images',
+          {
+            method: 'PUT',
+            headers: {
+              'content-type': thumbnailFile.type || 'application/octet-stream',
+            },
+            body: thumbnailFile,
+          }
+        )
+
+        if (res.error || !res.data?.url) {
+          throw new Error(res.error || '画像アップロードに失敗しました')
+        }
+
+        setThumbnailUrl(res.data.url)
+        setThumbnailUploadMsg('画像アップロード完了')
+      } catch (e) {
+        setThumbnailUploadMsg(e instanceof Error ? e.message : String(e))
+      } finally {
+        setThumbnailUploading(false)
+      }
+    })()
+  }, [cfg, thumbnailFile])
+
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <View style={styles.pageHeaderRow}>
@@ -2289,24 +3623,65 @@ function WorkEditScreen({ title, id, onBack }: { title: string; id: string; onBa
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>サムネURL</Text>
+          <Text style={styles.selectMenuDetailText}>推奨サイズ: 16:9（例: 1280×720）</Text>
+          {Platform.OS === 'web' ? (
+            <View style={{ marginTop: 6 }}>
+              {
+                // eslint-disable-next-line react/no-unknown-property
+              }
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(e: any) => {
+                  const file = e?.target?.files?.[0] ?? null
+                  setThumbnailFile(file)
+                  setThumbnailUploadMsg('')
+                }}
+              />
+              <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
+                <Pressable
+                  disabled={thumbnailUploading || !thumbnailFile}
+                  onPress={uploadThumbnail}
+                  style={[styles.btnSecondary, (thumbnailUploading || !thumbnailFile) ? styles.btnDisabled : null]}
+                >
+                  <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : '画像をアップロードしてURLに反映'}</Text>
+                </Pressable>
+                {thumbnailUploadMsg ? (
+                  <Text style={[styles.selectMenuDetailText, { marginLeft: 10, alignSelf: 'center' }]}>{thumbnailUploadMsg}</Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
           <TextInput value={thumbnailUrl} onChangeText={setThumbnailUrl} placeholder="https://..." style={styles.input} autoCapitalize="none" />
         </View>
         <View style={styles.devRow}>
           <Text style={styles.devLabel}>公開</Text>
           <Switch value={published} onValueChange={setPublished} />
         </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>カテゴリID（カンマ区切り）</Text>
-          <TextInput value={categoryIdsText} onChangeText={setCategoryIdsText} placeholder="cat_... , cat_..." style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>タグID（カンマ区切り）</Text>
-          <TextInput value={tagIdsText} onChangeText={setTagIdsText} placeholder="tag_... , tag_..." style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>出演者ID（カンマ区切り）</Text>
-          <TextInput value={castIdsText} onChangeText={setCastIdsText} placeholder="cast_... , cast_..." style={styles.input} autoCapitalize="none" />
-        </View>
+        <MultiSelectField
+          label="カテゴリ（複数選択）"
+          values={csvToIdList(categoryIdsText)}
+          placeholder="選択"
+          options={categoryOptions}
+          onChange={(ids) => setCategoryIdsText(ids.join(', '))}
+          searchPlaceholder="カテゴリ検索（名前 / ID）"
+        />
+        <MultiSelectField
+          label="タグ（複数選択）"
+          values={csvToIdList(tagIdsText)}
+          placeholder="選択"
+          options={tagOptions}
+          onChange={(ids) => setTagIdsText(ids.join(', '))}
+          searchPlaceholder="タグ検索（名前 / ID）"
+        />
+        <MultiSelectField
+          label="出演者（複数選択）"
+          values={csvToIdList(castIdsText)}
+          placeholder="選択"
+          options={castOptions}
+          onChange={(ids) => setCastIdsText(ids.join(', '))}
+          searchPlaceholder="出演者検索（名前 / ID）"
+        />
         <View style={styles.filterActions}>
           <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
@@ -2560,11 +3935,21 @@ function CommentApproveScreen({ id, onBack }: { id: string; onBack: () => void }
   )
 }
 
-function CommentsListScreen({ onOpenEdit }: { onOpenEdit: (id: string) => void }) {
+function CommentsListScreen({
+  onOpenEdit,
+  initialContentId,
+  initialEpisodeId,
+}: {
+  onOpenEdit: (id: string) => void
+  initialContentId?: string
+  initialEpisodeId?: string
+}) {
   const cfg = useCmsApi()
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
   const [qStatus, setQStatus] = useState<'' | 'pending' | 'approved' | 'rejected'>('')
+  const [qContentId, setQContentId] = useState(initialContentId ? String(initialContentId) : '')
+  const [qEpisodeId, setQEpisodeId] = useState(initialEpisodeId ? String(initialEpisodeId) : '')
   const [rows, setRows] = useState<CommentRow[]>([])
 
   useEffect(() => {
@@ -2573,7 +3958,11 @@ function CommentsListScreen({ onOpenEdit }: { onOpenEdit: (id: string) => void }
     setBanner('')
     void (async () => {
       try {
-        const qs = qStatus ? `?status=${encodeURIComponent(qStatus)}` : ''
+        const params = new URLSearchParams()
+        if (qStatus) params.set('status', qStatus)
+        if (qContentId.trim()) params.set('contentId', qContentId.trim())
+        if (qEpisodeId.trim()) params.set('episodeId', qEpisodeId.trim())
+        const qs = params.toString() ? `?${params.toString()}` : ''
         const json = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/comments${qs}`)
         if (!mounted) return
         setRows(
@@ -2597,7 +3986,7 @@ function CommentsListScreen({ onOpenEdit }: { onOpenEdit: (id: string) => void }
     return () => {
       mounted = false
     }
-  }, [cfg, qStatus])
+  }, [cfg, qContentId, qEpisodeId, qStatus])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -2611,6 +4000,16 @@ function CommentsListScreen({ onOpenEdit }: { onOpenEdit: (id: string) => void }
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>検索</Text>
+        <View style={styles.filtersGrid}>
+          <View style={styles.field}>
+            <Text style={styles.label}>作品ID（contentId）</Text>
+            <TextInput value={qContentId} onChangeText={setQContentId} placeholder="work_..." style={styles.input} autoCapitalize="none" />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>エピソードID/話数（episodeId）</Text>
+            <TextInput value={qEpisodeId} onChangeText={setQEpisodeId} placeholder="video_... / 1" style={styles.input} autoCapitalize="none" />
+          </View>
+        </View>
         <SelectField
           label="ステータス"
           value={qStatus}
@@ -2755,58 +4154,109 @@ function CommentEditScreen({ id, onBack }: { id: string; onBack: () => void }) {
   )
 }
 
-type UserRow = { id: string; email: string; emailVerified: boolean; phone: string; phoneVerified: boolean; createdAt: string }
+type UserRow = { id: string; email: string; emailVerified: boolean; phone: string; phoneVerified: boolean; createdAt: string; kind: 'user' | 'cast' }
 
-function UsersListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
+function UsersListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string) => void; onNew?: () => void }) {
   const cfg = useCmsApi()
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<UserRow[]>([])
 
-  useEffect(() => {
-    let mounted = true
+  const [qKind, setQKind] = useState<'' | 'user' | 'cast'>('')
+  const [qSort, setQSort] = useState<'' | 'createdAt' | 'kind'>('')
+
+  const load = useCallback(async () => {
     setBusy(true)
     setBanner('')
-    void (async () => {
-      try {
-        const json = await cmsFetchJson<{ items: Array<{ id: string; email: string; emailVerified: boolean; phone: string; phoneVerified: boolean; createdAt: string }> }>(
-          cfg,
-          '/cms/users'
-        )
-        if (!mounted) return
-        setRows(
-          (json.items ?? []).map((u) => ({
-            id: String(u.id ?? ''),
-            email: String(u.email ?? ''),
-            emailVerified: Boolean((u as any).emailVerified),
-            phone: String((u as any).phone ?? ''),
-            phoneVerified: Boolean((u as any).phoneVerified),
-            createdAt: String((u as any).createdAt ?? ''),
-          }))
-        )
-      } catch (e) {
-        if (!mounted) return
-        setBanner(e instanceof Error ? e.message : String(e))
-      } finally {
-        if (!mounted) return
-        setBusy(false)
-      }
-    })()
+    try {
+      const params = new URLSearchParams()
+      if (qKind) params.set('kind', qKind)
+      if (qSort) params.set('sort', qSort)
+      const qs = params.toString()
+      const path = qs ? `/cms/users?${qs}` : '/cms/users'
 
-    return () => {
-      mounted = false
+      const json = await cmsFetchJson<{
+        items: Array<{ id: string; email: string; emailVerified: boolean; phone: string; phoneVerified: boolean; createdAt: string; kind?: string }>
+      }>(cfg, path)
+      setRows(
+        (json.items ?? []).map((u) => ({
+          id: String(u.id ?? ''),
+          email: String(u.email ?? ''),
+          emailVerified: Boolean((u as any).emailVerified),
+          phone: String((u as any).phone ?? ''),
+          phoneVerified: Boolean((u as any).phoneVerified),
+          createdAt: String((u as any).createdAt ?? ''),
+          kind: String((u as any).kind ?? 'user') === 'cast' ? 'cast' : 'user',
+        }))
+      )
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
     }
-  }, [cfg])
+  }, [cfg, qKind, qSort])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
-      <Text style={styles.pageTitle}>ユーザー一覧</Text>
+      <View style={styles.pageHeaderRow}>
+        <Text style={styles.pageTitle}>ユーザー一覧</Text>
+        {onNew ? (
+          <Pressable onPress={onNew} style={styles.smallBtnPrimary}>
+            <Text style={styles.smallBtnPrimaryText}>新規作成</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       {banner ? (
         <View style={styles.banner}>
           <Text style={styles.bannerText}>{banner}</Text>
         </View>
       ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>フィルタ</Text>
+        <View style={styles.filtersGrid}>
+          <SelectField
+            label="区分"
+            value={qKind}
+            placeholder="すべて"
+            options={[
+              { label: 'すべて', value: '' },
+              { label: '一般ユーザー', value: 'user' },
+              { label: 'キャスト', value: 'cast' },
+            ]}
+            onChange={(v) => setQKind(v as any)}
+          />
+          <SelectField
+            label="並び順"
+            value={qSort}
+            placeholder="作成日（新しい順）"
+            options={[
+              { label: '作成日（新しい順）', value: '' },
+              { label: '区分→作成日', value: 'kind' },
+            ]}
+            onChange={(v) => setQSort(v as any)}
+          />
+        </View>
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={() => void load()} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '読込中…' : '更新'}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setQKind('')
+              setQSort('')
+            }}
+            style={styles.btnSecondary}
+          >
+            <Text style={styles.btnSecondaryText}>リセット</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
@@ -2820,7 +4270,7 @@ function UsersListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void 
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{r.email || r.id}</Text>
-                <Text style={styles.tableDetail}>{`${r.id}${r.createdAt ? ` / ${r.createdAt}` : ''}`}</Text>
+                <Text style={styles.tableDetail}>{`${r.id} / ${r.kind === 'cast' ? 'キャスト' : '一般'}${r.createdAt ? ` / ${r.createdAt}` : ''}`}</Text>
               </View>
             </Pressable>
           ))}
@@ -2829,6 +4279,91 @@ function UsersListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void 
               <Text style={styles.placeholderText}>ユーザーがありません</Text>
             </View>
           ) : null}
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+function UserCreateScreen({
+  onBack,
+  onCreated,
+}: {
+  onBack: () => void
+  onCreated: (id: string) => void
+}) {
+  const cfg = useCmsApi()
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [password, setPassword] = useState('')
+  const [banner, setBanner] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const onSubmit = useCallback(() => {
+    const normalizedEmail = email.trim()
+    if (!isValidEmail(normalizedEmail)) {
+      setBanner('メールアドレスが不正です')
+      return
+    }
+    if (!password || password.length < 8) {
+      setBanner('パスワードは8文字以上で入力してください')
+      return
+    }
+
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const res = await cmsFetchJson<{ ok: boolean; id: string }>(cfg, '/cms/users', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email: normalizedEmail, phone: phone.trim() || undefined, password }),
+        })
+        const id = String(res?.id ?? '').trim()
+        if (!id) throw new Error('作成に失敗しました')
+        onCreated(id)
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, email, onCreated, password, phone])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Pressable onPress={onBack} style={styles.smallBtn}>
+          <Text style={styles.smallBtnText}>戻る</Text>
+        </Pressable>
+        <Text style={styles.pageTitle}>ユーザー新規作成</Text>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>入力</Text>
+        <View style={styles.field}>
+          <Text style={styles.label}>メールアドレス（必須）</Text>
+          <TextInput value={email} onChangeText={setEmail} placeholder="user@example.com" autoCapitalize="none" style={styles.input} />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>電話番号（任意）</Text>
+          <TextInput value={phone} onChangeText={setPhone} placeholder="090..." autoCapitalize="none" style={styles.input} />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>初期パスワード（必須 / 8文字以上）</Text>
+          <TextInput value={password} onChangeText={setPassword} autoCapitalize="none" secureTextEntry style={styles.input} />
+        </View>
+
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSubmit} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '作成中…' : '作成'}</Text>
+          </Pressable>
         </View>
       </View>
     </ScrollView>
@@ -2920,7 +4455,16 @@ function UserDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
 }
 
 type NoticeStatus = 'draft' | 'scheduled' | 'sent' | 'cancelled'
-type NoticeRow = { id: string; subject: string; sentAt: string; status: NoticeStatus; push: boolean; tags: string[] }
+type NoticeRow = {
+  id: string
+  subject: string
+  body: string
+  createdByLabel: string
+  sentAt: string
+  status: NoticeStatus
+  push: boolean
+  tags: string[]
+}
 
 function noticeStatusLabel(v: NoticeStatus): string {
   switch (v) {
@@ -2958,6 +4502,15 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
           (json.items ?? []).map((n) => ({
             id: String(n.id ?? ''),
             subject: String(n.subject ?? ''),
+            body: String((n as any).body ?? ''),
+            createdByLabel: (() => {
+              const cb = (n as any).createdBy
+              const email = cb?.email ? String(cb.email) : ''
+              const name = cb?.name ? String(cb.name) : ''
+              const id = cb?.id ? String(cb.id) : ''
+              const label = name || email || id
+              return label ? `登録者: ${label}` : ''
+            })(),
             sentAt: String((n as any).sentAt ?? ''),
             status: (String((n as any).status ?? 'draft') as NoticeStatus) || 'draft',
             push: Boolean((n as any).push),
@@ -3006,6 +4559,8 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{r.subject}</Text>
                 <Text style={styles.tableDetail}>{`${r.sentAt || '—'} / ${noticeStatusLabel(r.status)}${r.tags.length ? ` / タグ: ${r.tags.join(',')}` : ''}`}</Text>
+                {r.createdByLabel ? <Text style={styles.tableDetail}>{r.createdByLabel}</Text> : null}
+                {r.body ? <Text style={styles.tableDetail}>{`本文: ${r.body.slice(0, 80)}${r.body.length > 80 ? '…' : ''}`}</Text> : null}
               </View>
             </Pressable>
           ))}
@@ -3022,6 +4577,7 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
 
 function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
   const cfg = useCmsApi()
+  const { confirm } = useDialog()
   const [sentAt, setSentAt] = useState('2026-01-12 03:00')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
@@ -3138,15 +4694,12 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
       setBanner('先に保存してください')
       return
     }
-    let ok = true
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-      ok = window.confirm('メール送信を実行しますか？（対象: メール認証済みユーザー、上限50件）')
-    }
-    if (!ok) return
-
-    setBusy(true)
-    setBanner('')
     void (async () => {
+      const ok = await confirm('メール送信を実行しますか？（対象: メール認証済みユーザー、上限50件）', { title: 'メール送信', okText: '送信' })
+      if (!ok) return
+
+      setBusy(true)
+      setBanner('')
       try {
         const json = await cmsFetchJson<any>(cfg, `/cms/notices/${encodeURIComponent(id)}/send-email`, {
           method: 'POST',
@@ -3163,22 +4716,19 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
         setBusy(false)
       }
     })()
-  }, [cfg, id])
+  }, [cfg, confirm, id])
 
   const onSendPushNow = useCallback(() => {
     if (!id) {
       setBanner('先に保存してください')
       return
     }
-    let ok = true
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-      ok = window.confirm('プッシュ送信を実行しますか？')
-    }
-    if (!ok) return
-
-    setBusy(true)
-    setBanner('')
     void (async () => {
+      const ok = await confirm('プッシュ送信を実行しますか？', { title: 'プッシュ送信', okText: '送信' })
+      if (!ok) return
+
+      setBusy(true)
+      setBanner('')
       try {
         const json = await cmsFetchJson<any>(cfg, `/cms/notices/${encodeURIComponent(id)}/send-push`, {
           method: 'POST',
@@ -3191,7 +4741,7 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
         setBusy(false)
       }
     })()
-  }, [cfg, id])
+  }, [cfg, confirm, id])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -3424,28 +4974,74 @@ function CategoriesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: stri
   )
 }
 
-function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
+function CategoryEditScreen({
+  title,
+  id,
+  onBack,
+  onOpenVideo,
+}: {
+  title: string
+  id: string
+  onBack: () => void
+  onOpenVideo?: (id: string) => void
+}) {
   const cfg = useCmsApi()
   const [name, setName] = useState('')
   const [enabled, setEnabled] = useState(true)
+  const [parentId, setParentId] = useState('')
+  const [parentOptions, setParentOptions] = useState<Array<{ label: string; value: string }>>([{ label: '（なし）', value: '' }])
+  const [linkedVideos, setLinkedVideos] = useState<
+    Array<{ id: string; title: string; workTitle: string; thumbnailUrl: string; createdAt: string }>
+  >([])
+  const [videoSearchQ, setVideoSearchQ] = useState('')
+  const [videoSearchBusy, setVideoSearchBusy] = useState(false)
+  const [videoSearchRows, setVideoSearchRows] = useState<Array<{ id: string; title: string; workTitle: string; thumbnailUrl: string }>>([])
+  const [manualVideoId, setManualVideoId] = useState('')
   const [busy, setBusy] = useState(false)
   const [banner, setBanner] = useState('')
 
   useEffect(() => {
-    if (!id) {
-      setName('')
-      setEnabled(true)
-      return
-    }
     let mounted = true
     setBusy(true)
     setBanner('')
     void (async () => {
       try {
-        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/categories/${encodeURIComponent(id)}`)
+        const catsJson = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/categories')
+        if (!mounted) return
+
+        const options = (catsJson.items ?? [])
+          .map((c) => ({ id: String(c.id ?? ''), name: String(c.name ?? '') }))
+          .filter((c) => c.id)
+          .filter((c) => (id ? c.id !== id : true))
+          .map((c) => ({ label: c.name || c.id, value: c.id }))
+        setParentOptions([{ label: '（なし）', value: '' }, ...options])
+
+        if (!id) {
+          setName('')
+          setEnabled(true)
+          setParentId('')
+          setLinkedVideos([])
+          return
+        }
+
+        const [json, videosJson] = await Promise.all([
+          cmsFetchJson<{ item: any }>(cfg, `/cms/categories/${encodeURIComponent(id)}`),
+          cmsFetchJson<{ items: any[] }>(cfg, `/cms/categories/${encodeURIComponent(id)}/videos`),
+        ])
         if (!mounted) return
         setName(String(json.item?.name ?? ''))
         setEnabled(Boolean(json.item?.enabled))
+        const nextParentId = String(json.item?.parentId ?? '')
+        setParentId(nextParentId && nextParentId !== id ? nextParentId : '')
+        setLinkedVideos(
+          (videosJson.items ?? []).map((v) => ({
+            id: String(v.id ?? ''),
+            title: String(v.title ?? ''),
+            workTitle: String(v.workTitle ?? ''),
+            thumbnailUrl: String(v.thumbnailUrl ?? ''),
+            createdAt: String(v.createdAt ?? ''),
+          }))
+        )
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -3464,13 +5060,15 @@ function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; 
     setBanner('')
     void (async () => {
       try {
-        const payload = { name: name.trim(), enabled }
+        const payload = { name: name.trim(), enabled, parentId }
         if (id) {
-          await cmsFetchJson(cfg, `/cms/categories/${encodeURIComponent(id)}`, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
+          await cmsFetchJson(cfg, `/cms/categories/${encodeURIComponent(id)}`,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }
+          )
         } else {
           await cmsFetchJson(cfg, '/cms/categories', {
             method: 'POST',
@@ -3487,7 +5085,100 @@ function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; 
         setBusy(false)
       }
     })()
-  }, [cfg, enabled, id, name, onBack])
+  }, [cfg, enabled, id, name, onBack, parentId])
+
+  const onSaveLinks = useCallback(() => {
+    if (!id) return
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        await cmsFetchJson(cfg, `/cms/categories/${encodeURIComponent(id)}/videos`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ videoIds: linkedVideos.map((v) => v.id) }),
+        })
+        const videosJson = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/categories/${encodeURIComponent(id)}/videos`)
+        setLinkedVideos(
+          (videosJson.items ?? []).map((v) => ({
+            id: String(v.id ?? ''),
+            title: String(v.title ?? ''),
+            workTitle: String(v.workTitle ?? ''),
+            thumbnailUrl: String(v.thumbnailUrl ?? ''),
+            createdAt: String(v.createdAt ?? ''),
+          }))
+        )
+        setBanner('紐付けを保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, id, linkedVideos])
+
+  const moveLinkedVideo = useCallback((videoId: string, dir: -1 | 1) => {
+    setLinkedVideos((prev) => {
+      const i = prev.findIndex((v) => v.id === videoId)
+      if (i < 0) return prev
+      const j = i + dir
+      if (j < 0 || j >= prev.length) return prev
+      const next = prev.slice()
+      const tmp = next[i]
+      next[i] = next[j]
+      next[j] = tmp
+      return next
+    })
+  }, [])
+
+  const removeLinkedVideo = useCallback((videoId: string) => {
+    setLinkedVideos((prev) => prev.filter((v) => v.id !== videoId))
+  }, [])
+
+  const addLinkedVideo = useCallback((row: { id: string; title: string; workTitle: string; thumbnailUrl: string }) => {
+    const vid = String(row.id || '').trim()
+    if (!vid) return
+    setLinkedVideos((prev) => {
+      if (prev.some((v) => v.id === vid)) return prev
+      return [
+        ...prev,
+        {
+          id: vid,
+          title: String(row.title ?? ''),
+          workTitle: String(row.workTitle ?? ''),
+          thumbnailUrl: String(row.thumbnailUrl ?? ''),
+          createdAt: '',
+        },
+      ]
+    })
+  }, [])
+
+  const onSearchVideos = useCallback(() => {
+    const q = videoSearchQ.trim()
+    if (!q) {
+      setVideoSearchRows([])
+      return
+    }
+    setVideoSearchBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/videos?q=${encodeURIComponent(q)}&limit=50`)
+        setVideoSearchRows(
+          (json.items ?? []).map((v) => ({
+            id: String(v.id ?? ''),
+            title: String(v.title ?? ''),
+            workTitle: String(v.workTitle ?? ''),
+            thumbnailUrl: String(v.thumbnailUrl ?? ''),
+          }))
+        )
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setVideoSearchBusy(false)
+      }
+    })()
+  }, [cfg, videoSearchQ])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -3503,6 +5194,7 @@ function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; 
           <Text style={styles.bannerText}>{banner}</Text>
         </View>
       ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
         {id ? (
@@ -3515,6 +5207,9 @@ function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; 
           <Text style={styles.label}>カテゴリ名</Text>
           <TextInput value={name} onChangeText={setName} style={styles.input} />
         </View>
+
+        <SelectField label="親カテゴリ" value={parentId} placeholder="（なし）" options={parentOptions} onChange={setParentId} />
+
         <View style={styles.devRow}>
           <Text style={styles.devLabel}>有効</Text>
           <Switch value={enabled} onValueChange={setEnabled} />
@@ -3525,6 +5220,115 @@ function CategoryEditScreen({ title, id, onBack }: { title: string; id: string; 
           </Pressable>
         </View>
       </View>
+
+      {id ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{`紐付く動画（${linkedVideos.length}件）`}</Text>
+          <View style={styles.filtersGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>動画ID（直接追加）</Text>
+              <TextInput value={manualVideoId} onChangeText={setManualVideoId} placeholder="vid_..." style={styles.input} autoCapitalize="none" />
+            </View>
+            <View style={styles.filterActions}>
+              <Pressable
+                disabled={busy || !manualVideoId.trim()}
+                onPress={() => {
+                  const vid = manualVideoId.trim()
+                  addLinkedVideo({ id: vid, title: '', workTitle: '', thumbnailUrl: '' })
+                  setManualVideoId('')
+                }}
+                style={[styles.btnSecondary, busy || !manualVideoId.trim() ? styles.btnDisabled : null]}
+              >
+                <Text style={styles.btnSecondaryText}>追加</Text>
+              </Pressable>
+              <Pressable disabled={busy} onPress={onSaveLinks} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+                <Text style={styles.btnPrimaryText}>紐付け保存</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.filtersGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>動画検索（タイトル/説明）</Text>
+              <TextInput value={videoSearchQ} onChangeText={setVideoSearchQ} placeholder="キーワード" style={styles.input} />
+            </View>
+            <View style={styles.filterActions}>
+              <Pressable disabled={videoSearchBusy} onPress={onSearchVideos} style={[styles.btnSecondary, videoSearchBusy ? styles.btnDisabled : null]}>
+                <Text style={styles.btnSecondaryText}>{videoSearchBusy ? '検索中…' : '検索'}</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {videoSearchRows.length ? (
+            <View style={styles.table}>
+              {videoSearchRows.map((v) => {
+                const exists = linkedVideos.some((x) => x.id === v.id)
+                return (
+                  <View key={`sr-${v.id}`} style={styles.tableRow}>
+                    <View style={styles.tableLeft}>
+                      <Text style={styles.tableLabel}>{v.title || v.id}</Text>
+                      <Text style={styles.tableDetail}>{`${v.workTitle || '—'} / ${v.id}`}</Text>
+                    </View>
+                    <View style={[styles.tableRight, { flexDirection: 'row', gap: 8, alignItems: 'center' }]}>
+                      <Pressable
+                        disabled={busy || exists}
+                        onPress={() => addLinkedVideo(v)}
+                        style={[styles.smallBtnPrimary, busy || exists ? styles.btnDisabled : null]}
+                      >
+                        <Text style={styles.smallBtnPrimaryText}>{exists ? '追加済' : '追加'}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )
+              })}
+            </View>
+          ) : null}
+
+          <View style={styles.table}>
+            {busy && linkedVideos.length === 0 ? (
+              <View style={styles.placeholderBox}>
+                <Text style={styles.placeholderText}>読込中…</Text>
+              </View>
+            ) : null}
+
+            {linkedVideos.map((v) => (
+              <View key={v.id} style={styles.tableRow}>
+                <View style={styles.tableLeft}>
+                  <Text style={styles.tableLabel}>{v.title || v.id}</Text>
+                  <Text style={styles.tableDetail}>
+                    {`${v.workTitle || '—'} / ${(v.createdAt || '').slice(0, 19).replace('T', ' ') || '—'} / ${v.id}`}
+                  </Text>
+                </View>
+                <View style={[styles.tableRight, { flexDirection: 'row', gap: 10, alignItems: 'center' }]}>
+                  {v.thumbnailUrl ? (
+                    <Image source={{ uri: v.thumbnailUrl }} style={{ width: 64, height: 36, borderRadius: 6, backgroundColor: COLORS.white }} />
+                  ) : null}
+                  <Pressable disabled={busy} onPress={() => moveLinkedVideo(v.id, -1)} style={[styles.smallBtn, busy ? styles.btnDisabled : null]}>
+                    <Text style={styles.smallBtnText}>↑</Text>
+                  </Pressable>
+                  <Pressable disabled={busy} onPress={() => moveLinkedVideo(v.id, 1)} style={[styles.smallBtn, busy ? styles.btnDisabled : null]}>
+                    <Text style={styles.smallBtnText}>↓</Text>
+                  </Pressable>
+                  <Pressable disabled={busy} onPress={() => removeLinkedVideo(v.id)} style={[styles.smallBtn, busy ? styles.btnDisabled : null]}>
+                    <Text style={styles.smallBtnText}>削除</Text>
+                  </Pressable>
+                  {onOpenVideo ? (
+                    <Pressable disabled={busy} onPress={() => onOpenVideo(v.id)} style={[styles.smallBtnPrimary, busy ? styles.btnDisabled : null]}>
+                      <Text style={styles.smallBtnPrimaryText}>詳細</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            ))}
+
+            {!busy && linkedVideos.length === 0 ? (
+              <View style={styles.placeholderBox}>
+                <Text style={styles.placeholderText}>このカテゴリに紐付く動画はありません</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </ScrollView>
   )
 }
@@ -3598,22 +5402,35 @@ function TagsListScreen({ onOpenEdit, onNew }: { onOpenEdit: (id: string) => voi
 function TagEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
   const cfg = useCmsApi()
   const [name, setName] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+  const [categoryOptions, setCategoryOptions] = useState<Array<{ label: string; value: string }>>([{ label: '（なし）', value: '' }])
   const [busy, setBusy] = useState(false)
   const [banner, setBanner] = useState('')
 
   useEffect(() => {
-    if (!id) {
-      setName('')
-      return
-    }
     let mounted = true
     setBusy(true)
     setBanner('')
     void (async () => {
       try {
+        const catsJson = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/categories')
+        if (!mounted) return
+        const options = (catsJson.items ?? [])
+          .map((c) => ({ id: String(c.id ?? ''), name: String(c.name ?? '') }))
+          .filter((c) => c.id)
+          .map((c) => ({ label: c.name || c.id, value: c.id }))
+        setCategoryOptions([{ label: '（なし）', value: '' }, ...options])
+
+        if (!id) {
+          setName('')
+          setCategoryId('')
+          return
+        }
+
         const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/tags/${encodeURIComponent(id)}`)
         if (!mounted) return
         setName(String(json.item?.name ?? ''))
+        setCategoryId(String(json.item?.categoryId ?? ''))
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -3632,7 +5449,7 @@ function TagEditScreen({ title, id, onBack }: { title: string; id: string; onBac
     setBanner('')
     void (async () => {
       try {
-        const payload = { name: name.trim() }
+        const payload = { name: name.trim(), categoryId }
         if (id) {
           await cmsFetchJson(cfg, `/cms/tags/${encodeURIComponent(id)}`, {
             method: 'PUT',
@@ -3655,7 +5472,7 @@ function TagEditScreen({ title, id, onBack }: { title: string; id: string; onBac
         setBusy(false)
       }
     })()
-  }, [cfg, id, name, onBack])
+  }, [categoryId, cfg, id, name, onBack])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -3682,6 +5499,367 @@ function TagEditScreen({ title, id, onBack }: { title: string; id: string; onBac
         <View style={styles.field}>
           <Text style={styles.label}>タグ名</Text>
           <TextInput value={name} onChangeText={setName} style={styles.input} />
+        </View>
+
+        <SelectField label="表示カテゴリ" value={categoryId} placeholder="（なし）" options={categoryOptions} onChange={setCategoryId} />
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+type GenreRow = { id: string; name: string; enabled: boolean }
+
+function GenresListScreen({ onOpenEdit, onNew }: { onOpenEdit: (id: string) => void; onNew: () => void }) {
+  const cfg = useCmsApi()
+  const [rows, setRows] = useState<GenreRow[]>([])
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const json = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/genres')
+      setRows(
+        (json.items ?? []).map((g) => ({
+          id: String(g.id ?? ''),
+          name: String(g.name ?? ''),
+          enabled: g.enabled === undefined ? true : Boolean(g.enabled),
+        }))
+      )
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [cfg])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Text style={styles.pageTitle}>ジャンル一覧</Text>
+        <Pressable onPress={onNew} style={styles.smallBtnPrimary}>
+          <Text style={styles.smallBtnPrimaryText}>新規</Text>
+        </Pressable>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>一覧</Text>
+        <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
+          {rows.map((r) => (
+            <Pressable key={r.id} onPress={() => onOpenEdit(r.id)} style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>{r.name}</Text>
+                <Text style={styles.tableDetail}>{`${r.id}${r.enabled ? '' : ' / 無効'}`}</Text>
+              </View>
+            </Pressable>
+          ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>ジャンルがありません</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+function GenreEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
+  const [name, setName] = useState('')
+  const [enabled, setEnabled] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
+
+  useEffect(() => {
+    if (!id) {
+      setName('')
+      setEnabled(true)
+      return
+    }
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/genres/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        setName(String(json.item?.name ?? ''))
+        setEnabled(json.item?.enabled === undefined ? true : Boolean(json.item?.enabled))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const payload = { name: name.trim(), enabled }
+        if (id) {
+          await cmsFetchJson(cfg, `/cms/genres/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } else {
+          await cmsFetchJson(cfg, '/cms/genres', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          onBack()
+          return
+        }
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, enabled, id, name, onBack])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Pressable onPress={onBack} style={styles.smallBtn}>
+          <Text style={styles.smallBtnText}>戻る</Text>
+        </Pressable>
+        <Text style={styles.pageTitle}>{title}</Text>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>編集</Text>
+        {id ? (
+          <View style={styles.field}>
+            <Text style={styles.label}>ID</Text>
+            <Text style={styles.readonlyText}>{id}</Text>
+          </View>
+        ) : null}
+        <View style={styles.field}>
+          <Text style={styles.label}>ジャンル名</Text>
+          <TextInput value={name} onChangeText={setName} style={styles.input} />
+        </View>
+        <View style={styles.devRow}>
+          <Text style={styles.devLabel}>有効</Text>
+          <Switch value={enabled} onValueChange={setEnabled} />
+        </View>
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+type CastCategoryRow = { id: string; name: string; enabled: boolean }
+
+function CastCategoriesListScreen({ onOpenEdit, onNew }: { onOpenEdit: (id: string) => void; onNew: () => void }) {
+  const cfg = useCmsApi()
+  const [rows, setRows] = useState<CastCategoryRow[]>([])
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const json = await cmsFetchJson<{ items: any[] }>(cfg, '/cms/cast-categories')
+      setRows(
+        (json.items ?? []).map((g) => ({
+          id: String(g.id ?? ''),
+          name: String(g.name ?? ''),
+          enabled: g.enabled === undefined ? true : Boolean(g.enabled),
+        }))
+      )
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [cfg])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Text style={styles.pageTitle}>キャストカテゴリ一覧</Text>
+        <Pressable onPress={onNew} style={styles.smallBtnPrimary}>
+          <Text style={styles.smallBtnPrimaryText}>新規</Text>
+        </Pressable>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>一覧</Text>
+        <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
+          {rows.map((r) => (
+            <Pressable key={r.id} onPress={() => onOpenEdit(r.id)} style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>{r.name}</Text>
+                <Text style={styles.tableDetail}>{`${r.id}${r.enabled ? '' : ' / 無効'}`}</Text>
+              </View>
+            </Pressable>
+          ))}
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>キャストカテゴリがありません</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+
+function CastCategoryEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
+  const cfg = useCmsApi()
+  const [name, setName] = useState('')
+  const [enabled, setEnabled] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [banner, setBanner] = useState('')
+
+  useEffect(() => {
+    if (!id) {
+      setName('')
+      setEnabled(true)
+      return
+    }
+    let mounted = true
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/cast-categories/${encodeURIComponent(id)}`)
+        if (!mounted) return
+        setName(String(json.item?.name ?? ''))
+        setEnabled(json.item?.enabled === undefined ? true : Boolean(json.item?.enabled))
+      } catch (e) {
+        if (!mounted) return
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setBusy(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [cfg, id])
+
+  const onSave = useCallback(() => {
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        const payload = { name: name.trim(), enabled }
+        if (id) {
+          await cmsFetchJson(cfg, `/cms/cast-categories/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } else {
+          await cmsFetchJson(cfg, '/cms/cast-categories', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          onBack()
+          return
+        }
+        setBanner('保存しました')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, enabled, id, name, onBack])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Pressable onPress={onBack} style={styles.smallBtn}>
+          <Text style={styles.smallBtnText}>戻る</Text>
+        </Pressable>
+        <Text style={styles.pageTitle}>{title}</Text>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>編集</Text>
+        {id ? (
+          <View style={styles.field}>
+            <Text style={styles.label}>ID</Text>
+            <Text style={styles.readonlyText}>{id}</Text>
+          </View>
+        ) : null}
+        <View style={styles.field}>
+          <Text style={styles.label}>カテゴリ名</Text>
+          <TextInput value={name} onChangeText={setName} style={styles.input} />
+        </View>
+
+        <View style={styles.devRow}>
+          <Text style={styles.devLabel}>有効</Text>
+          <Switch value={enabled} onValueChange={setEnabled} />
         </View>
         <View style={styles.filterActions}>
           <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
@@ -5247,9 +7425,11 @@ function DevPage({
   token,
   devMode,
   apiBase,
+  uploaderBase,
   adminEmail,
   onSetDevMode,
   onSetApiBase,
+  onSetUploaderBase,
   onSetAdminEmail,
   onSetLoggedInState,
   onNavigate,
@@ -5258,9 +7438,11 @@ function DevPage({
   token: string
   devMode: boolean
   apiBase: string
+  uploaderBase: string
   adminEmail: string
   onSetDevMode: (v: boolean) => void
   onSetApiBase: (v: string) => void
+  onSetUploaderBase: (v: string) => void
   onSetAdminEmail: (v: string) => void
   onSetLoggedInState: (next: boolean, persist: boolean) => void
   onNavigate: (id: RouteId) => void
@@ -5268,6 +7450,7 @@ function DevPage({
 }) {
   const [persist, setPersist] = useState(true)
   const [apiInput, setApiInput] = useState(apiBase)
+  const [uploaderInput, setUploaderInput] = useState(uploaderBase)
   const [emailInput, setEmailInput] = useState(adminEmail)
 
   const routes = useMemo<Array<{ id: RouteId; label: string }>>(
@@ -5321,6 +7504,10 @@ function DevPage({
             <Text style={styles.label}>API Base Override</Text>
             <TextInput value={apiInput} onChangeText={setApiInput} placeholder="https://..." style={styles.input} />
           </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Uploader Base Override</Text>
+            <TextInput value={uploaderInput} onChangeText={setUploaderInput} placeholder="https://..." style={styles.input} />
+          </View>
         </View>
 
         <View style={styles.filterActions}>
@@ -5328,6 +7515,7 @@ function DevPage({
             onPress={() => {
               onSetAdminEmail(emailInput.trim())
               onSetApiBase(apiInput.trim())
+              onSetUploaderBase(uploaderInput.trim())
             }}
             style={styles.btnPrimary}
           >
@@ -5358,11 +7546,13 @@ function DevModal({
   visible,
   token,
   apiBase,
+  uploaderBase,
   adminEmail,
   mock,
   onClose,
   onSetAdminEmail,
   onSetApiBase,
+  onSetUploaderBase,
   onSetMock,
   onNavigate,
   onSkipLogin,
@@ -5371,11 +7561,13 @@ function DevModal({
   visible: boolean
   token: string
   apiBase: string
+  uploaderBase: string
   adminEmail: string
   mock: boolean
   onClose: () => void
   onSetAdminEmail: (v: string) => void
   onSetApiBase: (v: string) => void
+  onSetUploaderBase: (v: string) => void
   onSetMock: (v: boolean) => void
   onNavigate: (id: RouteId) => void
   onSkipLogin: (persist: boolean) => void
@@ -5383,6 +7575,7 @@ function DevModal({
 }) {
   const [persist, setPersist] = useState(true)
   const [apiInput, setApiInput] = useState(apiBase)
+  const [uploaderInput, setUploaderInput] = useState(uploaderBase)
   const [emailInput, setEmailInput] = useState(adminEmail)
 
   const initialPos = useMemo(() => {
@@ -5413,6 +7606,10 @@ function DevModal({
   useEffect(() => {
     setApiInput(apiBase)
   }, [apiBase])
+
+  useEffect(() => {
+    setUploaderInput(uploaderBase)
+  }, [uploaderBase])
 
   useEffect(() => {
     setEmailInput(adminEmail)
@@ -5460,11 +7657,17 @@ function DevModal({
             <TextInput value={apiInput} onChangeText={setApiInput} style={styles.input} />
           </View>
 
+          <View style={styles.field}>
+            <Text style={styles.label}>Uploader Base Override</Text>
+            <TextInput value={uploaderInput} onChangeText={setUploaderInput} style={styles.input} />
+          </View>
+
           <View style={styles.filterActions}>
             <Pressable
               onPress={() => {
                 onSetAdminEmail(emailInput.trim())
                 onSetApiBase(apiInput.trim())
+                onSetUploaderBase(uploaderInput.trim())
               }}
               style={styles.btnPrimary}
             >
@@ -5504,11 +7707,19 @@ function AppShell({
   const [selectedUnapprovedActorAccountId, setSelectedUnapprovedActorAccountId] = useState('')
   const [selectedCommentId, setSelectedCommentId] = useState('')
   const [selectedUserId, setSelectedUserId] = useState('')
+  const [userBackRoute, setUserBackRoute] = useState<RouteId>('users')
   const [selectedNoticeId, setSelectedNoticeId] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [categoryBackRoute, setCategoryBackRoute] = useState<RouteId>('categories')
   const [selectedTagId, setSelectedTagId] = useState('')
   const [tagBackRoute, setTagBackRoute] = useState<RouteId>('tags')
+  const [selectedGenreId, setSelectedGenreId] = useState('')
+  const [genreBackRoute, setGenreBackRoute] = useState<RouteId>('genres')
+  const [selectedCastCategoryId, setSelectedCastCategoryId] = useState('')
+  const [castCategoryBackRoute, setCastCategoryBackRoute] = useState<RouteId>('cast-categories')
+
+  const [commentsFilterContentId, setCommentsFilterContentId] = useState('')
+  const [commentsFilterEpisodeId, setCommentsFilterEpisodeId] = useState('')
   const [selectedCoinSettingId, setSelectedCoinSettingId] = useState('')
   const [selectedAdminId, setSelectedAdminId] = useState('')
   const [selectedInquiryId, setSelectedInquiryId] = useState('')
@@ -5536,6 +7747,7 @@ function AppShell({
 
       { kind: 'group', label: 'ユーザー管理' },
       { kind: 'item', id: 'users', label: 'ユーザー一覧' },
+      { kind: 'item', id: 'user-new', label: 'ユーザー新規作成' },
       { kind: 'item', id: 'unapproved-actor-accounts', label: '未承認俳優アカウント一覧' },
 
       { kind: 'group', label: 'お知らせ' },
@@ -5551,6 +7763,8 @@ function AppShell({
       { kind: 'group', label: 'マスタ管理' },
       { kind: 'item', id: 'categories', label: 'カテゴリ一覧' },
       { kind: 'item', id: 'tags', label: 'タグ一覧' },
+      { kind: 'item', id: 'genres', label: 'ジャンル一覧' },
+      { kind: 'item', id: 'cast-categories', label: 'キャストカテゴリ一覧' },
       { kind: 'item', id: 'coin', label: 'コイン設定一覧' },
 
       { kind: 'group', label: '管理者' },
@@ -5571,7 +7785,15 @@ function AppShell({
       case 'dev':
         return <PlaceholderScreen title="/dev" />
       case 'dashboard':
-        return <DashboardScreen onNavigate={onNavigate} />
+        return (
+          <DashboardScreen
+            onNavigate={onNavigate}
+            onOpenScheduledDetail={(id) => {
+              setSelectedScheduledVideoId(id)
+              onNavigate('videos-scheduled-detail')
+            }}
+          />
+        )
       case 'works':
         return (
           <WorksListScreen
@@ -5645,7 +7867,21 @@ function AppShell({
           />
         )
       case 'video-detail':
-        return <VideoDetailScreen id={selectedVideoId} onBack={() => onNavigate('videos')} />
+        return (
+          <VideoDetailScreen
+            id={selectedVideoId}
+            onBack={() => onNavigate('videos')}
+            onGoComments={(contentId, episodeId) => {
+              setCommentsFilterContentId(contentId)
+              setCommentsFilterEpisodeId(episodeId)
+              onNavigate('comments')
+            }}
+            onOpenVideo={(id) => {
+              setSelectedVideoId(id)
+              onNavigate('video-detail')
+            }}
+          />
+        )
       case 'video-upload':
         return <VideoUploadScreen onBack={() => onNavigate('videos')} />
       case 'unapproved-videos':
@@ -5750,6 +7986,8 @@ function AppShell({
       case 'comments':
         return (
           <CommentsListScreen
+            initialContentId={commentsFilterContentId}
+            initialEpisodeId={commentsFilterEpisodeId}
             onOpenEdit={(id) => {
               setSelectedCommentId(id)
               onNavigate('comment-edit')
@@ -5762,14 +8000,29 @@ function AppShell({
       case 'users':
         return (
           <UsersListScreen
+            onNew={() => {
+              onNavigate('user-new')
+            }}
             onOpenDetail={(id) => {
               setSelectedUserId(id)
+              setUserBackRoute('users')
               onNavigate('user-detail')
             }}
           />
         )
       case 'user-detail':
-        return <UserDetailScreen id={selectedUserId} onBack={() => onNavigate('users')} />
+        return <UserDetailScreen id={selectedUserId} onBack={() => onNavigate(userBackRoute)} />
+      case 'user-new':
+        return (
+          <UserCreateScreen
+            onBack={() => onNavigate('users')}
+            onCreated={(id) => {
+              setSelectedUserId(id)
+              setUserBackRoute('users')
+              onNavigate('user-detail')
+            }}
+          />
+        )
 
       case 'notices':
         return (
@@ -5817,10 +8070,28 @@ function AppShell({
         )
       case 'category-detail':
         return (
-          <CategoryEditScreen title="カテゴリ詳細・編集" id={selectedCategoryId} onBack={() => onNavigate(categoryBackRoute)} />
+          <CategoryEditScreen
+            title="カテゴリ詳細・編集"
+            id={selectedCategoryId}
+            onBack={() => onNavigate(categoryBackRoute)}
+            onOpenVideo={(id) => {
+              setSelectedVideoId(id)
+              onNavigate('video-detail')
+            }}
+          />
         )
       case 'category-new':
-        return <CategoryEditScreen title="カテゴリ新規作成" id="" onBack={() => onNavigate(categoryBackRoute)} />
+        return (
+          <CategoryEditScreen
+            title="カテゴリ新規作成"
+            id=""
+            onBack={() => onNavigate(categoryBackRoute)}
+            onOpenVideo={(id) => {
+              setSelectedVideoId(id)
+              onNavigate('video-detail')
+            }}
+          />
+        )
 
       case 'tags':
         return (
@@ -5841,6 +8112,46 @@ function AppShell({
         return <TagEditScreen title="タグ編集" id={selectedTagId} onBack={() => onNavigate(tagBackRoute)} />
       case 'tag-new':
         return <TagEditScreen title="タグ新規作成" id="" onBack={() => onNavigate(tagBackRoute)} />
+
+      case 'genres':
+        return (
+          <GenresListScreen
+            onNew={() => {
+              setSelectedGenreId('')
+              setGenreBackRoute('genres')
+              onNavigate('genre-new')
+            }}
+            onOpenEdit={(id) => {
+              setSelectedGenreId(id)
+              setGenreBackRoute('genres')
+              onNavigate('genre-detail')
+            }}
+          />
+        )
+      case 'genre-detail':
+        return <GenreEditScreen title="ジャンル編集" id={selectedGenreId} onBack={() => onNavigate(genreBackRoute)} />
+      case 'genre-new':
+        return <GenreEditScreen title="ジャンル新規作成" id="" onBack={() => onNavigate(genreBackRoute)} />
+
+      case 'cast-categories':
+        return (
+          <CastCategoriesListScreen
+            onNew={() => {
+              setSelectedCastCategoryId('')
+              setCastCategoryBackRoute('cast-categories')
+              onNavigate('cast-category-new')
+            }}
+            onOpenEdit={(id) => {
+              setSelectedCastCategoryId(id)
+              setCastCategoryBackRoute('cast-categories')
+              onNavigate('cast-category-detail')
+            }}
+          />
+        )
+      case 'cast-category-detail':
+        return <CastCategoryEditScreen title="キャストカテゴリ編集" id={selectedCastCategoryId} onBack={() => onNavigate(castCategoryBackRoute)} />
+      case 'cast-category-new':
+        return <CastCategoryEditScreen title="キャストカテゴリ新規作成" id="" onBack={() => onNavigate(castCategoryBackRoute)} />
 
       case 'coin':
         return (
@@ -5907,12 +8218,19 @@ function AppShell({
     selectedScheduledVideoId,
     selectedTagId,
     selectedUserId,
+    userBackRoute,
     selectedVideoId,
     selectedUnapprovedVideoId,
     selectedUnapprovedActorAccountId,
     selectedWorkId,
     categoryBackRoute,
     tagBackRoute,
+    selectedGenreId,
+    genreBackRoute,
+    selectedCastCategoryId,
+    castCategoryBackRoute,
+    commentsFilterContentId,
+    commentsFilterEpisodeId,
   ])
 
   return (
@@ -6105,6 +8423,7 @@ function LoginScreen({
 
 export default function App() {
   const apiBase = useMemo(() => getApiBaseFromLocation(), [])
+  const uploaderBase = useMemo(() => getUploaderBaseFromLocation(), [])
 
   const [token, setToken] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
@@ -6220,6 +8539,20 @@ export default function App() {
     setHashRoute('login')
   }, [])
 
+  const onSessionExpired = useCallback(() => {
+    unauthorizedEventEmitted = false
+    onLogout()
+    setLoginBanner('セッションが切れました')
+  }, [onLogout])
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return
+
+    const handler = () => onSessionExpired()
+    window.addEventListener(UNAUTHORIZED_EVENT, handler as any)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handler as any)
+  }, [onSessionExpired])
+
   const onSetLoggedInState = useCallback(
     (next: boolean, persist: boolean) => {
       if (next) {
@@ -6265,6 +8598,12 @@ export default function App() {
     const next = v.trim().replace(/\/$/, '')
     if (!next) safeLocalStorageRemove(STORAGE_API_OVERRIDE_KEY)
     else safeLocalStorageSet(STORAGE_API_OVERRIDE_KEY, next)
+  }, [])
+
+  const onSetUploaderBase = useCallback((v: string) => {
+    const next = v.trim().replace(/\/$/, '')
+    if (!next) safeLocalStorageRemove(STORAGE_UPLOADER_OVERRIDE_KEY)
+    else safeLocalStorageSet(STORAGE_UPLOADER_OVERRIDE_KEY, next)
   }, [])
 
   const onSetAdminEmail = useCallback((v: string) => {
@@ -6436,9 +8775,11 @@ export default function App() {
                 token={token}
                 devMode={devMode}
                 apiBase={apiBase}
+                uploaderBase={uploaderBase}
                 adminEmail={adminEmail}
                 onSetDevMode={onSetDevMode}
                 onSetApiBase={onSetApiBase}
+                onSetUploaderBase={onSetUploaderBase}
                 onSetAdminEmail={onSetAdminEmail}
                 onSetLoggedInState={onSetLoggedInState}
                 onNavigate={onNavigate}
@@ -6447,9 +8788,11 @@ export default function App() {
             </View>
           </View>
         ) : (
-          <CmsApiContext.Provider value={{ apiBase, token, mock: mockMode }}>
-            <CmsMaintenanceGate route={route} adminName={adminEmail} onLogout={onLogout} onNavigate={onNavigate} />
-          </CmsApiContext.Provider>
+          <DialogProvider>
+            <CmsApiContext.Provider value={{ apiBase, uploaderBase, token, mock: mockMode }}>
+              <CmsMaintenanceGate route={route} adminName={adminEmail} onLogout={onLogout} onNavigate={onNavigate} />
+            </CmsApiContext.Provider>
+          </DialogProvider>
         )
       ) : null}
 
@@ -6457,11 +8800,13 @@ export default function App() {
         visible={devModalOpen && showDevButton}
         token={token}
         apiBase={apiBase}
+        uploaderBase={uploaderBase}
         adminEmail={adminEmail}
         mock={mockMode}
         onClose={() => setDevModalOpen(false)}
         onSetAdminEmail={onSetAdminEmail}
         onSetApiBase={onSetApiBase}
+        onSetUploaderBase={onSetUploaderBase}
         onSetMock={onSetMockMode}
         onNavigate={onNavigate}
         onSkipLogin={onSkipLogin}
@@ -6887,8 +9232,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: 10,
     backgroundColor: COLORS.white,
-    zIndex: 10,
+    zIndex: 9999,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
   },
   selectMenuItem: {
     paddingHorizontal: 12,
@@ -6896,10 +9246,264 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
   },
+  selectMenuItemFirst: {
+    borderTopWidth: 0,
+  },
   selectMenuText: {
     color: COLORS.text,
     fontSize: 13,
     fontWeight: '800',
+  },
+
+  selectSearchWrap: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+  selectSearchInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: COLORS.white,
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  selectMenuScroll: {
+    maxHeight: 280,
+  },
+  selectMenuScrollContent: {
+    paddingBottom: 6,
+  },
+  selectMenuDetailText: {
+    color: COLORS.muted,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  selectMenuEmpty: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  selectMenuFooterBtn: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.bg,
+  },
+  selectMenuFooterText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  dialogOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    padding: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 520,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 14,
+    backgroundColor: COLORS.white,
+    padding: 14,
+  },
+  dialogTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  dialogMessage: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  dialogActionsRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'flex-end',
+  },
+  dialogBtn: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.white,
+  },
+  dialogBtnText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  dialogBtnOk: {
+    backgroundColor: COLORS.text,
+    borderColor: COLORS.text,
+  },
+  dialogBtnDanger: {
+    backgroundColor: '#ef4444',
+    borderColor: '#ef4444',
+  },
+  dialogBtnOkText: {
+    color: COLORS.white,
+  },
+
+  pickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    padding: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalCard: {
+    width: '100%',
+    maxWidth: 560,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 14,
+    backgroundColor: COLORS.white,
+    overflow: 'hidden',
+  },
+  pickerModalHeader: {
+    height: 46,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.white,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pickerModalTitle: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '900',
+    flex: 1,
+  },
+  pickerModalClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickerModalCloseText: {
+    color: COLORS.muted,
+    fontSize: 16,
+    fontWeight: '900',
+    marginTop: -1,
+  },
+  pickerModalList: {
+    maxHeight: 420,
+  },
+  pickerModalListContent: {
+    paddingBottom: 6,
+  },
+  pickerModalItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+  pickerModalItemText: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '800',
+    flex: 1,
+  },
+  pickerModalDoneBtn: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: COLORS.text,
+  },
+  pickerModalDoneText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  uploadBarOuter: {
+    marginTop: 10,
+    height: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+    overflow: 'hidden',
+  },
+  uploadBarInner: {
+    height: '100%',
+    backgroundColor: COLORS.text,
+  },
+
+  multiChipsWrap: {
+    marginTop: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  multiChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    maxWidth: '100%',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  multiChipText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '800',
+    maxWidth: 260,
+  },
+  multiChipRemove: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '900',
+    marginLeft: 8,
+  },
+  multiSelectRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  multiSelectCheck: {
+    width: 18,
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginTop: 1,
+    textAlign: 'center',
+  },
+  multiSelectTextCol: {
+    flex: 1,
   },
 
   tableScroll: {
@@ -6965,6 +9569,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.text,
   },
   smallBtnPrimaryText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  smallBtnDanger: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#b91c1c',
+  },
+  smallBtnDangerText: {
     color: COLORS.white,
     fontSize: 12,
     fontWeight: '900',
