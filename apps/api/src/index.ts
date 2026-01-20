@@ -1,5 +1,4 @@
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
 
 type Env = {
   Bindings: {
@@ -301,6 +300,21 @@ async function makeStreamSignedToken(params: {
 
 const app = new Hono<Env>()
 
+const ALLOWED_ORIGINS = new Set([
+  'https://oshidra.com',
+  'https://www.oshidra.com',
+  'https://oshidra-web.pages.dev',
+  'https://admin.oshidra.com',
+  'http://localhost:3000',
+  'http://localhost:5173',
+])
+
+function getAllowedOrigin(origin: string | null) {
+  if (!origin) return null
+  const trimmed = origin.trim()
+  return ALLOWED_ORIGINS.has(trimmed) ? trimmed : null
+}
+
 // In local dev we sometimes don't set AUTH_JWT_SECRET. When debug codes are enabled, we fall back to
 // an in-memory secret so login can proceed (tokens become invalid after server restart).
 let DEV_FALLBACK_JWT_SECRET: string | null = null
@@ -343,15 +357,30 @@ const MOCK_CMS_FEATURED_SLOTS: Record<string, string[]> = {
   pickup: [],
 }
 
-app.use(
-  '*',
-  cors({
-    origin: '*',
-    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Key', 'X-Mock'],
-    maxAge: 86400,
-  })
-)
+app.use('*', async (c, next) => {
+  const origin = getAllowedOrigin(c.req.header('Origin'))
+  if (c.req.method === 'OPTIONS') {
+    const res = c.text('', 204)
+    if (origin) {
+      res.headers.set('Access-Control-Allow-Origin', origin)
+      res.headers.set('Vary', 'Origin')
+      res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+      res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key, X-Mock')
+      res.headers.set('Access-Control-Max-Age', '86400')
+    }
+    return res
+  }
+
+  await next()
+
+  if (origin) {
+    c.res.headers.set('Access-Control-Allow-Origin', origin)
+    c.res.headers.set('Vary', 'Origin')
+    c.res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key, X-Mock')
+    c.res.headers.set('Access-Control-Max-Age', '86400')
+  }
+})
 
 app.get('/health', (c) => c.text('ok'))
 
