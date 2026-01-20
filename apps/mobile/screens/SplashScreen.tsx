@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   videoWrapWeb: {
-    maxWidth: 828,
+    maxWidth: 768,
     alignSelf: 'center',
     marginLeft: 'auto',
     marginRight: 'auto',

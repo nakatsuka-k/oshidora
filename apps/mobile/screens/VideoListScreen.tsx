@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
+import { ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch, isDebugMockEnabled } from '../utils/api'
+
+import IconNotification from '../assets/icon_notification.svg'
+import IconSearch from '../assets/icon_search.svg'
+
+const LOGO_IMAGE = require('../assets/oshidora_logo.png')
 
 type VideoListScreenProps = {
   apiBaseUrl: string
@@ -168,26 +173,32 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
 
   const renderVideo = useCallback((v: Video) => {
     const isPaid = typeof v.priceCoin === 'number' ? v.priceCoin > 0 : false
+    const tags = Array.isArray(v.tags) ? v.tags : []
+    const badgeLabel = isPaid ? 'プレミア' : tags.includes('おすすめ') ? 'おすすめ' : tags.includes('新着') ? '新着' : ''
+    const description = tags.length > 0 ? tags.join('・') : '作品の説明は準備中です。'
     return (
-      <Pressable style={styles.videoCard} onPress={() => onOpenVideo(v.id)}>
-        <View style={styles.thumbWrap}>
+      <Pressable style={styles.videoRow} onPress={() => onOpenVideo(v.id)}>
+        <View style={styles.rowThumbWrap}>
           <Image
             source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_VIDEO_IMAGE}
-            style={styles.videoThumb}
+            style={styles.rowThumb}
             resizeMode="cover"
           />
-          {isPaid ? (
-            <View style={styles.paidBadge}>
-              <Text style={styles.paidBadgeText}>有料</Text>
+          {badgeLabel ? (
+            <View style={[styles.badge, badgeLabel === 'おすすめ' ? styles.badgeRecommend : badgeLabel === '新着' ? styles.badgeNew : styles.badgePremium]}>
+              <Text style={styles.badgeText}>{badgeLabel}</Text>
             </View>
           ) : null}
         </View>
-        <View style={styles.videoMeta}>
-          <Text style={styles.videoTitle} numberOfLines={2} ellipsizeMode="tail">
+        <View style={styles.rowMeta}>
+          <Text style={styles.rowTitle} numberOfLines={1} ellipsizeMode="tail">
             {v.title}
           </Text>
-          <Text style={styles.videoRating}>
+          <Text style={styles.rowRating}>
             ★ {Number.isFinite(v.ratingAvg) ? v.ratingAvg.toFixed(1) : '—'}（{Number.isFinite(v.reviewCount) ? v.reviewCount : 0}件）
+          </Text>
+          <Text style={styles.rowDesc} numberOfLines={2} ellipsizeMode="tail">
+            {description}
           </Text>
         </View>
       </Pressable>
@@ -196,8 +207,28 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
 
   return (
     <ScreenContainer
-      title="作品一覧"
-      headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+      headerLeft={<Image source={LOGO_IMAGE} style={styles.logo} resizeMode="contain" />}
+      headerRight={
+        <View style={styles.headerRightRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="お知らせ"
+            onPress={() => onOpenNotice?.()}
+            style={styles.headerIconButton}
+            disabled={!onOpenNotice}
+          >
+            <IconNotification width={22} height={22} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="検索"
+            onPress={() => onPressTab('search')}
+            style={styles.headerIconButton}
+          >
+            <IconSearch width={22} height={22} />
+          </Pressable>
+        </View>
+      }
       footer={<TabBar active="video" onPress={onPressTab} />}
       footerPaddingHorizontal={0}
     >
@@ -219,20 +250,23 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
         {/* カテゴリ一覧 */}
         {categoryItems.length > 1 ? (
           <View style={styles.sectionTop}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
               {categoryItems.map((c) => {
                 const selected = c.id === selectedCategoryId
                 return (
-                  <Pressable
-                    key={c.id}
-                    style={[styles.chip, selected ? styles.chipSelected : null]}
-                    onPress={() => setSelectedCategoryId(c.id)}
-                  >
-                    <Text style={[styles.chipText, selected ? styles.chipTextSelected : null]}>{c.name}</Text>
+                  <Pressable key={c.id} style={styles.tabItem} onPress={() => setSelectedCategoryId(c.id)}>
+                    <Text style={[styles.tabText, selected ? styles.tabTextActive : null]}>{c.name}</Text>
+                    {selected ? <View style={styles.tabUnderline} /> : null}
                   </Pressable>
                 )
               })}
             </ScrollView>
+            <View style={styles.sortRow}>
+              <Pressable style={styles.sortButton} accessibilityRole="button">
+                <Text style={styles.sortText}>おすすめ順</Text>
+                <Text style={styles.sortChevron}>▾</Text>
+              </Pressable>
+            </View>
             {categoriesError ? (
               <Text style={styles.loadNote}>カテゴリ取得に失敗しました{categoriesFallbackUsed ? '（モック表示）' : ''}</Text>
             ) : null}
@@ -247,10 +281,8 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
           <FlatList
             data={videos}
             keyExtractor={(v) => v.id}
-            numColumns={2}
             renderItem={({ item }) => renderVideo(item)}
             contentContainerStyle={styles.listContent}
-            columnWrapperStyle={styles.column}
             showsVerticalScrollIndicator={false}
             onEndReachedThreshold={0.6}
             onEndReached={() => {
@@ -280,6 +312,21 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  logo: {
+    width: 110,
+    height: 36,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerIconButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   header: {
     paddingBottom: 8,
@@ -345,28 +392,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  chipRow: {
-    gap: 8,
-    paddingRight: 8,
+  tabRow: {
+    gap: 18,
+    paddingRight: 12,
   },
-  chip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: THEME.card,
-    borderWidth: 1,
-    borderColor: THEME.outline,
+  tabItem: {
+    alignItems: 'center',
+    paddingBottom: 8,
   },
-  chipSelected: {
-    borderColor: THEME.accent,
-  },
-  chipText: {
-    color: THEME.text,
+  tabText: {
+    color: THEME.textMuted,
     fontSize: 12,
     fontWeight: '700',
   },
-  chipTextSelected: {
+  tabTextActive: {
     color: THEME.accent,
+  },
+  tabUnderline: {
+    marginTop: 6,
+    width: 24,
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: THEME.accent,
+  },
+  sortRow: {
+    alignItems: 'flex-end',
+    marginTop: 6,
+  },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  sortText: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  sortChevron: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
   },
   loadNote: {
     marginTop: 8,
@@ -379,60 +447,71 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   listContent: {
+    paddingTop: 4,
     paddingBottom: 16,
+    paddingHorizontal: 16,
   },
-  column: {
+  videoRow: {
+    flexDirection: 'row',
     gap: 12,
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.divider,
   },
-  videoCard: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: THEME.card,
-    borderWidth: 1,
-    borderColor: THEME.outline,
+  rowThumbWrap: {
+    width: 118,
+    height: 74,
+    borderRadius: 8,
     overflow: 'hidden',
-  },
-  thumbWrap: {
-    width: '100%',
-    aspectRatio: 16 / 9,
     backgroundColor: THEME.card,
-    overflow: 'hidden',
   },
-  videoThumb: {
+  rowThumb: {
     width: '100%',
     height: '100%',
   },
-  paidBadge: {
+  badge: {
     position: 'absolute',
-    top: 10,
-    left: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: THEME.card,
-    borderWidth: 1,
-    borderColor: THEME.outline,
+    top: 0,
+    right: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderTopRightRadius: 8,
+    borderBottomLeftRadius: 8,
   },
-  paidBadgeText: {
-    color: THEME.text,
+  badgeText: {
+    color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '800',
   },
-  videoMeta: {
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+  badgeNew: {
+    backgroundColor: '#FF3B30',
   },
-  videoTitle: {
+  badgeRecommend: {
+    backgroundColor: '#F4B01B',
+  },
+  badgePremium: {
+    backgroundColor: '#5B5CE6',
+  },
+  rowMeta: {
+    flex: 1,
+    paddingRight: 6,
+  },
+  rowTitle: {
     color: THEME.text,
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  rowRating: {
+    color: THEME.accent,
     fontSize: 11,
-    fontWeight: '800',
-    marginBottom: 6,
+    fontWeight: '400',
+    marginBottom: 4,
   },
-  videoRating: {
+  rowDesc: {
     color: THEME.textMuted,
-    fontSize: 10,
+    fontSize: 11,
+    lineHeight: 16,
   },
   footerLoading: {
     paddingVertical: 12,

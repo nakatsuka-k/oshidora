@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { ScreenContainer, THEME } from '../components'
+import { PrimaryButton, ScreenContainer, THEME } from '../components'
 import { apiFetch } from '../utils/api'
 import { getMockNoticeListItems } from '../utils/mockNotices'
+import { setString } from '../utils/storage'
+
+const NOTICE_LAST_READ_AT_KEY = 'notice_last_read_at'
 
 type NoticeListScreenProps = {
   apiBaseUrl: string
@@ -10,6 +13,7 @@ type NoticeListScreenProps = {
   mock: boolean
   onBack: () => void
   onOpenDetail: (id: string) => void
+  onLogin: () => void
 }
 
 type NoticeListItem = {
@@ -17,13 +21,14 @@ type NoticeListItem = {
   title: string
   publishedAt: string
   excerpt: string
+  tags?: string[]
 }
 
 type NoticeListResponse = {
   items: NoticeListItem[]
 }
 
-export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDetail }: NoticeListScreenProps) {
+export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDetail, onLogin }: NoticeListScreenProps) {
   const [items, setItems] = useState<NoticeListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -32,7 +37,7 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDet
     if (!loggedIn) {
       return {
         title: 'お知らせはありません',
-        body: '未ログインのため、お知らせ一覧は表示されません。',
+        body: 'ログインすると、\nお知らせを受け取れます。',
       }
     }
     return {
@@ -81,6 +86,12 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDet
     }
   }, [apiBaseUrl, loggedIn, mock])
 
+  useEffect(() => {
+    const latest = items[0]
+    if (!latest?.publishedAt) return
+    void setString(NOTICE_LAST_READ_AT_KEY, latest.publishedAt)
+  }, [items])
+
   return (
     <ScreenContainer title="お知らせ" onBack={onBack} scroll>
       <View style={styles.root}>
@@ -101,23 +112,35 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDet
           <View style={styles.centerBox}>
             <Text style={styles.emptyTitle}>{emptyState.title}</Text>
             <Text style={styles.emptyBody}>{emptyState.body}</Text>
+            {!loggedIn ? (
+              <View style={styles.loginCta}>
+                <PrimaryButton label="ログイン画面へ" onPress={onLogin} />
+              </View>
+            ) : null}
           </View>
         ) : null}
 
         {!loading && items.length > 0 ? (
           <ScrollView contentContainerStyle={styles.list}>
-            {items.map((n) => (
-              <Pressable key={n.id} style={styles.card} onPress={() => onOpenDetail(n.id)}>
-                <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
-                  {n.title}
-                </Text>
-                <Text style={styles.meta}>{n.publishedAt}</Text>
-                <Text style={styles.excerpt} numberOfLines={3} ellipsizeMode="tail">
-                  {n.excerpt}
-                </Text>
-                <Text style={styles.link}>詳細へ</Text>
-              </Pressable>
-            ))}
+            {items.map((n, idx) => {
+              const tag = n.tags?.[0] || 'お知らせ'
+              return (
+                <Pressable key={n.id} style={[styles.row, idx === 0 ? styles.rowFirst : null]} onPress={() => onOpenDetail(n.id)}>
+                  <View style={styles.rowMain}>
+                    <View style={styles.rowMeta}>
+                      <Text style={styles.meta}>{n.publishedAt}</Text>
+                      <View style={styles.tagBadge}>
+                        <Text style={styles.tagText}>{tag}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+                      {n.title}
+                    </Text>
+                  </View>
+                  <Text style={styles.chevron}>›</Text>
+                </Pressable>
+              )
+            })}
           </ScrollView>
         ) : null}
       </View>
@@ -144,6 +167,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   centerBox: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 24,
@@ -166,40 +190,61 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
   },
+  loginCta: {
+    width: '100%',
+    maxWidth: 260,
+    marginTop: 16,
+  },
   list: {
     paddingBottom: 12,
-  },
-  card: {
-    backgroundColor: THEME.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 10,
-  },
-  title: {
-    color: THEME.text,
-    fontSize: 14,
-    fontWeight: '900',
-    marginBottom: 6,
+    paddingHorizontal: 16,
   },
   meta: {
     color: THEME.textMuted,
     fontSize: 12,
+    fontWeight: '600',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.divider,
+  },
+  rowFirst: {
+    borderTopWidth: 1,
+    borderTopColor: THEME.divider,
+  },
+  rowMain: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  rowMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 8,
+  },
+  tagBadge: {
+    backgroundColor: THEME.card,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  tagText: {
+    color: THEME.textMuted,
+    fontSize: 10,
     fontWeight: '700',
-    marginBottom: 8,
   },
-  excerpt: {
+  title: {
     color: THEME.text,
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 10,
-  },
-  link: {
-    color: THEME.accent,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
-    textAlign: 'right',
+  },
+  chevron: {
+    color: THEME.textMuted,
+    fontSize: 18,
+    fontWeight: '700',
   },
 })

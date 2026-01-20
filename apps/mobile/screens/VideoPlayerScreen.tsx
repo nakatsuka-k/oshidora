@@ -3,16 +3,32 @@ import * as ScreenCapture from 'expo-screen-capture'
 import * as ScreenOrientation from 'expo-screen-orientation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, Image, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import Svg, { Path } from 'react-native-svg'
 
-import { IconButton, PrimaryButton, SecondaryButton, THEME } from '../components'
+import { BlurView } from 'expo-blur'
+import { LinearGradient } from 'expo-linear-gradient'
+import { PrimaryButton, SecondaryButton, THEME } from '../components'
 import { isDebugMockEnabled } from '../utils/api'
+import IconArrow from '../assets/icon_arrow.svg'
+import IconCheck from '../assets/icon_check.svg'
+import IconClose from '../assets/icon_close.svg'
+import IconEpisode from '../assets/icon_episode.svg'
+import IconFavoriteOff from '../assets/icon_favorite_off.svg'
+import IconFavoriteOn from '../assets/icon_favorite_on.svg'
+import IconPause from '../assets/icon_pause.svg'
+import IconPlayBlack from '../assets/icon_play_black.svg'
+import IconPlay from '../assets/icon_play_white.svg'
+import IconShare from '../assets/icon_share.svg'
+import IconSkipBack from '../assets/icon_skipback10s.svg'
+import IconSkipForward from '../assets/icon_skipforward10s.svg'
+import IconSubtitleOff from '../assets/icon_subtitle_off.svg'
+import IconSubtitleOn from '../assets/icon_subtitle_on.svg'
 
 type Props = {
   apiBaseUrl: string
   videoIdNoSub: string
   videoIdWithSub?: string | null
   onBack: () => void
+  currentEpisodeTitle?: string | null
   nextEpisodeTitle?: string | null
   nextEpisodeThumbnailUrl?: string | null
   onPrevEpisode?: () => void
@@ -94,6 +110,7 @@ export function VideoPlayerScreen({
   videoIdNoSub,
   videoIdWithSub,
   onBack,
+  currentEpisodeTitle,
   nextEpisodeTitle,
   nextEpisodeThumbnailUrl,
   onPrevEpisode,
@@ -144,13 +161,24 @@ export function VideoPlayerScreen({
     setStageSize({ width: webViewport.width, height: webViewport.height })
   }, [isWeb, webViewport?.height, webViewport?.width])
 
-  const canSubOn = Boolean(videoIdWithSub && videoIdWithSub.trim().length > 0)
+  const subtitleUrl = useMemo(() => {
+    const env = (process.env.EXPO_PUBLIC_SUBTITLE_VTT_URL || '').trim()
+    if (env) return env
+    if (videoIdNoSub === '75f3ddaf69ff44c43746c9492c3c4df5') {
+      return `https://videodelivery.net/${videoIdNoSub}/subtitles/default.vtt`
+    }
+    return ''
+  }, [videoIdNoSub])
 
-  const [subOn, setSubOn] = useState(false)
+  const hasAltSubVideo = Boolean(videoIdWithSub && videoIdWithSub.trim().length > 0 && videoIdWithSub !== videoIdNoSub)
+  const canSubOn = Boolean(hasAltSubVideo || subtitleUrl)
+
+  const [subOn, setSubOn] = useState(Boolean(subtitleUrl))
+  const [showSubtitleModal, setShowSubtitleModal] = useState(false)
   const selectedVideoId = useMemo(() => {
-    if (subOn && canSubOn) return (videoIdWithSub as string)
+    if (subOn && hasAltSubVideo) return (videoIdWithSub as string)
     return videoIdNoSub
-  }, [canSubOn, subOn, videoIdNoSub, videoIdWithSub])
+  }, [hasAltSubVideo, subOn, videoIdNoSub, videoIdWithSub])
 
   const [hasStarted, setHasStarted] = useState(false)
   const [pendingAutoPlay, setPendingAutoPlay] = useState(false)
@@ -187,6 +215,13 @@ export function VideoPlayerScreen({
   const [playUrl, setPlayUrl] = useState<string | null>(null)
   const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'signed-mp4' | 'hls' | 'mp4' | 'fallback' | 'error' | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  const [captureWarning, setCaptureWarning] = useState<string>('')
+
+  const [isFavorite, setIsFavorite] = useState(false)
+  const playbackRates = useMemo(() => [0.5, 0.75, 1.0, 1.25, 1.5], [])
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const [showPlaybackRateModal, setShowPlaybackRateModal] = useState(false)
 
   const videoRef = useRef<Video | null>(null)
   const videoWrapRef = useRef<any>(null)
@@ -232,8 +267,34 @@ export function VideoPlayerScreen({
   useEffect(() => {
     // Best-effort: prevent screenshots / screen recording while playing.
     void ScreenCapture.preventScreenCaptureAsync().catch(() => {})
+
+    // Best-effort: prevent content snapshots from appearing in the app switcher.
+    // (Especially useful on iOS where full capture prevention is limited.)
+    void ScreenCapture.enableAppSwitcherProtectionAsync?.(0.5).catch(() => {})
+
     // Allow device orientation changes while in the player.
     void ScreenOrientation.unlockAsync().catch(() => {})
+
+    // Best-effort: react to screenshots (can’t block the already-taken screenshot).
+    // NOTE: On web, expo-screen-capture may expose the API but crash internally (no native module).
+    let screenshotSub: any = null
+    if (Platform.OS !== 'web') {
+      void (async () => {
+        try {
+          const ok = await ScreenCapture.isAvailableAsync?.().catch(() => false)
+          if (!ok) return
+          screenshotSub = ScreenCapture.addScreenshotListener?.(() => {
+            setCaptureWarning('画面キャプチャはできません')
+            void videoRef.current?.pauseAsync?.().catch(() => {})
+            setTimeout(() => {
+              setCaptureWarning('')
+            }, 2500)
+          })
+        } catch {
+          // ignore
+        }
+      })()
+    }
 
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') {
@@ -243,10 +304,18 @@ export function VideoPlayerScreen({
 
     return () => {
       sub.remove()
+      try {
+        if (screenshotSub?.remove) screenshotSub.remove()
+        else if (screenshotSub) ScreenCapture.removeScreenshotListener?.(screenshotSub)
+      } catch {
+        // ignore
+      }
       void ScreenCapture.allowScreenCaptureAsync().catch(() => {})
+      void ScreenCapture.disableAppSwitcherProtectionAsync?.().catch(() => {})
       void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {})
     }
   }, [])
+
 
   const toggleSub = useCallback(async () => {
     if (!canSubOn) return
@@ -271,8 +340,12 @@ export function VideoPlayerScreen({
   const setSubOnValue = useCallback((next: boolean) => {
     if (!canSubOn) return
     if (next === subOn) return
-    void toggleSub()
-  }, [canSubOn, subOn, toggleSub])
+    if (hasAltSubVideo) {
+      void toggleSub()
+      return
+    }
+    setSubOn(next)
+  }, [canSubOn, hasAltSubVideo, subOn, toggleSub])
 
   const showPrePlay = !hasStarted
 
@@ -308,6 +381,14 @@ export function VideoPlayerScreen({
     if (next) void videoRef.current?.playAsync?.().catch(() => {})
     else void videoRef.current?.pauseAsync?.().catch(() => {})
   }, [uiShouldPlay])
+
+  const cyclePlaybackRate = useCallback(() => {
+    setPlaybackRate((prev) => {
+      const idx = playbackRates.findIndex((r) => r === prev)
+      const next = playbackRates[(idx + 1) % playbackRates.length]
+      return next
+    })
+  }, [playbackRates])
 
   const setShouldPlay = useCallback((next: boolean) => {
     if (next) setDidFinish(false)
@@ -353,116 +434,14 @@ export function VideoPlayerScreen({
     else cancelAutoHide()
   }, [cancelAutoHide, controlsVisible, didFinish, scheduleAutoHide, setShouldPlay, showPrePlay, uiShouldPlay])
 
-  const iconColor = THEME.text
-  const iconMutedColor = THEME.textMuted
+  useEffect(() => {
+    void videoRef.current?.setRateAsync?.(playbackRate, true).catch(() => {})
+  }, [playbackRate])
 
-  const CloseIcon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M6 6L18 18" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
-      <Path d="M18 6L6 18" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
-    </Svg>
-  )
-
-  const EyeOffIcon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M3 3l18 18"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinecap="round"
-      />
-      <Path
-        d="M10.6 10.7a2 2 0 0 0 2.7 2.7"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinecap="round"
-      />
-      <Path
-        d="M7.6 7.7C5.3 9.2 3.8 11.2 3 12c.9 1 2.8 3.2 5.6 4.8C9.8 17.5 11 18 12 18c.8 0 1.7-.3 2.6-.8"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M14.5 14.6c.8-.6 1.2-1.5 1.2-2.6 0-1.9-1.6-3.5-3.5-3.5-1 0-2 .4-2.6 1.2"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M12 6c3.8 0 7.2 2.6 9 6-.4.7-1.1 1.8-2.2 2.9"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  )
-
-  const CcIcon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M8.6 14.2c-.4.4-.9.6-1.5.6-1.2 0-2.1-1-2.1-2.2 0-1.2.9-2.2 2.1-2.2.6 0 1.1.2 1.5.6"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinecap="round"
-      />
-      <Path
-        d="M17 14.2c-.4.4-.9.6-1.5.6-1.2 0-2.1-1-2.1-2.2 0-1.2.9-2.2 2.1-2.2.6 0 1.1.2 1.5.6"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinecap="round"
-      />
-    </Svg>
-  )
-
-  const ChevronLeftIcon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M15 18l-6-6 6-6" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  )
-  const ChevronRightIcon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M9 6l6 6-6 6" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  )
-
-  const PlayIcon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M10 8l8 4-8 4V8Z" fill={color} />
-    </Svg>
-  )
-  const PauseIcon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M7 6h3v12H7V6Z" fill={color} />
-      <Path d="M14 6h3v12h-3V6Z" fill={color} />
-    </Svg>
-  )
-
-  const Replay10Icon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M7 7V4L3 8l4 4V9" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M7 9a8 8 0 1 1 2.3 5.7" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M12 10v5" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
-      <Path d="M15 15v-5l-2 1" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  )
-  const Forward10Icon = ({ color = iconColor }: { color?: string }) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M17 7V4l4 4-4 4V9" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M17 9a8 8 0 1 0-2.3 5.7" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M12 10v5" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
-      <Path d="M15 15v-5l-2 1" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  )
+  useEffect(() => {
+    if (!subtitleUrl) return
+    setSubOn(true)
+  }, [subtitleUrl])
 
   useEffect(() => {
     // Auto-hide controls once playback has started a bit.
@@ -527,6 +506,14 @@ export function VideoPlayerScreen({
             maxHeight: stageSize?.height ?? (isWeb ? webViewport?.height ?? height : height),
           },
         ]}
+        {...(isWeb
+          ? ({
+              // Web best-effort: stop trivial right-click/save flows (not a real protection).
+              onContextMenu: (e: any) => {
+                e?.preventDefault?.()
+              },
+            } as any)
+          : null)}
       >
         {playUrl ? (
           <Video
@@ -537,6 +524,23 @@ export function VideoPlayerScreen({
             style={styles.video}
             videoStyle={styles.videoInner}
             source={{ uri: playUrl }}
+            {...(subtitleUrl
+              ? ({
+                  textTracks: [
+                    {
+                      title: '日本語',
+                      language: 'ja',
+                      type: 'text/vtt',
+                      uri: subtitleUrl,
+                    },
+                  ],
+                  selectedTextTrack: subOn
+                    ? { type: 'index', value: 0 }
+                    : Platform.OS === 'web'
+                      ? undefined
+                      : { type: 'disabled' },
+                } as any)
+              : null)}
             useNativeControls={false}
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay={uiShouldPlay}
@@ -610,6 +614,16 @@ export function VideoPlayerScreen({
           </View>
         )}
 
+        {captureWarning ? (
+          <View pointerEvents="none" style={styles.captureWarningLayer}>
+            <Text style={styles.captureWarningText}>{captureWarning}</Text>
+          </View>
+        ) : null}
+
+        {hasStarted && playUrl && !uiShouldPlay ? (
+          <View pointerEvents="none" style={styles.pauseDim} />
+        ) : null}
+
         {/* Tap stage to toggle play/pause (behind controls) */}
         {hasStarted && playUrl ? (
           <Pressable
@@ -623,157 +637,180 @@ export function VideoPlayerScreen({
         {/* Top bar */}
         {controlsVisible ? (
           <View style={styles.topBar} pointerEvents="box-none">
-            <View style={styles.topLeft}>
-              <IconButton
-                label="閉じる"
-                onPress={() => {
-                  cancelAutoHide()
-                  setControlsVisible(true)
-                  onBack()
-                }}
-              >
-                <CloseIcon />
-              </IconButton>
-
-              <IconButton
-                label="UI非表示"
-                onPress={() => {
-                  cancelAutoHide()
-                  setControlsVisible(false)
-                }}
-              >
-                <EyeOffIcon />
-              </IconButton>
-
-              {canSubOn ? (
-                <IconButton
-                  label={subOn ? '字幕OFF' : '字幕ON'}
-                  onPress={() => setSubOnValue(!subOn)}
-                >
-                  <CcIcon color={subOn ? iconColor : iconMutedColor} />
-                </IconButton>
-              ) : null}
-            </View>
+            <Pressable
+              style={styles.backButton}
+              accessibilityRole="button"
+              accessibilityLabel="戻る"
+              onPress={() => {
+                cancelAutoHide()
+                setControlsVisible(true)
+                onBack()
+              }}
+            >
+              <IconArrow width={18} height={18} />
+            </Pressable>
+            <Text style={styles.topTitle} numberOfLines={1}>
+              {currentEpisodeTitle || '動画タイトル'}
+            </Text>
           </View>
         ) : null}
 
-        {/* Custom minimal controls */}
+        {hasStarted && playUrl && !uiShouldPlay ? (
+          <LinearGradient
+            colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']}
+            locations={[0, 1]}
+            style={styles.pauseTitleGradient}
+            pointerEvents="none"
+          />
+        ) : null}
+
+        {/* Right actions */}
+        {controlsVisible && !showPrePlay ? (
+          <View style={styles.sideActions} pointerEvents="box-none">
+            <Pressable style={styles.sideAction} accessibilityRole="button" accessibilityLabel="エピソード">
+              <IconEpisode width={20} height={20} />
+              <Text style={styles.sideActionText}>エピソード</Text>
+            </Pressable>
+            <Pressable style={styles.sideAction} accessibilityRole="button" accessibilityLabel="共有">
+              <IconShare width={20} height={20} />
+              <Text style={styles.sideActionText}>共有する</Text>
+            </Pressable>
+            <Pressable
+              style={styles.sideAction}
+              accessibilityRole="button"
+              accessibilityLabel={isFavorite ? 'お気に入り済み' : 'お気に入り'}
+              onPress={() => setIsFavorite((v) => !v)}
+            >
+              {isFavorite ? <IconFavoriteOn width={20} height={20} /> : <IconFavoriteOff width={20} height={20} />}
+              <Text style={styles.sideActionText}>お気に入り</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Center controls */}
         {hasStarted && playUrl && controlsVisible ? (
-          <View style={styles.controlsWrap} pointerEvents="box-none">
-            <View style={styles.controlsCard}>
-              <View style={styles.controlsRow}>
-                {onPrevEpisode ? (
-                  <IconButton
-                    label="前のエピソード"
-                    disabled={canPrevEpisode === false}
+          <View style={styles.centerControls} pointerEvents="box-none">
+            <Pressable
+              style={styles.centerButton}
+              accessibilityRole="button"
+              accessibilityLabel="10秒戻る"
+              onPress={() => {
+                setControlsVisible(true)
+                seekRelative(-10_000)
+                if (uiShouldPlay) scheduleAutoHide()
+              }}
+            >
+              <IconSkipBack width={28} height={28} />
+            </Pressable>
+
+            <Pressable
+              style={styles.playButton}
+              accessibilityRole="button"
+              accessibilityLabel={uiShouldPlay ? '一時停止' : '再生'}
+              onPress={() => {
+                setControlsVisible(true)
+                togglePlayPause()
+                const next = !uiShouldPlay
+                if (next) scheduleAutoHide()
+                else cancelAutoHide()
+              }}
+            >
+              {uiShouldPlay ? <IconPause width={44} height={44} /> : <IconPlay width={44} height={44} />}
+            </Pressable>
+
+            <Pressable
+              style={styles.centerButton}
+              accessibilityRole="button"
+              accessibilityLabel="10秒進む"
+              onPress={() => {
+                setControlsVisible(true)
+                seekRelative(10_000)
+                if (uiShouldPlay) scheduleAutoHide()
+              }}
+            >
+              <IconSkipForward width={28} height={28} />
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Bottom controls */}
+        {hasStarted && playUrl && controlsVisible ? (
+          <View style={styles.bottomControls} pointerEvents="box-none">
+            <View style={styles.bottomRow}>
+              <Text style={styles.timeLabel}>
+                {formatTime(playback.positionMillis)} / {formatTime(playback.durationMillis)}
+              </Text>
+              <View style={styles.bottomRight}>
+                {canSubOn ? (
+                  <Pressable
+                    style={styles.subButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={subOn ? '字幕OFF' : '字幕ON'}
                     onPress={() => {
-                      if (canPrevEpisode === false) return
-                      cancelAutoHide()
                       setControlsVisible(true)
-                      onPrevEpisode()
+                      cancelAutoHide()
+                      setShowSubtitleModal(true)
                     }}
                   >
-                    <ChevronLeftIcon />
-                  </IconButton>
+                    {subOn ? <IconSubtitleOn width={20} height={20} /> : <IconSubtitleOff width={20} height={20} />}
+                  </Pressable>
                 ) : null}
-
-                <IconButton
-                  label="10秒戻る"
+                <Pressable
+                  style={styles.rateButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="再生速度"
                   onPress={() => {
                     setControlsVisible(true)
-                    seekRelative(-10_000)
-                    if (uiShouldPlay) scheduleAutoHide()
+                    cancelAutoHide()
+                    setShowPlaybackRateModal(true)
                   }}
                 >
-                  <Replay10Icon />
-                </IconButton>
-
-                <IconButton
-                  label={uiShouldPlay ? '一時停止' : '再生'}
-                  onPress={() => {
-                    setControlsVisible(true)
-                    togglePlayPause()
-                    const next = !uiShouldPlay
-                    if (next) scheduleAutoHide()
-                    else cancelAutoHide()
-                  }}
-                >
-                  {uiShouldPlay ? <PauseIcon /> : <PlayIcon />}
-                </IconButton>
-
-                <IconButton
-                  label="10秒進む"
-                  onPress={() => {
-                    setControlsVisible(true)
-                    seekRelative(10_000)
-                    if (uiShouldPlay) scheduleAutoHide()
-                  }}
-                >
-                  <Forward10Icon />
-                </IconButton>
-
-                {onNextEpisode ? (
-                  <IconButton
-                    label="次のエピソード"
-                    disabled={canNextEpisode === false}
-                    onPress={() => {
-                      if (canNextEpisode === false) return
-                      cancelAutoHide()
-                      setControlsVisible(true)
-                      onNextEpisode()
-                    }}
-                  >
-                    <ChevronRightIcon />
-                  </IconButton>
-                ) : null}
-
-                <Text style={styles.timeText}>
-                  {formatTime(playback.positionMillis)} / {formatTime(playback.durationMillis)}
-                </Text>
+                  <Text style={styles.rateText}>{playbackRate.toFixed(2).replace(/\.00$/, '')}x</Text>
+                </Pressable>
               </View>
+            </View>
 
+            <View
+              style={styles.seekTrack}
+              onLayout={(e) => {
+                const w = e.nativeEvent.layout.width
+                if (Number.isFinite(w) && w > 0) setSeekBarWidth(w)
+              }}
+              onStartShouldSetResponder={() => true}
+              onResponderGrant={() => {
+                setControlsVisible(true)
+                cancelAutoHide()
+              }}
+              onResponderRelease={(e: any) => {
+                if (!(seekBarWidth > 0)) return
+                const x = Number(e?.nativeEvent?.locationX)
+                if (!Number.isFinite(x)) return
+                const ratio = Math.max(0, Math.min(1, x / seekBarWidth))
+                const next = ratio * (playback.durationMillis || 0)
+                void setPositionMillis(next)
+                if (uiShouldPlay) scheduleAutoHide()
+              }}
+            >
+              <View style={styles.seekTrackBg} />
               <View
-                style={styles.seekTrack}
-                onLayout={(e) => {
-                  const w = e.nativeEvent.layout.width
-                  if (Number.isFinite(w) && w > 0) setSeekBarWidth(w)
-                }}
-                onStartShouldSetResponder={() => true}
-                onResponderGrant={() => {
-                  setControlsVisible(true)
-                  cancelAutoHide()
-                }}
-                onResponderRelease={(e: any) => {
-                  if (!(seekBarWidth > 0)) return
-                  const x = Number(e?.nativeEvent?.locationX)
-                  if (!Number.isFinite(x)) return
-                  const ratio = Math.max(0, Math.min(1, x / seekBarWidth))
-                  const next = ratio * (playback.durationMillis || 0)
-                  void setPositionMillis(next)
-                  if (uiShouldPlay) scheduleAutoHide()
-                }}
-              >
-                <View style={styles.seekTrackBg} />
-                <View
-                  style={[
-                    styles.seekFill,
-                    {
-                      width: Math.max(0, Math.min(seekBarWidth, Math.round(seekProgress * seekBarWidth))),
-                    },
-                  ]}
-                />
-                <View
-                  style={[
-                    styles.seekKnob,
-                    {
-                      left: Math.max(
-                        0,
-                        Math.min(seekBarWidth - 12, Math.round(seekProgress * seekBarWidth) - 6)
-                      ),
-                    },
-                  ]}
-                />
-              </View>
+                style={[
+                  styles.seekFill,
+                  {
+                    width: Math.max(0, Math.min(seekBarWidth, Math.round(seekProgress * seekBarWidth))),
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.seekKnob,
+                  {
+                    left: Math.max(
+                      0,
+                      Math.min(seekBarWidth - 12, Math.round(seekProgress * seekBarWidth) - 6)
+                    ),
+                  },
+                ]}
+              />
             </View>
           </View>
         ) : null}
@@ -828,29 +865,186 @@ export function VideoPlayerScreen({
           </View>
         ) : null}
 
+        {showSubtitleModal ? (
+          <View style={styles.subtitleModalWrap} pointerEvents="box-none">
+            <Pressable
+              style={styles.subtitleModalScrim}
+              onPress={() => {
+                setShowSubtitleModal(false)
+                if (uiShouldPlay) scheduleAutoHide()
+              }}
+            />
+            <View style={styles.subtitleModalCard}>
+              <View style={styles.subtitleModalHeader}>
+                <Text style={styles.subtitleModalTitle}>字幕</Text>
+                <Pressable
+                  style={styles.subtitleModalClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="閉じる"
+                  onPress={() => {
+                    setShowSubtitleModal(false)
+                    if (uiShouldPlay) scheduleAutoHide()
+                  }}
+                >
+                  <IconClose width={16} height={16} />
+                </Pressable>
+              </View>
+
+              <Pressable
+                style={styles.subtitleOption}
+                accessibilityRole="button"
+                accessibilityLabel="字幕オフ"
+                onPress={() => {
+                  setSubOnValue(false)
+                  setShowSubtitleModal(false)
+                  if (uiShouldPlay) scheduleAutoHide()
+                }}
+              >
+                <View style={styles.subtitleOptionLeft}>
+                  {subOn === false ? (
+                    <IconCheck width={12} height={12} />
+                  ) : (
+                    <View style={styles.subtitleOptionIconPlaceholder} />
+                  )}
+                  <Text style={styles.subtitleOptionText}>オフ</Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                style={[styles.subtitleOption, !canSubOn && styles.subtitleOptionDisabled]}
+                accessibilityRole="button"
+                accessibilityLabel="日本語(字幕ガイド)"
+                onPress={() => {
+                  if (!canSubOn) return
+                  setSubOnValue(true)
+                  setShowSubtitleModal(false)
+                  if (uiShouldPlay) scheduleAutoHide()
+                }}
+                disabled={!canSubOn}
+              >
+                <View style={styles.subtitleOptionLeft}>
+                  {subOn === true ? (
+                    <IconCheck width={12} height={12} />
+                  ) : (
+                    <View style={styles.subtitleOptionIconPlaceholder} />
+                  )}
+                  <Text style={styles.subtitleOptionText}>日本語(字幕ガイド)</Text>
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {showPlaybackRateModal ? (
+          <View style={styles.rateModalWrap} pointerEvents="box-none">
+            <Pressable
+              style={styles.rateModalScrim}
+              onPress={() => {
+                setShowPlaybackRateModal(false)
+                if (uiShouldPlay) scheduleAutoHide()
+              }}
+            />
+            <View style={styles.rateModalCard}>
+              <View style={styles.rateModalHeader}>
+                <Text style={styles.rateModalTitle}>再生速度</Text>
+                <Pressable
+                  style={styles.rateModalClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="閉じる"
+                  onPress={() => {
+                    setShowPlaybackRateModal(false)
+                    if (uiShouldPlay) scheduleAutoHide()
+                  }}
+                >
+                  <IconClose width={16} height={16} />
+                </Pressable>
+              </View>
+
+              {playbackRates.map((rate) => {
+                const isActive = rate === playbackRate
+                const label = `${rate.toFixed(2).replace(/\.00$/, '')}x${rate === 1 ? '（標準）' : ''}`
+                return (
+                  <Pressable
+                    key={`rate-${rate}`}
+                    style={styles.rateOption}
+                    accessibilityRole="button"
+                    accessibilityLabel={label}
+                    onPress={() => {
+                      setPlaybackRate(rate)
+                      setShowPlaybackRateModal(false)
+                      if (uiShouldPlay) scheduleAutoHide()
+                    }}
+                  >
+                    <View style={styles.rateOptionLeft}>
+                      {isActive ? <IconCheck width={12} height={12} /> : <View style={styles.rateOptionIconPlaceholder} />}
+                      <Text style={styles.rateOptionText}>{label}</Text>
+                    </View>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </View>
+        ) : null}
+
         {showPrePlay ? (
-          <View style={styles.prePlayOverlay}>
-            <View style={styles.prePlayCard}>
+          <View style={styles.prePlayOverlay} pointerEvents="box-none">
+            <View style={styles.prePlayScrim} pointerEvents="none" />
+            <LinearGradient
+              colors={['rgba(0,0,0,0.75)', 'rgba(0,0,0,0)']}
+              locations={[0, 1]}
+              style={styles.prePlayTopGradient}
+              pointerEvents="none"
+            />
+            <View style={styles.prePlayCard} pointerEvents="auto">
+              <Pressable
+                style={styles.prePlayClose}
+                accessibilityRole="button"
+                accessibilityLabel="閉じる"
+                hitSlop={10}
+                onPress={() => {
+                  setHasStarted(true)
+                  setPendingAutoPlay(true)
+                  setUiShouldPlay(true)
+                  void videoRef.current?.playAsync?.().catch(() => {})
+                }}
+              >
+                <IconClose width={16} height={16} />
+              </Pressable>
               <Text style={styles.prePlayTitle}>再生前オプション</Text>
               <Text style={styles.prePlaySub}>字幕を選択して再生を開始してください。</Text>
 
-              <View style={styles.subRow}>
-                <SecondaryButton
-                  label="字幕なし"
+              <View style={styles.prePlayOptions}>
+                <Pressable
+                  style={styles.prePlayOption}
+                  accessibilityRole="button"
+                  accessibilityLabel="字幕なし"
                   onPress={() => setSubOnValue(false)}
                   disabled={subOn === false}
-                />
-                <View style={styles.gap} />
-                <SecondaryButton
-                  label="字幕あり"
+                >
+                  <View style={styles.prePlayOptionLeft}>
+                    {subOn === false ? <IconCheck width={10} height={10} /> : <View style={styles.prePlayOptionIconPlaceholder} />}
+                    <Text style={styles.prePlayOptionText}>字幕なし</Text>
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={styles.prePlayOption}
+                  accessibilityRole="button"
+                  accessibilityLabel="字幕あり"
                   onPress={() => setSubOnValue(true)}
                   disabled={!canSubOn || subOn === true}
-                />
+                >
+                  <View style={styles.prePlayOptionLeft}>
+                    {subOn === true ? <IconCheck width={10} height={10} /> : <View style={styles.prePlayOptionIconPlaceholder} />}
+                    <Text style={styles.prePlayOptionText}>字幕あり</Text>
+                  </View>
+                </Pressable>
               </View>
 
-              <View style={styles.gapH} />
-              <PrimaryButton
-                label="再生する"
+              <Pressable
+                style={styles.prePlayButton}
+                accessibilityRole="button"
+                accessibilityLabel="再生する"
                 onPress={() => {
                   setHasStarted(true)
                   // Start playback exactly when the user presses play.
@@ -859,7 +1053,23 @@ export function VideoPlayerScreen({
                   void videoRef.current?.playAsync?.().catch(() => {})
                 }}
                 disabled={!playUrl || playUrlKind === 'error'}
-              />
+              >
+                {isWeb ? (
+                  <View style={styles.prePlayButtonBlur}>
+                    <View style={styles.prePlayButtonInner}>
+                      <IconPlayBlack width={16} height={16} />
+                      <Text style={styles.prePlayButtonText}>再生する</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <BlurView intensity={35} tint="dark" style={styles.prePlayButtonBlur}>
+                    <View style={styles.prePlayButtonInner}>
+                      <IconPlayBlack width={16} height={16} />
+                      <Text style={styles.prePlayButtonText}>再生する</Text>
+                    </View>
+                  </BlurView>
+                )}
+              </Pressable>
 
               {loadError && playUrlKind === 'fallback' ? (
                 <Text style={styles.warnText}>
@@ -900,6 +1110,27 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  captureWarningLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  captureWarningText: {
+    color: THEME.text,
+    fontSize: 16,
+    fontWeight: '900',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  pauseDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
   loadingBox: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
@@ -917,48 +1148,102 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    zIndex: 3,
   },
-  topLeft: {
-    flexDirection: 'row',
+  backButton: {
+    width: 32,
+    height: 32,
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'center',
   },
-  topRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  topTitle: {
+    flex: 1,
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '800',
+    marginLeft: 6,
   },
-  showUiWrap: {
+  sideActions: {
     position: 'absolute',
-    top: 14,
-    left: 14,
+    right: 14,
+    top: '56%',
+    alignItems: 'center',
+    gap: 18,
   },
-  // topBar now uses IconButton
-  controlsWrap: {
+  sideAction: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  sideActionText: {
+    color: THEME.text,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  centerControls: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '40%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 30,
+  },
+  centerButton: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playButton: {
+    width: 70,
+    height: 70,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomControls: {
     position: 'absolute',
     left: 14,
     right: 14,
     bottom: 14,
   },
-  controlsCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    padding: 12,
-  },
-  controlsRow: {
+  bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  // bottom controls now use IconButton
-  timeText: {
-    marginLeft: 'auto',
-    color: THEME.textMuted,
+  bottomRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  subButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rateButton: {
+    minWidth: 60,
+    height: 32,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
+    backgroundColor: 'transparent',
+    paddingHorizontal: 14,
+  },
+  rateText: {
+    color: THEME.text,
     fontSize: 11,
+    fontWeight: '800',
+  },
+  timeLabel: {
+    color: THEME.text,
+    fontSize: 12,
     fontWeight: '700',
   },
   seekTrack: {
@@ -969,7 +1254,7 @@ const styles = StyleSheet.create({
   seekTrackBg: {
     height: 6,
     borderRadius: 999,
-    backgroundColor: THEME.outline,
+    backgroundColor: 'rgba(255,255,255,0.25)',
   },
   seekFill: {
     position: 'absolute',
@@ -985,42 +1270,221 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: THEME.accent,
   },
-  prePlayOverlay: {
+  subtitleModalWrap: {
     ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    zIndex: 3,
+  },
+  subtitleModalScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  subtitleModalCard: {
+    backgroundColor: '#111111',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    paddingBottom: 18,
+    paddingHorizontal: 18,
+  },
+  subtitleModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  subtitleModalTitle: {
+    color: THEME.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  subtitleModalClose: {
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
+  },
+  subtitleOption: {
+    paddingVertical: 12,
+  },
+  subtitleOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  subtitleOptionText: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  subtitleOptionIconPlaceholder: {
+    width: 12,
+    height: 12,
+  },
+  subtitleOptionDisabled: {
+    opacity: 0.4,
+  },
+  rateModalWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    zIndex: 3,
+  },
+  rateModalScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  rateModalCard: {
+    backgroundColor: '#111111',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    paddingBottom: 18,
+    paddingHorizontal: 18,
+  },
+  rateModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  rateModalTitle: {
+    color: THEME.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  rateModalClose: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rateOption: {
+    paddingVertical: 12,
+  },
+  rateOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  rateOptionText: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  rateOptionIconPlaceholder: {
+    width: 12,
+    height: 12,
+  },
+  prePlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'stretch',
+    justifyContent: 'flex-end',
+    zIndex: 2,
+  },
+  prePlayScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    pointerEvents: 'none',
+  },
+  prePlayTopGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 120,
+    zIndex: 0,
   },
   prePlayCard: {
     width: '100%',
-    maxWidth: 828,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    padding: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: 'rgba(18, 18, 18, 0.95)',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 24,
+    position: 'relative',
+    zIndex: 2,
+  },
+  prePlayClose: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+    elevation: 3,
   },
   prePlayTitle: {
-    color: THEME.text,
-    fontSize: 14,
+    color: '#FFFFFF',
+    fontSize: 15,
     fontWeight: '900',
     marginBottom: 6,
   },
   prePlaySub: {
-    color: THEME.textMuted,
+    color: 'rgba(255,255,255,0.55)',
     fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 12,
+    fontWeight: '600',
+    marginBottom: 16,
   },
-  subRow: {
+  prePlayOptions: {
+    gap: 8,
+  },
+  prePlayOption: {
+    paddingVertical: 6,
+  },
+  prePlayOptionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
-  gap: {
+  prePlayOptionIconPlaceholder: {
     width: 10,
+    height: 10,
   },
-  gapH: {
-    height: 12,
+  prePlayOptionText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  prePlayButton: {
+    marginTop: 18,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  prePlayButtonBlur: {
+    width: '100%',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(244, 176, 27, 0.92)',
+    shadowColor: '#F4B01B',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  pauseTitleGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 120,
+    zIndex: 1,
+  },
+  prePlayButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  prePlayButtonText: {
+    color: '#1B1B1B',
+    fontSize: 14,
+    fontWeight: '900',
   },
   warnText: {
     marginTop: 10,
@@ -1042,7 +1506,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.card,
   },
   hintBarLandscape: {
-    maxWidth: 828,
+    maxWidth: 768,
     alignSelf: 'center',
   },
   hintText: {

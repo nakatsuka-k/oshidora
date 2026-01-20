@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
     width: '100%',
-    maxWidth: 828,
+    maxWidth: 768,
     alignSelf: 'center',
   },
   footerButtons: {

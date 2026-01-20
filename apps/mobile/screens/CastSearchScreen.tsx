@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,8 +11,13 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Chip, NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
+import { Chip, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch, isDebugMockEnabled } from '../utils/api'
+
+import IconNotification from '../assets/icon_notification.svg'
+import IconSearch from '../assets/icon_search.svg'
+
+const LOGO_IMAGE = require('../assets/oshidora_logo.png')
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -279,8 +285,28 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
 
   return (
     <ScreenContainer
-      title="キャスト"
-      headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
+      headerLeft={<Image source={LOGO_IMAGE} style={styles.logo} resizeMode="contain" />}
+      headerRight={
+        <View style={styles.headerRightRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="お知らせ"
+            onPress={() => onOpenNotice?.()}
+            style={styles.headerIconButton}
+            disabled={!onOpenNotice}
+          >
+            <IconNotification width={22} height={22} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="検索"
+            onPress={() => onPressTab('search')}
+            style={styles.headerIconButton}
+          >
+            <IconSearch width={22} height={22} />
+          </Pressable>
+        </View>
+      }
       footer={<TabBar active="cast" onPress={onPressTab} />}
       footerPaddingHorizontal={0}
     >
@@ -458,6 +484,21 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  logo: {
+    width: 110,
+    height: 36,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerIconButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   header: {
     paddingBottom: 8,

@@ -2187,6 +2187,74 @@ app.put('/cms/settings', async (c) => {
   }
 })
 
+// Dev-only: D1 schema inspection for local development
+app.get('/dev/d1-schema', async (c) => {
+  if (!shouldReturnDebugCodes(c.env)) return c.json({ error: 'dev_only' }, 404)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const db = c.env.DB as D1Database
+  const isSqliteAuth = (err: unknown) => /SQLITE_AUTH/i.test(String((err as any)?.message ?? err))
+  try {
+    let listRes: { results?: any[] } = { results: [] }
+    try {
+      listRes = await db.prepare('PRAGMA table_list').all<any>()
+    } catch (err) {
+      if (!isSqliteAuth(err)) throw err
+      listRes = await db.prepare('SELECT name, schema, type FROM pragma_table_list').all<any>()
+    }
+    const tables: Array<{ name: string; sql: string | null; columns: any[] }> = []
+    const rows = (listRes.results ?? []) as any[]
+    const quoteId = (name: string) => `"${String(name).replace(/"/g, '""')}"`
+
+    for (const row of rows) {
+      const name = String(row?.name ?? row?.tbl_name ?? '').trim()
+      const type = String(row?.type ?? '').trim().toLowerCase()
+      const schema = String(row?.schema ?? '').trim().toLowerCase()
+      if (!name || type && type !== 'table') continue
+      if (schema && schema !== 'main') continue
+      if (name.startsWith('sqlite_')) continue
+
+      let colsRes: { results?: any[] } = { results: [] }
+      try {
+        colsRes = await db.prepare(`PRAGMA table_info(${quoteId(name)})`).all<any>()
+      } catch (err) {
+        if (!isSqliteAuth(err)) throw err
+        try {
+          colsRes = await db.prepare('SELECT * FROM pragma_table_info(?)').bind(name).all<any>()
+        } catch (err2) {
+          if (!isSqliteAuth(err2)) throw err2
+          colsRes = { results: [] }
+        }
+      }
+      const columns = (colsRes.results ?? []) as any[]
+      tables.push({ name, sql: null, columns })
+    }
+
+    return c.json({ tables })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    const detail = String((err as any)?.message ?? err)
+    if (isSqliteAuth(err)) {
+      return c.json(
+        {
+          error: 'd1_schema_not_authorized',
+          message: 'D1 schema introspection is not authorized in this runtime.',
+          detail: shouldReturnDebugCodes(c.env) ? detail : undefined,
+        },
+        500
+      )
+    }
+    return c.json(
+      {
+        error: 'd1_schema_failed',
+        message: 'Failed to read D1 schema.',
+        detail: shouldReturnDebugCodes(c.env) ? detail : undefined,
+      },
+      500
+    )
+  }
+})
+
 // Casts
 app.get('/cms/casts', async (c) => {
   const admin = await requireCmsAdmin(c)
@@ -4631,6 +4699,14 @@ app.get('/v1/top', async (c) => {
       thumbnailUrl: w.thumbnailUrl ?? '',
     })
 
+    const mockCasts = [
+      { id: 'cast-1', name: '山下美月', thumbnailUrl: '' },
+      { id: 'cast-2', name: '本田翼', thumbnailUrl: '' },
+      { id: 'cast-3', name: '高石あかり', thumbnailUrl: '' },
+      { id: 'cast-4', name: '木戸大聖', thumbnailUrl: '' },
+      { id: 'cast-5', name: '森山未来', thumbnailUrl: '' },
+    ]
+
     const byViewsSorted = [...MOCK_WORKS].sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
     const byRatingSorted = [...MOCK_WORKS].sort((a, b) => (b.ratingAvg ?? 0) - (a.ratingAvg ?? 0))
 
@@ -4657,6 +4733,7 @@ app.get('/v1/top', async (c) => {
         byRating: byRatingSorted.slice(0, 5).map(toItem),
         overall: overallSorted.slice(0, 5).map(toItem),
       },
+      popularCasts: mockCasts,
     })
   }
 
@@ -4665,6 +4742,12 @@ app.get('/v1/top', async (c) => {
   const toVideoItem = (r: any) => ({
     id: String(r.id ?? ''),
     title: String(r.title ?? ''),
+    thumbnailUrl: String(r.thumbnail_url ?? ''),
+  })
+
+  const toCastItem = (r: any) => ({
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
     thumbnailUrl: String(r.thumbnail_url ?? ''),
   })
 
@@ -4710,6 +4793,32 @@ app.get('/v1/top', async (c) => {
     const recommended = recommendRows.length ? recommendRows.map(toVideoItem) : latestRows.slice(0, 6).map(toVideoItem)
     const rankings = latestRows.map(toVideoItem)
 
+    const popularCastRows = await d1All(
+      db,
+      `
+      SELECT c.id, c.name, c.thumbnail_url, COUNT(fc.cast_id) AS fav_count
+      FROM casts c
+      LEFT JOIN favorite_casts fc ON fc.cast_id = c.id
+      GROUP BY c.id
+      ORDER BY fav_count DESC, c.updated_at DESC
+      LIMIT 5
+    `
+    )
+
+    const popularCasts = popularCastRows.length
+      ? popularCastRows.map(toCastItem)
+      : (
+          await d1All(
+            db,
+            `
+            SELECT id, name, thumbnail_url
+            FROM casts
+            ORDER BY updated_at DESC
+            LIMIT 5
+          `
+          )
+        ).map(toCastItem)
+
     return c.json({
       pickup,
       recommended,
@@ -4718,6 +4827,7 @@ app.get('/v1/top', async (c) => {
         byRating: rankings,
         overall: rankings,
       },
+      popularCasts,
     })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
@@ -4731,6 +4841,7 @@ type MockNotice = {
   publishedAt: string
   excerpt: string
   bodyHtml: string
+  tags?: string[]
 }
 
 const MOCK_NOTICES: MockNotice[] = [
@@ -4739,6 +4850,7 @@ const MOCK_NOTICES: MockNotice[] = [
     title: '新機能追加のお知らせ',
     publishedAt: '2026-01-10 10:00',
     excerpt: '本日より新機能を追加しました。より快適に視聴できるよう改善しています。',
+    tags: ['お知らせ'],
     bodyHtml:
       '<p>本日より新機能を追加しました。より快適に視聴できるよう改善しています。</p><p><strong>主な変更点</strong></p><p>・トップ画面右上のベルからお知らせ一覧を確認できます。</p><p>・お知らせ詳細はHTMLで表示されます。</p>',
   },
@@ -4747,6 +4859,7 @@ const MOCK_NOTICES: MockNotice[] = [
     title: 'キャンペーン開催のお知らせ',
     publishedAt: '2026-01-09 18:00',
     excerpt: '期間限定キャンペーンを開催します。詳しくはお知らせ詳細をご確認ください。',
+    tags: ['お知らせ'],
     bodyHtml:
       '<p>期間限定キャンペーンを開催します。</p><p>詳しくはキャンペーンページをご確認ください。</p><p><a href="https://oshidora.example.com">キャンペーン詳細</a></p>',
   },
@@ -4764,7 +4877,7 @@ app.get('/v1/notices', async (c) => {
     const rows = await d1All(
       db,
       `
-      SELECT id, subject, body, sent_at, status, created_at
+      SELECT id, subject, body, sent_at, status, created_at, tags
       FROM notices
       WHERE (sent_at IS NOT NULL AND sent_at != '')
         AND (status IS NULL OR status != 'draft')
@@ -4782,6 +4895,10 @@ app.get('/v1/notices', async (c) => {
           title: String(r.subject ?? ''),
           publishedAt: String(r.sent_at ?? r.created_at ?? ''),
           excerpt,
+          tags: String(r.tags ?? '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
         }
       }),
     })
@@ -4803,7 +4920,7 @@ app.get('/v1/notices/:id', async (c) => {
     const row = await d1First(
       db,
       `
-      SELECT id, subject, body, sent_at, status, created_at
+      SELECT id, subject, body, sent_at, status, created_at, tags
       FROM notices
       WHERE id = ?
       LIMIT 1
@@ -4819,6 +4936,10 @@ app.get('/v1/notices/:id', async (c) => {
         title: String(row.subject ?? ''),
         publishedAt: String(row.sent_at ?? row.created_at ?? ''),
         bodyHtml: String(row.body ?? ''),
+        tags: String(row.tags ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
       },
     })
   } catch (err) {

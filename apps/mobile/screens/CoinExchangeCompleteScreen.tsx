@@ -15,7 +15,7 @@ function formatCoins(value: number) {
 
 export function CoinExchangeCompleteScreen({ coinAmount, pointAmount, paypayMaskedLabel, onDone }: CoinExchangeCompleteScreenProps) {
   return (
-    <ScreenContainer title="コイン換金" maxWidth={828}>
+    <ScreenContainer title="コイン換金" maxWidth={768}>
       <View style={styles.root}>
         <View style={styles.card}>
           <Text style={styles.title}>申請を受け付けました</Text>

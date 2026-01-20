@@ -59,7 +59,7 @@ export function CastSearchResultScreen({ apiBaseUrl, onPressTab, keyword, onBack
       headerRight={onOpenNotice ? <NoticeBellButton onPress={onOpenNotice} /> : undefined}
       footer={<TabBar active="cast" onPress={onPressTab} />}
       footerPaddingHorizontal={0}
-      maxWidth={828}
+      maxWidth={768}
     >
       <View style={styles.root}>
         <Text style={styles.keyword} numberOfLines={2}>

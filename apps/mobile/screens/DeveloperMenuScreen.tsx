@@ -11,8 +11,6 @@ type DevItem = {
 type DeveloperMenuScreenProps = {
   onBack: () => void
   onGo: (screenKey: string) => void
-  loggedIn: boolean
-  onLoginToggle: () => void
   userType: 'user' | 'cast'
   onUserTypeToggle: () => void
   mock: boolean
@@ -22,8 +20,6 @@ type DeveloperMenuScreenProps = {
 export function DeveloperMenuScreen({
   onBack,
   onGo,
-  loggedIn,
-  onLoginToggle,
   userType,
   onUserTypeToggle,
   mock,
@@ -108,18 +104,6 @@ export function DeveloperMenuScreen({
   return (
     <ScreenContainer title="Developer" onBack={onBack}>
       <View style={styles.root}>
-        <View style={styles.toggleBox}>
-          <Text style={styles.toggleLabel}>ログイン状態：</Text>
-          <Pressable
-            style={[styles.toggleButton, loggedIn ? styles.toggleButtonActive : null]}
-            onPress={onLoginToggle}
-          >
-            <Text style={[styles.toggleText, loggedIn ? styles.toggleTextActive : null]}>
-              {loggedIn ? 'ログイン中' : 'ログアウト'}
-            </Text>
-          </Pressable>
-        </View>
-
         <View style={styles.toggleBox}>
           <Text style={styles.toggleLabel}>キャストユーザ：</Text>
           <Pressable

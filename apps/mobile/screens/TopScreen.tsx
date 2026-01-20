@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
+import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch, isDebugMockEnabled } from '../utils/api'
+import { getString, setString } from '../utils/storage'
+
+import IconNotification from '../assets/icon_notification.svg'
+import IconSearch from '../assets/icon_search.svg'
+
+const LOGO_IMAGE = require('../assets/oshidora_logo.png')
+const NOTICE_LAST_READ_AT_KEY = 'notice_last_read_at'
 
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
@@ -20,25 +27,50 @@ type VideoItem = {
   thumbnailUrl?: string
 }
 
+type CastItem = {
+  id: string
+  name: string
+  thumbnailUrl?: string
+}
+
 type TopData = {
   pickup: VideoItem[]
   recommended: VideoItem[]
   rankings: {
     byViews: VideoItem[]
     byRating: VideoItem[]
-    overall: VideoItem[]
   }
+  popularCasts: CastItem[]
+}
+
+type NoticeListItem = {
+  id: string
+  publishedAt: string
+}
+
+type NoticeListResponse = {
+  items: NoticeListItem[]
 }
 
 const EMPTY_TOP_DATA: TopData = {
   pickup: [],
   recommended: [],
-  rankings: { byViews: [], byRating: [], overall: [] },
+  rankings: { byViews: [], byRating: [] },
+  popularCasts: [],
 }
 
 const FALLBACK_IMAGE = require('../assets/thumbnail-sample.png')
 
+function parseNoticeTime(value: string): number {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return 0
+  const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T')
+  const millis = Date.parse(normalized)
+  return Number.isFinite(millis) ? millis : 0
+}
+
 export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, onOpenFavorites, onOpenNotice }: TopScreenProps) {
+  const { width } = useWindowDimensions()
   const mockData = useMemo<TopData>(
     () => ({
       pickup: [
@@ -70,14 +102,14 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
           { id: 'content-4', title: 'コメディZ' },
           { id: 'content-5', title: 'アクションW' },
         ],
-        overall: [
-          { id: 'content-1', title: 'ダウトコール' },
-          { id: 'content-2', title: 'ミステリーX' },
-          { id: 'content-3', title: 'ラブストーリーY' },
-          { id: 'content-4', title: 'コメディZ' },
-          { id: 'content-5', title: 'アクションW' },
-        ],
       },
+      popularCasts: [
+        { id: 'cast-1', name: '山下美月' },
+        { id: 'cast-2', name: '本田翼' },
+        { id: 'cast-3', name: '高石あかり' },
+        { id: 'cast-4', name: '木戸大聖' },
+        { id: 'cast-5', name: '森山未来' },
+      ],
     }),
     []
   )
@@ -85,6 +117,12 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
   const [data, setData] = useState<TopData>(EMPTY_TOP_DATA)
   const [loadError, setLoadError] = useState<string>('')
   const [fallbackUsed, setFallbackUsed] = useState(false)
+  const [pickupIndex, setPickupIndex] = useState(0)
+  const [hasUnreadNotice, setHasUnreadNotice] = useState(false)
+  const [latestNoticeAt, setLatestNoticeAt] = useState<string>('')
+
+  const pickupCardWidth = Math.min(340, Math.max(260, Math.round(width - 32)))
+  const pickupSnap = pickupCardWidth + 12
 
   useEffect(() => {
     let cancelled = false
@@ -111,11 +149,62 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
     }
   }, [apiBaseUrl, mockData])
 
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch(`${apiBaseUrl}/v1/notices`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const json = (await res.json()) as NoticeListResponse
+        const latest = Array.isArray(json.items) && json.items.length > 0 ? json.items[0] : null
+        const latestMillis = latest ? parseNoticeTime(latest.publishedAt) : 0
+        if (!cancelled) setLatestNoticeAt(latest?.publishedAt ?? '')
+        const lastReadRaw = await getString(NOTICE_LAST_READ_AT_KEY)
+        const lastReadMillis = lastReadRaw ? parseNoticeTime(lastReadRaw) : 0
+        const unread = latestMillis > 0 && latestMillis > lastReadMillis
+        if (!cancelled) setHasUnreadNotice(unread)
+      } catch {
+        if (!cancelled) {
+          setHasUnreadNotice(false)
+          setLatestNoticeAt('')
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [apiBaseUrl])
+
   return (
     <ScreenContainer
-      title="ホーム"
-      maxWidth={828}
-      headerRight={<NoticeBellButton onPress={onOpenNotice} />}
+      headerLeft={<Image source={LOGO_IMAGE} style={styles.logo} resizeMode="contain" />}
+      maxWidth={768}
+      headerRight={
+        <View style={styles.headerRightRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="お知らせ"
+            onPress={async () => {
+              if (latestNoticeAt) await setString(NOTICE_LAST_READ_AT_KEY, latestNoticeAt)
+              setHasUnreadNotice(false)
+              onOpenNotice()
+            }}
+            style={styles.headerIconButton}
+          >
+            <IconNotification width={22} height={22} />
+            {hasUnreadNotice ? <View style={styles.noticeDot} /> : null}
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="検索"
+            onPress={() => onPressTab('search')}
+            style={styles.headerIconButton}
+          >
+            <IconSearch width={22} height={22} />
+          </Pressable>
+        </View>
+      }
       footer={<TabBar active="home" onPress={onPressTab} />}
       footerPaddingHorizontal={0}
     >
@@ -130,22 +219,39 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               ) : null}
             </View>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.pickupList}
+              snapToInterval={pickupSnap}
+              decelerationRate="fast"
+              onMomentumScrollEnd={(e) => {
+                const x = e.nativeEvent.contentOffset.x
+                const next = Math.round(x / pickupSnap)
+                setPickupIndex(Math.max(0, Math.min(next, data.pickup.length - 1)))
+              }}
+            >
               {data.pickup.slice(0, 6).map((v) => (
-                <Pressable key={v.id} style={styles.pickupCard} onPress={() => onOpenVideo(v.id)}>
+                <Pressable
+                  key={v.id}
+                  style={[styles.pickupCard, { width: pickupCardWidth }]}
+                  onPress={() => onOpenVideo(v.id)}
+                >
                   <View style={styles.pickupThumbWrap}>
                     <Image
                       source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
-                      style={styles.hThumb}
+                      style={styles.pickupThumb}
                       resizeMode="cover"
                     />
                   </View>
-                  <Text style={styles.pickupTitle} numberOfLines={2} ellipsizeMode="tail">
-                    {v.title}
-                  </Text>
                 </Pressable>
               ))}
             </ScrollView>
+            <View style={styles.pickupDots}>
+              {data.pickup.slice(0, 6).map((_, idx) => (
+                <View key={`dot-${idx}`} style={[styles.pickupDot, idx === pickupIndex ? styles.pickupDotActive : null]} />
+              ))}
+            </View>
           </View>
 
           {/* おすすめ動画 */}
@@ -156,17 +262,14 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
               {data.recommended.slice(0, 6).map((v) => (
-                <Pressable key={v.id} style={styles.hCard} onPress={() => onOpenVideo(v.id)}>
-                  <View style={styles.hThumbWrap}>
+                <Pressable key={v.id} style={styles.recommendCard} onPress={() => onOpenVideo(v.id)}>
+                  <View style={styles.recommendThumbWrap}>
                     <Image
                       source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
-                      style={styles.hThumb}
+                      style={styles.recommendThumb}
                       resizeMode="cover"
                     />
                   </View>
-                  <Text style={styles.hTitle} numberOfLines={2} ellipsizeMode="tail">
-                    {v.title}
-                  </Text>
                 </Pressable>
               ))}
             </ScrollView>
@@ -175,76 +278,98 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
           {/* ランキング（再生数） */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>ランキング（再生数）</Text>
+              <Text style={styles.sectionTitle}>再生数ランキング</Text>
+              <Pressable style={styles.sectionAction} onPress={onOpenRanking}>
+                <Text style={styles.sectionActionText}>›</Text>
+              </Pressable>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
               {data.rankings.byViews.slice(0, 5).map((v, idx) => (
-                <Pressable key={v.id} style={styles.hCard} onPress={() => onOpenVideo(v.id)}>
-                  <View style={styles.hThumbWrap}>
-                    <Image
-                      source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
-                      style={styles.hThumb}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.rankBadge}>
-                      <Text style={styles.rankBadgeText}>{idx + 1}位</Text>
+                <Pressable key={v.id} style={styles.rankCard} onPress={() => onOpenVideo(v.id)}>
+                  <View style={styles.rankThumbWrap}>
+                    <Text style={styles.rankNumber}>{idx + 1}</Text>
+                    <View style={styles.rankThumbClip}>
+                      <Image
+                        source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
+                        style={styles.rankThumb}
+                        resizeMode="cover"
+                      />
+                    </View>
+                    {idx === 0 ? (
+                      <View style={styles.rankLabelNew}>
+                        <Text style={styles.rankLabelText}>新着</Text>
+                      </View>
+                    ) : idx === 1 ? (
+                      <View style={styles.rankLabelRecommend}>
+                        <Text style={styles.rankLabelText}>おすすめ</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* 人気俳優ランキング */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>人気俳優ランキング</Text>
+              <Pressable style={styles.sectionAction} onPress={onOpenRanking}>
+                <Text style={styles.sectionActionText}>›</Text>
+              </Pressable>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.castList}>
+              {data.popularCasts.slice(0, 5).map((c, idx) => (
+                <Pressable key={c.id} style={styles.castCard} onPress={onOpenRanking}>
+                  <View style={styles.castThumbWrap}>
+                    <View style={styles.castThumbClip}>
+                      <Image
+                        source={c.thumbnailUrl ? { uri: c.thumbnailUrl } : FALLBACK_IMAGE}
+                        style={styles.castThumb}
+                        resizeMode="cover"
+                      />
+                    </View>
+                    <View style={styles.castRankWrap}>
+                      <Text style={styles.castRankNumberStroke}>{idx + 1}</Text>
+                      <Text style={styles.castRankNumberFill}>{idx + 1}</Text>
                     </View>
                   </View>
-                  <Text style={styles.hTitle} numberOfLines={2} ellipsizeMode="tail">
-                    {v.title}
+                  <Text style={styles.castName} numberOfLines={1}>
+                    {c.name}
                   </Text>
                 </Pressable>
               ))}
             </ScrollView>
           </View>
 
-          {/* ランキング（評価） */}
+          {/* 評価ランキング */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>ランキング（評価）</Text>
+              <Text style={styles.sectionTitle}>評価ランキング</Text>
+              <Pressable style={styles.sectionAction} onPress={onOpenRanking}>
+                <Text style={styles.sectionActionText}>›</Text>
+              </Pressable>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
               {data.rankings.byRating.slice(0, 5).map((v, idx) => (
-                <Pressable key={v.id} style={styles.hCard} onPress={() => onOpenVideo(v.id)}>
-                  <View style={styles.hThumbWrap}>
+                <Pressable key={v.id} style={styles.rankCard} onPress={() => onOpenVideo(v.id)}>
+                  <View style={styles.rankThumbWrap}>
                     <Image
                       source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
-                      style={styles.hThumb}
+                      style={styles.rankThumb}
                       resizeMode="cover"
                     />
-                    <View style={styles.rankBadge}>
-                      <Text style={styles.rankBadgeText}>{idx + 1}位</Text>
-                    </View>
+                    {idx === 0 ? (
+                      <View style={styles.rankLabelNew}>
+                        <Text style={styles.rankLabelText}>新着</Text>
+                      </View>
+                    ) : idx === 1 ? (
+                      <View style={styles.rankLabelRecommend}>
+                        <Text style={styles.rankLabelText}>おすすめ</Text>
+                      </View>
+                    ) : null}
+                    <Text style={styles.rankNumber}>{idx + 1}</Text>
                   </View>
-                  <Text style={styles.hTitle} numberOfLines={2} ellipsizeMode="tail">
-                    {v.title}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-
-          {/* ランキング（総合） */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>ランキング（総合）</Text>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
-              {data.rankings.overall.slice(0, 5).map((v, idx) => (
-                <Pressable key={v.id} style={styles.hCard} onPress={() => onOpenVideo(v.id)}>
-                  <View style={styles.hThumbWrap}>
-                    <Image
-                      source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
-                      style={styles.hThumb}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.rankBadge}>
-                      <Text style={styles.rankBadgeText}>{idx + 1}位</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.hTitle} numberOfLines={2} ellipsizeMode="tail">
-                    {v.title}
-                  </Text>
                 </Pressable>
               ))}
             </ScrollView>
@@ -265,85 +390,241 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 16,
   },
+  logo: {
+    width: 110,
+    height: 36,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerIconButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noticeDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#FF3B30',
+  },
   sectionHeader: {
     paddingHorizontal: 16,
     paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    justifyContent: 'space-between',
   },
   sectionTitle: {
-    color: THEME.text,
-    fontSize: 14,
-    fontWeight: '800',
+    color: '#E6E6E6',
+    fontSize: 15,
+    fontWeight: '900',
   },
   sectionMeta: {
     color: THEME.textMuted,
     fontSize: 10,
   },
+  sectionAction: {
+    marginLeft: 'auto',
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionActionText: {
+    color: THEME.textMuted,
+    fontSize: 20,
+    fontWeight: '700',
+  },
   hList: {
+    gap: 36,
+    paddingLeft: 32,
+    paddingRight: 32,
+  },
+  pickupList: {
     gap: 12,
     paddingLeft: 16,
     paddingRight: 16,
   },
-  hCard: {
-    width: 150,
-    borderRadius: 16,
-    backgroundColor: THEME.card,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    overflow: 'hidden',
-  },
   pickupCard: {
-    width: 280,
     borderRadius: 18,
-    backgroundColor: THEME.card,
-    borderWidth: 1,
-    borderColor: THEME.outline,
     overflow: 'hidden',
-  },
-  hThumbWrap: {
-    width: '100%',
-    aspectRatio: 16 / 9,
     backgroundColor: THEME.card,
-    overflow: 'hidden',
   },
   pickupThumbWrap: {
     width: '100%',
     aspectRatio: 16 / 9,
     backgroundColor: THEME.card,
-    overflow: 'hidden',
   },
-  hThumb: {
+  pickupThumb: {
     width: '100%',
     height: '100%',
   },
-  rankBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  pickupDots: {
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    paddingTop: 10,
+  },
+  pickupDot: {
+    width: 6,
+    height: 6,
     borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  pickupDotActive: {
+    backgroundColor: THEME.accent,
+    width: 16,
+    borderRadius: 999,
+  },
+  recommendCard: {
+    width: 160,
+    borderRadius: 14,
+    backgroundColor: THEME.card,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    overflow: 'hidden',
+  },
+  recommendThumbWrap: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: THEME.card,
+    overflow: 'hidden',
+  },
+  recommendThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  rankCard: {
+    width: 160,
+    borderRadius: 14,
+    backgroundColor: THEME.card,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    overflow: 'visible',
+  },
+  rankThumbWrap: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: THEME.card,
+    overflow: 'visible',
+    position: 'relative',
+  },
+  rankThumbClip: {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    borderRadius: 14,
+    zIndex: 1,
+  },
+  rankThumb: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 14,
+  },
+  rankLabelNew: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderTopRightRadius: 8,
+    borderBottomLeftRadius: 8,
+    backgroundColor: '#FF3B30',
+  },
+  rankLabelRecommend: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderTopRightRadius: 8,
+    borderBottomLeftRadius: 8,
     backgroundColor: THEME.accent,
   },
-  rankBadgeText: {
-    color: THEME.card,
+  rankLabelText: {
+    color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '800',
   },
-  hTitle: {
+  rankNumber: {
+    position: 'absolute',
+    left: -18,
+    bottom: 4,
+    color: '#E6E6E6',
+    fontSize: 32,
+    fontWeight: '900',
+    textShadowColor: 'transparent',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 0,
+    zIndex: 0,
+  },
+  castList: {
+    gap: 16,
+    paddingLeft: 16,
+    paddingRight: 16,
+  },
+  castCard: {
+    alignItems: 'center',
+    width: 86,
+  },
+  castThumbWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 999,
+    overflow: 'visible',
+    marginBottom: 8,
+    position: 'relative',
+  },
+  castThumbClip: {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    borderRadius: 999,
+  },
+  castThumb: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
+  },
+  castRankWrap: {
+    position: 'absolute',
+    left: -10,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  castRankNumberStroke: {
+    position: 'absolute',
+    left: 0,
+    bottom: 0,
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '900',
+    textShadowColor: '#FFFFFF',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
+  },
+  castRankNumberFill: {
+    color: 'transparent',
+    fontSize: 24,
+    fontWeight: '900',
+    textShadowColor: 'transparent',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 0,
+  },
+  castName: {
     color: THEME.text,
     fontSize: 11,
     fontWeight: '700',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  pickupTitle: {
-    color: THEME.text,
-    fontSize: 13,
-    fontWeight: '800',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
   },
 })

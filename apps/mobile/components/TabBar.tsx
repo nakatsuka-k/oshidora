@@ -2,6 +2,15 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import { THEME } from './theme'
 
+import IconHomeOff from '../assets/icon_home_off.svg'
+import IconHomeOn from '../assets/icon_home_on.svg'
+import IconVideoOff from '../assets/icon_video_off.svg'
+import IconVideoOn from '../assets/icon_video_on.svg'
+import IconUserOff from '../assets/icon_user_off.svg'
+import IconUserOn from '../assets/icon_user_on.svg'
+import IconCastOff from '../assets/icon_user_fav_off.svg'
+import IconCastOn from '../assets/icon_user_fav_on.svg'
+
 type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
 
 type TabBarProps = {
@@ -12,9 +21,8 @@ type TabBarProps = {
 export function TabBar({ active, onPress }: TabBarProps) {
   const tabs: Array<{ key: TabKey; label: string }> = [
     { key: 'home', label: 'ホーム' },
-    { key: 'video', label: '作品' },
+    { key: 'video', label: '動画' },
     { key: 'cast', label: 'キャスト' },
-    { key: 'search', label: '検索' },
     { key: 'mypage', label: 'マイページ' },
   ]
 
@@ -30,7 +38,7 @@ export function TabBar({ active, onPress }: TabBarProps) {
             style={styles.item}
             accessibilityRole="button"
           >
-            <TabIcon tab={t.key} color={color} />
+            <TabIcon tab={t.key} color={color} isActive={isActive} />
             <Text style={[styles.label, isActive ? styles.labelActive : null]}>{t.label}</Text>
           </Pressable>
         )
@@ -39,58 +47,16 @@ export function TabBar({ active, onPress }: TabBarProps) {
   )
 }
 
-function TabIcon({ tab, color }: { tab: TabKey; color: string }) {
+function TabIcon({ tab, color, isActive }: { tab: TabKey; color: string; isActive: boolean }) {
   // Minimal stroke icons (SVG) to match "SVG対応" requirement.
   // Avoids custom colors by using THEME-driven color passed in.
   switch (tab) {
     case 'home':
-      return (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Path
-            d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10.5Z"
-            stroke={color}
-            strokeWidth={2}
-            strokeLinejoin="round"
-          />
-        </Svg>
-      )
+      return isActive ? <IconHomeOn width={24} height={24} /> : <IconHomeOff width={24} height={24} />
     case 'video':
-      return (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Path
-            d="M5 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7Z"
-            stroke={color}
-            strokeWidth={2}
-            strokeLinejoin="round"
-          />
-          <Path
-            d="M11 9.5 14.5 12 11 14.5V9.5Z"
-            fill={color}
-          />
-        </Svg>
-      )
+      return isActive ? <IconVideoOn width={24} height={24} /> : <IconVideoOff width={24} height={24} />
     case 'cast':
-      return (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Path
-            d="M16 21v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"
-            stroke={color}
-            strokeWidth={2}
-            strokeLinecap="round"
-          />
-          <Path
-            d="M9.5 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
-            stroke={color}
-            strokeWidth={2}
-          />
-          <Path
-            d="M17 11a3 3 0 1 0-2.5-5"
-            stroke={color}
-            strokeWidth={2}
-            strokeLinecap="round"
-          />
-        </Svg>
-      )
+      return isActive ? <IconCastOn width={24} height={24} /> : <IconCastOff width={24} height={24} />
     case 'search':
       return (
         <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
@@ -108,21 +74,7 @@ function TabIcon({ tab, color }: { tab: TabKey; color: string }) {
         </Svg>
       )
     case 'mypage':
-      return (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Path
-            d="M20 21v-1a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v1"
-            stroke={color}
-            strokeWidth={2}
-            strokeLinecap="round"
-          />
-          <Path
-            d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
-            stroke={color}
-            strokeWidth={2}
-          />
-        </Svg>
-      )
+      return isActive ? <IconUserOn width={24} height={24} /> : <IconUserOff width={24} height={24} />
   }
 }
 
@@ -148,6 +100,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   labelActive: {
-    color: THEME.text,
+    color: THEME.accent,
   },
 })

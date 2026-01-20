@@ -17,6 +17,7 @@ type NoticeDetail = {
   title: string
   publishedAt: string
   bodyHtml: string
+  tags?: string[]
 }
 
 type NoticeDetailResponse = {
@@ -25,7 +26,7 @@ type NoticeDetailResponse = {
 
 export function NoticeDetailScreen({ apiBaseUrl, noticeId, mock, onBack }: NoticeDetailScreenProps) {
   const { width } = useWindowDimensions()
-  const contentWidth = Math.max(1, Math.min(828, Math.round(width - 32)))
+  const contentWidth = Math.max(1, Math.min(768, Math.round(width - 32)))
 
   const [item, setItem] = useState<NoticeDetail | null>(null)
   const [loading, setLoading] = useState(false)
@@ -69,12 +70,10 @@ export function NoticeDetailScreen({ apiBaseUrl, noticeId, mock, onBack }: Notic
     }
   }, [apiBaseUrl, noticeId, mock])
 
-  const title = item?.title ?? 'お知らせ詳細'
-
   const htmlSource = useMemo(() => ({ html: item?.bodyHtml ?? '' }), [item?.bodyHtml])
 
   return (
-    <ScreenContainer title={title} onBack={onBack} scroll>
+    <ScreenContainer title="お知らせ" onBack={onBack} scroll>
       <View style={styles.root}>
         {loading ? (
           <View style={styles.centerBox}>
@@ -97,15 +96,19 @@ export function NoticeDetailScreen({ apiBaseUrl, noticeId, mock, onBack }: Notic
 
         {!loading && item ? (
           <ScrollView contentContainerStyle={styles.content}>
-            <Text style={styles.meta}>{item.publishedAt}</Text>
-            <View style={styles.htmlWrap}>
-              <RenderHtml
-                contentWidth={contentWidth}
-                source={htmlSource}
-                baseStyle={styles.htmlBase}
-                tagsStyles={htmlTagStyles}
-              />
+            <View style={styles.metaRow}>
+              <Text style={styles.meta}>{item.publishedAt}</Text>
+              <View style={styles.tagBadge}>
+                <Text style={styles.tagText}>{item.tags?.[0] ?? 'お知らせ'}</Text>
+              </View>
             </View>
+            <Text style={styles.title}>{item.title}</Text>
+            <RenderHtml
+              contentWidth={contentWidth}
+              source={htmlSource}
+              baseStyle={styles.htmlBase}
+              tagsStyles={htmlTagStyles}
+            />
           </ScrollView>
         ) : null}
       </View>
@@ -151,19 +154,34 @@ const styles = StyleSheet.create({
   content: {
     paddingBottom: 12,
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
   meta: {
     color: THEME.textMuted,
     fontSize: 12,
     fontWeight: '700',
-    marginBottom: 12,
   },
-  htmlWrap: {
-    backgroundColor: THEME.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+  tagBadge: {
+    backgroundColor: '#585858',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  tagText: {
+    color: '#E6E6E6',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  title: {
+    color: THEME.text,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 26,
+    marginBottom: 14,
   },
   htmlBase: {
     color: THEME.text,

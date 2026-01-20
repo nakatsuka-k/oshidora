@@ -17,6 +17,7 @@ echo -e "${YELLOW}🚀 Starting oshidora...${NC}"
 API_PID=""
 MOBILE_PID=""
 ADMIN_PID=""
+D1VIEWER_PID=""
 API_PORT=""
 
 # Function to cleanup on exit
@@ -25,6 +26,7 @@ cleanup() {
     if [ -n "$API_PID" ]; then kill "$API_PID" 2>/dev/null || true; fi
     if [ -n "$MOBILE_PID" ]; then kill "$MOBILE_PID" 2>/dev/null || true; fi
     if [ -n "$ADMIN_PID" ]; then kill "$ADMIN_PID" 2>/dev/null || true; fi
+    if [ -n "$D1VIEWER_PID" ]; then kill "$D1VIEWER_PID" 2>/dev/null || true; fi
 
     # Ensure the actual dev server process is terminated (wrangler spawns workerd).
     if [ -n "$API_PORT" ]; then
@@ -78,6 +80,11 @@ if [ ! -d "$PROJECT_ROOT/apps/admin/node_modules" ]; then
     npm --prefix "$PROJECT_ROOT/apps/admin" install
 fi
 
+if [ ! -d "$PROJECT_ROOT/apps/d1viewer/node_modules" ]; then
+    echo -e "${YELLOW}📦 Installing D1 Viewer dependencies...${NC}"
+    npm --prefix "$PROJECT_ROOT/apps/d1viewer" install
+fi
+
 # Run database migration for local environment
 echo -e "${YELLOW}🗄️  Running database migrations...${NC}"
 npm --prefix "$PROJECT_ROOT" run db:migrate:local
@@ -101,7 +108,7 @@ API_LOG="$LOG_DIR/api.log"
 echo "--- $(date) Starting API (port=${API_PORT}) ---" >> "$API_LOG"
 
 # Force port to avoid wrangler choosing a different port when 8787 is in use.
-npm --prefix "$PROJECT_ROOT/apps/api" run dev -- --port "$API_PORT" >> "$API_LOG" 2>&1 &
+ALLOW_DEBUG_RETURN_CODES=1 npm --prefix "$PROJECT_ROOT/apps/api" run dev -- --port "$API_PORT" >> "$API_LOG" 2>&1 &
 API_PID=$!
 
 # Wait for API to be ready
@@ -136,6 +143,14 @@ echo "--- $(date) Starting Admin (port=${ADMIN_WEB_PORT}, EXPO_PUBLIC_API_BASE_U
 EXPO_PUBLIC_API_BASE_URL="$API_BASE_URL" npm --prefix "$PROJECT_ROOT/apps/admin" run web -- --port "$ADMIN_WEB_PORT" >> "$ADMIN_LOG" 2>&1 &
 ADMIN_PID=$!
 
+# Start D1 Viewer (Web) server in background
+D1VIEWER_WEB_PORT=${D1VIEWER_WEB_PORT:-8083}
+echo -e "${YELLOW}🚀 Starting D1 Viewer (Web) server on port $D1VIEWER_WEB_PORT...${NC}"
+D1VIEWER_LOG="$LOG_DIR/d1viewer.log"
+echo "--- $(date) Starting D1 Viewer (port=${D1VIEWER_WEB_PORT}, VITE_API_BASE_URL=${API_BASE_URL}) ---" >> "$D1VIEWER_LOG"
+VITE_API_BASE_URL="$API_BASE_URL" npm --prefix "$PROJECT_ROOT/apps/d1viewer" run dev -- --port "$D1VIEWER_WEB_PORT" >> "$D1VIEWER_LOG" 2>&1 &
+D1VIEWER_PID=$!
+
 # Wait for mobile server to be ready
 echo -e "${YELLOW}⏳ Waiting for Mobile server to be ready...${NC}"
 sleep 8
@@ -152,26 +167,43 @@ for i in {1..30}; do
         echo -e "${RED}❌ Admin server failed to start${NC}"
         kill $ADMIN_PID 2>/dev/null
         kill $API_PID $MOBILE_PID 2>/dev/null
+        kill $D1VIEWER_PID 2>/dev/null
         exit 1
     fi
 done
 
-# Open browser
+# Wait for D1 viewer server to be ready
+echo -e "${YELLOW}⏳ Waiting for D1 Viewer server to be ready...${NC}"
+for i in {1..30}; do
+    if curl -s "http://localhost:$D1VIEWER_WEB_PORT" >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ D1 Viewer server is ready!${NC}"
+        break
+    fi
+    sleep 1
+    if [ $i -eq 30 ]; then
+        echo -e "${RED}❌ D1 Viewer server failed to start${NC}"
+        kill $D1VIEWER_PID 2>/dev/null
+        kill $ADMIN_PID 2>/dev/null
+        kill $API_PID $MOBILE_PID 2>/dev/null
+        exit 1
+    fi
+done
+
+# URLs
 BROWSER_URL="http://localhost:8081"
 ADMIN_URL="http://localhost:$ADMIN_WEB_PORT"
-echo -e "${GREEN}🌐 Opening browser at $BROWSER_URL${NC}"
-open "$BROWSER_URL"
-echo -e "${GREEN}🌐 Opening admin at $ADMIN_URL${NC}"
-open "$ADMIN_URL"
+D1VIEWER_URL="http://localhost:$D1VIEWER_WEB_PORT"
 
 # Display status
 echo ""
 echo -e "${GREEN}✅ All services are running!${NC}"
 echo ""
 echo -e "${GREEN}📡 API Server:${NC} ${API_BASE_URL}"
-echo -e "${GREEN}🌐 Mobile (Web):${NC} http://localhost:8081"
-echo -e "${GREEN}🛠️  Admin (Web):${NC} http://localhost:$ADMIN_WEB_PORT"
-echo -e "${GREEN}📝 Logs:${NC} $LOG_DIR (api.log / mobile.log / admin.log)"
+echo -e "${GREEN}🌐 Sites:${NC}"
+echo -e "  - Mobile (Web): ${BROWSER_URL}"
+echo -e "  - Admin (Web): ${ADMIN_URL}"
+echo -e "  - D1 Viewer (Web): ${D1VIEWER_URL}"
+echo -e "${GREEN}📝 Logs:${NC} $LOG_DIR (api.log / mobile.log / admin.log / d1viewer.log)"
 echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop all services${NC}"
 

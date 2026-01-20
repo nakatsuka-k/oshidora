@@ -11,6 +11,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -33,6 +34,17 @@ import {
   TabBar,
   THEME,
 } from './components'
+
+import IconShare from './assets/icon_share.svg'
+import IconFavoriteOff from './assets/icon_favorite_off.svg'
+import IconPen from './assets/pen-icon.svg'
+import IconStarYellow from './assets/star-yellow.svg'
+import IconHeartYellow from './assets/hairt-yellow.svg'
+import IconStarEmpty from './assets/empty-star.svg'
+import IconPlayWhite from './assets/icon_play_white.svg'
+import IconDown from './assets/icon_down.svg'
+import IconNotification from './assets/icon_notification.svg'
+import IconSearch from './assets/icon_search.svg'
 
 import {
   DeveloperMenuScreen,
@@ -78,6 +90,7 @@ import {
   NoticeDetailScreen,
   ContactScreen,
   FaqScreen,
+  RankingScreen,
 } from './screens'
 
 import { apiFetch, DEBUG_MOCK_KEY } from './utils/api'
@@ -95,10 +108,12 @@ const FALLBACK_ALLOWED_IPS = [
 ]
 
 const AUTH_TOKEN_KEY = 'auth_token'
-const DEBUG_AUTH_BYPASS_KEY = 'debug_auth_bypass'
 const DEBUG_AUTH_AUTOFILL_KEY = 'debug_auth_autofill'
 const DEBUG_USER_TYPE_KEY = 'debug_user_type_v1'
 const DEBUG_PAYPAY_LINKED_KEY = 'debug_paypay_linked_v1'
+
+const MOCK_LOGIN_EMAIL = 'demo@oshidora.jp'
+const MOCK_LOGIN_PASSWORD = 'password123'
 
 type Oshi = {
   id: string
@@ -630,17 +645,6 @@ export default function App() {
   const { ipInfo, isLoading: ipLoading, error: ipError, refetch: refetchIp } = useIpAddress({ enabled: ipRestrictionEnabled })
   const ipAllowed = !ipRestrictionEnabled || (ipInfo?.ip ? allowedIpSet.has(ipInfo.ip) : false)
 
-  const expectedLoginEmail = useMemo(() => {
-    const env = process.env.EXPO_PUBLIC_LOGIN_EMAIL
-    const value = env && env.trim().length > 0 ? env.trim() : 'test@example.com'
-    return value.toLowerCase()
-  }, [])
-
-  const expectedLoginPassword = useMemo(() => {
-    const env = process.env.EXPO_PUBLIC_LOGIN_PASSWORD
-    return env && env.trim().length > 0 ? env : 'password'
-  }, [])
-
   const streamSampleVideoId = useMemo(() => {
     const env = process.env.EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID
     return env && env.trim().length > 0 ? env.trim() : '75f3ddaf69ff44c43746c9492c3c4df5'
@@ -747,7 +751,6 @@ export default function App() {
   const [authToken, setAuthToken] = useState<string>('')
   const [authPendingToken, setAuthPendingToken] = useState<string>('')
 
-  const [debugAuthBypass, setDebugAuthBypass] = useState<boolean>(false)
   const [debugAuthAutofill, setDebugAuthAutofill] = useState<boolean>(false)
   const [debugUserType, setDebugUserType] = useState<'user' | 'cast'>('user')
   const [debugPaypayLinked, setDebugPaypayLinked] = useState<boolean>(false)
@@ -848,9 +851,8 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [token, bypass, autofill, userTypeValue, paypayLinked, mock] = await Promise.all([
+        const [token, autofill, userTypeValue, paypayLinked, mock] = await Promise.all([
           getString(AUTH_TOKEN_KEY),
-          getBoolean(DEBUG_AUTH_BYPASS_KEY),
           getBoolean(DEBUG_AUTH_AUTOFILL_KEY),
           getString(DEBUG_USER_TYPE_KEY),
           getBoolean(DEBUG_PAYPAY_LINKED_KEY),
@@ -860,7 +862,6 @@ export default function App() {
           setAuthToken(token)
           setLoggedIn(true)
         }
-        setDebugAuthBypass(bypass)
         setDebugAuthAutofill(autofill)
 
         const t = (userTypeValue || '').trim()
@@ -872,10 +873,6 @@ export default function App() {
       }
     })()
   }, [])
-
-  useEffect(() => {
-    void setBoolean(DEBUG_AUTH_BYPASS_KEY, debugAuthBypass)
-  }, [debugAuthBypass])
 
   useEffect(() => {
     void setBoolean(DEBUG_AUTH_AUTOFILL_KEY, debugAuthAutofill)
@@ -926,7 +923,7 @@ export default function App() {
 
   useEffect(() => {
     // Guard for direct navigation (e.g. web hash) to login-required screens.
-    if (loggedIn || debugAuthBypass) return
+    if (loggedIn) return
     if (
       screen !== 'cast' &&
       screen !== 'castSearchResult' &&
@@ -949,11 +946,11 @@ export default function App() {
   }, [loggedIn, screen])
 
   const requireLogin = useCallback((next: Screen): boolean => {
-    if (loggedIn || debugAuthBypass) return true
+    if (loggedIn) return true
     setPostLoginTarget(next)
     goTo('login')
     return false
-  }, [debugAuthBypass, goTo, loggedIn])
+  }, [goTo, loggedIn])
 
   type ApprovedComment = { id: string; author: string; body: string; createdAt?: string }
 
@@ -964,6 +961,13 @@ export default function App() {
 
   const [workReviewSummary, setWorkReviewSummary] = useState<{ ratingAvg: number; reviewCount: number } | null>(null)
   const [workReviewError, setWorkReviewError] = useState('')
+  const [isWorkFavorite, setIsWorkFavorite] = useState(false)
+  const [favoriteToastText, setFavoriteToastText] = useState('')
+  const [favoriteToastVisible, setFavoriteToastVisible] = useState(false)
+  const favoriteToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [workDetailTab, setWorkDetailTab] = useState<'episodes' | 'info'>('episodes')
+  const [commentDraft, setCommentDraft] = useState('')
+  const [commentRating, setCommentRating] = useState(0)
 
   const [castReviewSummary, setCastReviewSummary] = useState<{ ratingAvg: number; reviewCount: number } | null>(null)
   const [castReviewError, setCastReviewError] = useState('')
@@ -1159,6 +1163,22 @@ export default function App() {
     // Keep id consistent with the selected id for history/share/comments.
     return { ...base, id: workIdForDetail }
   }, [mockWork, mockWorksByKey, workIdForDetail])
+
+  const workRatingAvg = workReviewSummary ? workReviewSummary.ratingAvg : workForDetail.rating
+  const workReviewCount = workReviewSummary ? workReviewSummary.reviewCount : workForDetail.reviews
+  const workLikeCount = Math.max(0, workReviewCount)
+  const workRatingStars = Math.max(1, Math.min(5, Math.round(workRatingAvg)))
+  const workReleaseYear = 2025
+  const productionLabel = workForDetail.staff.find((s) => s.role.includes('制作プロダクション'))?.name ?? '—'
+  const providerLabel = workForDetail.staff.find((s) => s.role.includes('提供'))?.name ?? '株式会社OO'
+
+  const recommendedWorks = useMemo(
+    () =>
+      Object.values(mockWorksByKey)
+        .filter((w) => w.id !== workIdForDetail)
+        .slice(0, 5),
+    [mockWorksByKey, workIdForDetail]
+  )
 
   const openWorkDetail = useCallback(
     (id: string) => {
@@ -1563,18 +1583,18 @@ export default function App() {
       return
     }
 
+    if (email.toLowerCase() === MOCK_LOGIN_EMAIL && password === MOCK_LOGIN_PASSWORD) {
+      setAuthToken('mock-token')
+      await setString(AUTH_TOKEN_KEY, 'mock-token')
+      setLoggedIn(true)
+      setHistory([])
+      setScreen(postLoginTarget ?? 'home')
+      setPostLoginTarget(null)
+      return
+    }
+
     setAuthBusy(true)
     try {
-      if (debugAuthBypass) {
-        await new Promise((r) => setTimeout(r, 250))
-        if (email.toLowerCase() !== expectedLoginEmail || password !== expectedLoginPassword) {
-          setLoginBannerError('メールアドレスまたはパスワードが正しくありません')
-          return
-        }
-        goTo('phone')
-        return
-      }
-
       const res = await apiFetch(`${apiBaseUrl}/v1/auth/login/start`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -1599,7 +1619,7 @@ export default function App() {
     } finally {
       setAuthBusy(false)
     }
-  }, [apiBaseUrl, debugAuthBypass, expectedLoginEmail, expectedLoginPassword, goTo, loginEmail, loginPassword, resetAuthErrors])
+  }, [apiBaseUrl, goTo, loginEmail, loginPassword, postLoginTarget, resetAuthErrors])
 
   const normalizedPhoneDigits = useMemo(() => digitsOnly(phoneNumber), [phoneNumber])
 
@@ -1623,41 +1643,33 @@ export default function App() {
     setAuthBusy(true)
     try {
       let sentDebugCode = ''
-      if (debugAuthBypass) {
-        await new Promise((r) => setTimeout(r, 250))
-        if (digits.endsWith('0000')) {
-          setPhoneBannerError('SMSの送信に失敗しました。時間をおいて再度お試しください。')
-          return
-        }
-      } else {
-        if (!authPendingToken) {
-          setPhoneBannerError('認証セッションが切れました。最初からやり直してください。')
-          return
-        }
-        const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/send`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${authPendingToken}`,
-          },
-          body: JSON.stringify({ phone: digits }),
-        })
-        const data = (await res.json().catch(() => ({}))) as any
-        if (!res.ok) {
-          const code = String(data?.error ?? '')
-          if (code === 'phone_mismatch') {
-            setPhoneBannerError('登録済みの電話番号と一致しません')
-          } else {
-            setPhoneBannerError('SMSの送信に失敗しました。時間をおいて再度お試しください。')
-          }
-          return
-        }
-        const dbg = String(data?.debugCode ?? '')
-        setDebugSmsCode(dbg)
-        sentDebugCode = dbg
+      if (!authPendingToken) {
+        setPhoneBannerError('認証セッションが切れました。最初からやり直してください。')
+        return
       }
+      const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/send`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${authPendingToken}`,
+        },
+        body: JSON.stringify({ phone: digits }),
+      })
+      const data = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) {
+        const code = String(data?.error ?? '')
+        if (code === 'phone_mismatch') {
+          setPhoneBannerError('登録済みの電話番号と一致しません')
+        } else {
+          setPhoneBannerError('SMSの送信に失敗しました。時間をおいて再度お試しください。')
+        }
+        return
+      }
+      const dbg = String(data?.debugCode ?? '')
+      setDebugSmsCode(dbg)
+      sentDebugCode = dbg
 
-      if (!debugAuthBypass && debugAuthAutofill && sentDebugCode) {
+      if (debugAuthAutofill && sentDebugCode) {
         setOtpDigits(sentDebugCode.slice(0, OTP_LENGTH).split(''))
       } else {
         setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ''))
@@ -1667,7 +1679,7 @@ export default function App() {
     } finally {
       setAuthBusy(false)
     }
-  }, [OTP_LENGTH, apiBaseUrl, authPendingToken, debugAuthAutofill, debugAuthBypass, goTo, normalizedPhoneDigits, resetAuthErrors])
+  }, [OTP_LENGTH, apiBaseUrl, authPendingToken, debugAuthAutofill, goTo, normalizedPhoneDigits, resetAuthErrors])
 
   const otpValue = useMemo(() => otpDigits.join(''), [otpDigits])
   const otpComplete = useMemo(() => otpValue.length === OTP_LENGTH && !otpValue.includes(''), [OTP_LENGTH, otpValue])
@@ -1713,37 +1725,29 @@ export default function App() {
 
     setAuthBusy(true)
     try {
-      if (debugAuthBypass) {
-        await new Promise((r) => setTimeout(r, 250))
-        if (code === '000000') {
-          setOtpBannerError('認証コードが正しくありません')
-          return
-        }
-      } else {
-        if (!authPendingToken) {
-          setOtpBannerError('認証セッションが切れました。最初からやり直してください。')
-          return
-        }
-        const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${authPendingToken}`,
-          },
-          body: JSON.stringify({ phone: normalizedPhoneDigits, code }),
-        })
-        const data = (await res.json().catch(() => ({}))) as any
-        if (!res.ok) {
-          setOtpBannerError('認証コードが正しくありません')
-          return
-        }
-        const token = String(data?.token ?? '')
-        if (token) {
-          setAuthToken(token)
-          await setString(AUTH_TOKEN_KEY, token)
-        }
-        setAuthPendingToken('')
+      if (!authPendingToken) {
+        setOtpBannerError('認証セッションが切れました。最初からやり直してください。')
+        return
       }
+      const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${authPendingToken}`,
+        },
+        body: JSON.stringify({ phone: normalizedPhoneDigits, code }),
+      })
+      const data = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) {
+        setOtpBannerError('認証コードが正しくありません')
+        return
+      }
+      const token = String(data?.token ?? '')
+      if (token) {
+        setAuthToken(token)
+        await setString(AUTH_TOKEN_KEY, token)
+      }
+      setAuthPendingToken('')
 
       setLoggedIn(true)
       setHistory([])
@@ -1752,7 +1756,7 @@ export default function App() {
     } finally {
       setAuthBusy(false)
     }
-  }, [apiBaseUrl, authPendingToken, debugAuthBypass, normalizedPhoneDigits, otpDigits, postLoginTarget, resetAuthErrors])
+  }, [apiBaseUrl, authPendingToken, normalizedPhoneDigits, otpDigits, postLoginTarget, resetAuthErrors])
 
   // Show IP gate if IP restriction is enabled and checks are needed
   if (ipRestrictionEnabled) {
@@ -1873,7 +1877,6 @@ export default function App() {
                   />
                   {loginFieldErrors.email ? <Text style={styles.fieldError}>{loginFieldErrors.email}</Text> : null}
                 </View>
-
                 <View style={styles.field}>
                   <TextInput
                     value={loginPassword}
@@ -1911,27 +1914,19 @@ export default function App() {
           onSendCode={async (email, password) => {
             setRegisterEmail(email)
             setRegisterPassword(password)
-            if (debugAuthBypass) {
-              await new Promise((r) => setTimeout(r, 250))
-              if (email.toLowerCase().endsWith('@fail.example')) {
-                throw new Error('認証コードの送信に失敗しました')
-              }
-              setDebugEmailCode('')
-            } else {
-              const res = await apiFetch(`${apiBaseUrl}/v1/auth/signup/start`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ email, password }),
-              })
-              const data = (await res.json().catch(() => ({}))) as any
-              if (!res.ok) {
-                const code = String(data?.error ?? '')
-                if (code === 'already_registered') throw new Error('すでに登録済みのメールアドレスです')
-                throw new Error('認証コードの送信に失敗しました')
-              }
-              const dbg = String(data?.debugCode ?? '')
-              setDebugEmailCode(dbg)
+            const res = await apiFetch(`${apiBaseUrl}/v1/auth/signup/start`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ email, password }),
+            })
+            const data = (await res.json().catch(() => ({}))) as any
+            if (!res.ok) {
+              const code = String(data?.error ?? '')
+              if (code === 'already_registered') throw new Error('すでに登録済みのメールアドレスです')
+              throw new Error('認証コードの送信に失敗しました')
             }
+            const dbg = String(data?.debugCode ?? '')
+            setDebugEmailCode(dbg)
             goTo('emailVerify')
           }}
         />
@@ -1941,13 +1936,9 @@ export default function App() {
         <EmailVerifyScreen
           email={registerEmail}
           onBack={goBack}
-          initialCode={!debugAuthBypass && debugAuthAutofill ? debugEmailCode : undefined}
+          initialCode={debugAuthAutofill ? debugEmailCode : undefined}
           onResend={async () => {
             if (!registerEmail) throw new Error('メールアドレスが不明です')
-            if (debugAuthBypass) {
-              await new Promise((r) => setTimeout(r, 250))
-              return
-            }
             const res = await apiFetch(`${apiBaseUrl}/v1/auth/signup/email/resend`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
@@ -1958,21 +1949,16 @@ export default function App() {
             setDebugEmailCode(String(data?.debugCode ?? ''))
           }}
           onVerify={async (code) => {
-            if (debugAuthBypass) {
-              await new Promise((r) => setTimeout(r, 250))
-              if (code === '000000') throw new Error('認証コードが正しくありません')
-            } else {
-              const res = await apiFetch(`${apiBaseUrl}/v1/auth/signup/email/verify`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ email: registerEmail, code }),
-              })
-              const data = (await res.json().catch(() => ({}))) as any
-              if (!res.ok) {
-                throw new Error('認証コードが正しくありません')
-              }
-              setAuthPendingToken(String(data?.token ?? ''))
+            const res = await apiFetch(`${apiBaseUrl}/v1/auth/signup/email/verify`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ email: registerEmail, code }),
+            })
+            const data = (await res.json().catch(() => ({}))) as any
+            if (!res.ok) {
+              throw new Error('認証コードが正しくありません')
             }
+            setAuthPendingToken(String(data?.token ?? ''))
             goTo('sms2fa')
           }}
         />
@@ -1981,12 +1967,8 @@ export default function App() {
       {screen === 'sms2fa' ? (
         <Sms2faScreen
           onBack={goBack}
-          initialCode={!debugAuthBypass && debugAuthAutofill ? debugSmsCode : undefined}
+          initialCode={debugAuthAutofill ? debugSmsCode : undefined}
           onSendCode={async (phone) => {
-            if (debugAuthBypass) {
-              await new Promise((r) => setTimeout(r, 250))
-              return
-            }
             if (!authPendingToken) throw new Error('認証セッションが切れました')
             const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/send`, {
               method: 'POST',
@@ -2001,11 +1983,6 @@ export default function App() {
             setDebugSmsCode(String(data?.debugCode ?? ''))
           }}
           onVerifyCode={async (phone, code) => {
-            if (debugAuthBypass) {
-              await new Promise((r) => setTimeout(r, 250))
-              if (code === '0000') throw new Error('認証コードが正しくありません')
-              return
-            }
             if (!authPendingToken) throw new Error('認証セッションが切れました')
             const res = await apiFetch(`${apiBaseUrl}/v1/auth/sms/verify`, {
               method: 'POST',
@@ -2311,9 +2288,13 @@ export default function App() {
       ) : null}
 
       {screen === 'ranking' ? (
-        <ScreenContainer title="ランキング一覧" onBack={goBack}>
-          <Text style={styles.centerText}>ランキング一覧（モック）</Text>
-        </ScreenContainer>
+        <RankingScreen
+          onBack={goBack}
+          onPressTab={switchTab}
+          onOpenVideo={(id) => {
+            openWorkDetail(id)
+          }}
+        />
       ) : null}
 
       {screen === 'favorites' ? (
@@ -2338,7 +2319,7 @@ export default function App() {
         <FavoriteCastsScreen
           apiBaseUrl={apiBaseUrl}
           authToken={authToken}
-          loggedIn={loggedIn || debugAuthBypass}
+          loggedIn={loggedIn}
           onBack={goBack}
           onEdit={() => goTo('favoriteCastsEdit')}
           onOpenProfile={(cast) => {
@@ -2353,7 +2334,7 @@ export default function App() {
         <FavoriteCastsEditScreen
           apiBaseUrl={apiBaseUrl}
           authToken={authToken}
-          loggedIn={loggedIn || debugAuthBypass}
+          loggedIn={loggedIn}
           onCancel={goBack}
           onDone={goBack}
         />
@@ -2374,9 +2355,10 @@ export default function App() {
       {screen === 'notice' ? (
         <NoticeListScreen
           apiBaseUrl={apiBaseUrl}
-          loggedIn={loggedIn || debugAuthBypass}
+          loggedIn={loggedIn}
           mock={debugMock}
           onBack={goBack}
+          onLogin={() => goTo('login')}
           onOpenDetail={(id) => {
             setSelectedNoticeId(id)
             goTo('noticeDetail')
@@ -2544,10 +2526,6 @@ export default function App() {
           onGo={(key) => {
             goTo(key as Screen)
           }}
-          loggedIn={loggedIn}
-          onLoginToggle={() => {
-            void setLoggedInState(!loggedIn)
-          }}
           userType={debugUserType}
           onUserTypeToggle={toggleDebugUserType}
           mock={debugMock}
@@ -2574,11 +2552,11 @@ export default function App() {
           </View>
 
           <View style={styles.metaRow}>
-            <Text style={styles.metaText}>
+            <Text style={styles.metaTextBase}>
               ★ {castReviewSummary ? castReviewSummary.ratingAvg.toFixed(1) : selectedCastReview ? selectedCastReview.rating.toFixed(1) : '—'}
             </Text>
             <Text style={styles.metaDot}>•</Text>
-            <Text style={styles.metaText}>
+            <Text style={styles.metaTextBase}>
               {castReviewSummary ? `${castReviewSummary.reviewCount}件` : selectedCastReview ? '1件' : '0件'}
             </Text>
           </View>
@@ -2725,16 +2703,40 @@ export default function App() {
 
       {screen === 'workDetail' ? (
         <ScreenContainer
-          title="作品詳細"
+          headerLeft={<Image source={require('./assets/oshidora_logo.png')} style={styles.logo} resizeMode="contain" />}
+          headerRight={
+            <View style={styles.headerRightRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="お知らせ"
+                onPress={() => goTo('notice')}
+                style={styles.headerIconButton}
+              >
+                <IconNotification width={22} height={22} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="検索"
+                onPress={() => switchTab('search')}
+                style={styles.headerIconButton}
+              >
+                <IconSearch width={22} height={22} />
+              </Pressable>
+            </View>
+          }
           onBack={goBack}
-          headerRight={loggedIn ? <NoticeBellButton onPress={() => goTo('notice')} /> : undefined}
           footer={<TabBar active="video" onPress={switchTab} />}
           footerPaddingHorizontal={0}
           scroll
-          maxWidth={828}
+          maxWidth={768}
         >
 
           <View style={styles.heroImage}>
+            <Image
+              source={{ uri: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s` }}
+              style={styles.heroImageThumb}
+              resizeMode="cover"
+            />
             <Pressable
               onPress={() => {
                 void upsertWatchHistory(watchHistoryUserKey, {
@@ -2764,88 +2766,36 @@ export default function App() {
                   goTo('videoPlayer')
                 }
               }}
-              style={StyleSheet.absoluteFill}
+              style={styles.heroPlayOverlay}
             >
-              <View style={styles.heroPlaceholder}>
-                <View style={styles.playBadge}>
-                  <Text style={styles.playBadgeText}>▶ 再生</Text>
-                </View>
-              </View>
+              <IconPlayWhite width={44} height={44} />
             </Pressable>
           </View>
 
           <View style={styles.titleBlock}>
-            <Text style={styles.h2}>{workForDetail.subtitle || '—'}</Text>
-          </View>
-
-          <View style={styles.chipsWrap}>
-            {workForDetail.tags.map((t) => (
-              <Chip
-                key={t}
-                label={t}
-                onPress={() => {
-                  setVideoListTag(t)
-                  goTo('videoList')
-                }}
-              />
-            ))}
-          </View>
-
-          <View style={styles.metaRow}>
-            <Text style={styles.metaText}>★ {(workReviewSummary ? workReviewSummary.ratingAvg : workForDetail.rating).toFixed(1)}</Text>
-            <Text style={styles.metaDot}>•</Text>
-            <Text style={styles.metaText}>{workReviewSummary ? workReviewSummary.reviewCount : workForDetail.reviews} reviews</Text>
+            {workForDetail.tags.includes('新着') ? (
+              <View style={styles.badgeNew}>
+                <Text style={styles.badgeNewText}>新着</Text>
+              </View>
+            ) : null}
+            <Text style={styles.h1}>{workForDetail.title}</Text>
+            <View style={styles.metaRow}>
+              <View style={styles.metaItem}>
+                <Text style={styles.metaTextBase}>{workReleaseYear}年</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <IconHeartYellow width={12} height={12} />
+                <Text style={styles.metaTextAccent}>{workLikeCount}</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <IconStarYellow width={12} height={12} />
+                <Text style={styles.metaTextAccent}>{workRatingAvg.toFixed(1)}（{workReviewCount}件）</Text>
+              </View>
+            </View>
           </View>
 
           {workReviewError ? <Text style={styles.loadNote}>評価取得に失敗しました（モック表示）</Text> : null}
 
-          <Section title="ストーリー">
-            <Text style={styles.bodyText}>{workForDetail.story || '—'}</Text>
-          </Section>
-
-          <View style={styles.actionsRow}>
-            <IconButton label="♡" onPress={() => {}} />
-            <View style={styles.spacer} />
-            <IconButton
-              label="☆"
-              onPress={() => {
-                if (!requireLogin('workDetail')) return
-                setWorkReviewTarget({ id: workIdForDetail, title: workForDetail.title, subtitle: workForDetail.subtitle })
-                goTo('workReview')
-              }}
-            />
-            <View style={styles.spacer} />
-            <IconButton
-              label="↗"
-              onPress={async () => {
-                const url = shareUrlForWork(workIdForDetail, playerVideoIdNoSub, workForDetail.title)
-                const title = workForDetail.title
-                const message = `${title}\n${url}`
-
-                if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                  const nav: any = (window as any).navigator
-                  if (nav?.share) {
-                    try {
-                      await nav.share({ title, text: message, url })
-                      return
-                    } catch {
-                      // fallthrough
-                    }
-                  }
-                  window.open(url, '_blank', 'noopener,noreferrer')
-                  return
-                }
-
-                try {
-                  const ShareLib = (await import('react-native-share')).default as any
-                  await ShareLib.open({ title, message, url })
-                } catch {
-                  const { Share } = await import('react-native')
-                  await Share.share({ message, url })
-                }
-              }}
-            />
-          </View>
           <PrimaryButton
             label="本編を再生する"
             onPress={() => {
@@ -2878,104 +2828,279 @@ export default function App() {
             }}
           />
 
-          <Section title="エピソード">
-            {workForDetail.episodes.length === 0 ? (
-              <Text style={styles.emptyText}>空です</Text>
-            ) : (
-              workForDetail.episodes.map((e) => (
-                (() => {
-                  const episodeIds = workForDetail.episodes.map((x) => x.id)
-                  const currentIndex = episodeIds.indexOf(e.id)
-                  const key = `episode:${e.id}`
-                  const requiredCoins = typeof (e as any).priceCoin === 'number' ? (e as any).priceCoin : 0
-                  const purchased = purchasedTargets.has(key)
-                  const isPaid = requiredCoins > 0
-                  const action = isPaid && !purchased ? '購入' : '再生'
+          <View style={styles.actionsRow}>
+            <Pressable
+              style={styles.actionItem}
+              onPress={() => {
+                setCommentJustSubmitted(false)
+                setCommentTarget({
+                  workId: workIdForDetail,
+                  workTitle: workForDetail.title,
+                })
+                goTo('comment')
+              }}
+            >
+              <IconPen width={18} height={18} />
+              <Text style={styles.actionLabel}>コメントする</Text>
+            </Pressable>
+            <Pressable
+              style={styles.actionItem}
+              onPress={() => {
+                if (!requireLogin('workDetail')) return
+                setIsWorkFavorite((prev) => {
+                  const next = !prev
+                  setFavoriteToastText(next ? 'お気に入りに登録しました' : 'お気に入りから削除しました')
+                  setFavoriteToastVisible(true)
+                  if (favoriteToastTimer.current) clearTimeout(favoriteToastTimer.current)
+                  favoriteToastTimer.current = setTimeout(() => {
+                    setFavoriteToastVisible(false)
+                  }, 1600)
+                  return next
+                })
+              }}
+            >
+              <IconFavoriteOff width={18} height={18} />
+              <Text style={styles.actionLabel}>お気に入り</Text>
+            </Pressable>
+            <Pressable
+              style={styles.actionItem}
+              onPress={async () => {
+                const url = shareUrlForWork(workIdForDetail, playerVideoIdNoSub, workForDetail.title)
+                const title = workForDetail.title
+                const message = `${title}\n${url}`
 
-                  return (
-                <RowItem
-                  key={e.id}
-                  title={`${e.id} ${e.title}`}
-                  actionLabel={action}
-                  onAction={() => {
-                    if (isPaid && !purchased) {
-                      confirmEpisodePurchase({
-                        episodeId: e.id,
-                        title: `${workForDetail.title} ${e.title}`,
-                        requiredCoins,
-                      })
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                  const nav: any = (window as any).navigator
+                  if (nav?.share) {
+                    try {
+                      await nav.share({ title, text: message, url })
                       return
+                    } catch {
+                      // fallthrough
                     }
-                    void upsertWatchHistory(watchHistoryUserKey, {
-                      id: `content:${workIdForDetail}:episode:${e.id}`,
-                      contentId: workIdForDetail,
-                      title: `${workForDetail.title} ${e.title}`,
-                      kind: 'エピソード',
-                      durationSeconds: 10 * 60,
-                      thumbnailUrl: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s`,
-                      lastPlayedAt: Date.now(),
-                    })
-                    setPlayerVideoIdNoSub(streamSampleVideoId)
-                    setPlayerVideoIdWithSub(streamSampleVideoId)
-                    if (currentIndex >= 0) {
-                      setPlayerEpisodeContext({
-                        workId: workIdForDetail,
-                        episodeIds,
-                        currentIndex,
-                      })
-                    } else {
-                      setPlayerEpisodeContext(null)
-                    }
-                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                      window.location.hash = videoPlayerToWebHash({ workId: workIdForDetail, episodeId: e.id })
-                    } else {
-                      goTo('videoPlayer')
-                    }
-                  }}
-                />
-                  )
-                })()
-              ))
-            )}
-          </Section>
+                  }
+                  window.open(url, '_blank', 'noopener,noreferrer')
+                  return
+                }
 
-          <Section title="出演者・スタッフ">
-            {workForDetail.staff.length === 0 ? (
-              <Text style={styles.emptyText}>空です</Text>
-            ) : (
-              workForDetail.staff.map((s, idx) => (
-                <RowItem
-                  key={`${s.role}-${idx}`}
-                  title={`${s.role}：${s.name}`}
-                  actionLabel="詳しく"
-                  secondaryActionLabel="推しポイント付与"
-                  secondaryActionDisabled={!resolveCastAccountIdByName(s.name)}
-                  onSecondaryAction={() => {
-                    const accountId = resolveCastAccountIdByName(s.name)
-                    if (!accountId) return
-                    if (!requireLogin('coinGrant')) return
-                    setCoinGrantTarget({ id: accountId, name: s.name, roleLabel: s.role })
-                    setCoinGrantPrimaryReturnTo('workDetail')
-                    setCoinGrantPrimaryLabel('作品詳細へ戻る')
-                    goTo('coinGrant')
-                  }}
-                  onAction={() => {
-                    if (!requireLogin('profile')) return
-                    setSelectedCast({
-                      id: `cast:${s.name}`,
-                      name: s.name,
-                      roleLabel: s.role,
-                    })
-                    goTo('profile')
-                  }}
-                />
-              ))
-            )}
-          </Section>
+                try {
+                  const ShareLib = (await import('react-native-share')).default as any
+                  await ShareLib.open({ title, message, url })
+                } catch {
+                  const { Share } = await import('react-native')
+                  await Share.share({ message, url })
+                }
+              }}
+            >
+              <IconShare width={18} height={18} />
+              <Text style={styles.actionLabel}>共有する</Text>
+            </Pressable>
+          </View>
 
-          <Section
-            title={`コメント（${(commentsError ? mockApprovedComments : approvedComments).length}件）`}
-          >
+          <Text style={styles.bodyText}>{workForDetail.story || '—'}</Text>
+
+          <View style={styles.tagList}>
+            {workForDetail.tags.map((t) => (
+              <Pressable
+                key={t}
+                style={styles.tagChip}
+                onPress={() => {
+                  setVideoListTag(t)
+                  goTo('videoList')
+                }}
+              >
+                <Text style={styles.tagChipText}>{t}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.workTabsWrap}>
+            <View style={styles.workTabsRow}>
+              <Pressable style={styles.workTabItem} onPress={() => setWorkDetailTab('episodes')}>
+                <Text style={[styles.workTabText, workDetailTab === 'episodes' ? styles.workTabTextActive : null]}>エピソード</Text>
+                {workDetailTab === 'episodes' ? <View style={styles.workTabUnderline} /> : null}
+              </Pressable>
+              <Pressable style={styles.workTabItem} onPress={() => setWorkDetailTab('info')}>
+                <Text style={[styles.workTabText, workDetailTab === 'info' ? styles.workTabTextActive : null]}>作品情報</Text>
+                {workDetailTab === 'info' ? <View style={styles.workTabUnderline} /> : null}
+              </Pressable>
+            </View>
+            <View style={styles.workTabsBaseline} />
+          </View>
+
+          {workDetailTab === 'episodes' ? (
+            <View style={styles.tabContent}>
+              {workForDetail.episodes.length === 0 ? (
+                <Text style={styles.emptyText}>空です</Text>
+              ) : (
+                workForDetail.episodes.map((e) => (
+                  (() => {
+                    const episodeIds = workForDetail.episodes.map((x) => x.id)
+                    const currentIndex = episodeIds.indexOf(e.id)
+                    const durationText = `${String(2 + (currentIndex % 3)).padStart(2, '0')}:${String(21 + (currentIndex % 4)).padStart(2, '0')}`
+                    const key = `episode:${e.id}`
+                    const requiredCoins = typeof (e as any).priceCoin === 'number' ? (e as any).priceCoin : 0
+                    const purchased = purchasedTargets.has(key)
+                    const isPaid = requiredCoins > 0
+                    const action = isPaid && !purchased ? '購入' : '再生'
+
+                    return (
+                      <Pressable
+                        key={e.id}
+                        style={styles.episodeRow}
+                        onPress={() => {
+                          if (isPaid && !purchased) {
+                            confirmEpisodePurchase({
+                              episodeId: e.id,
+                              title: `${workForDetail.title} ${e.title}`,
+                              requiredCoins,
+                            })
+                            return
+                          }
+                          void upsertWatchHistory(watchHistoryUserKey, {
+                            id: `content:${workIdForDetail}:episode:${e.id}`,
+                            contentId: workIdForDetail,
+                            title: `${workForDetail.title} ${e.title}`,
+                            kind: 'エピソード',
+                            durationSeconds: 10 * 60,
+                            thumbnailUrl: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s`,
+                            lastPlayedAt: Date.now(),
+                          })
+                          setPlayerVideoIdNoSub(streamSampleVideoId)
+                          setPlayerVideoIdWithSub(streamSampleVideoId)
+                          if (currentIndex >= 0) {
+                            setPlayerEpisodeContext({
+                              workId: workIdForDetail,
+                              episodeIds,
+                              currentIndex,
+                            })
+                          } else {
+                            setPlayerEpisodeContext(null)
+                          }
+                          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                            window.location.hash = videoPlayerToWebHash({ workId: workIdForDetail, episodeId: e.id })
+                          } else {
+                            goTo('videoPlayer')
+                          }
+                        }}
+                      >
+                        <Image
+                          source={{ uri: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s` }}
+                          style={styles.episodeThumb}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.episodeMeta}>
+                          <Text style={styles.episodeTitle} numberOfLines={1}>
+                            #{e.id} {e.title}
+                          </Text>
+                          <Text style={styles.episodeDuration}>{durationText}</Text>
+                        </View>
+                      </Pressable>
+                    )
+                  })()
+                ))
+              )}
+
+              <Text style={styles.subSectionTitle}>おすすめドラマ一覧</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recoList}>
+                {recommendedWorks.map((w) => (
+                  <Pressable key={`reco-${w.id}`} style={styles.recoCard} onPress={() => openWorkDetail(w.id)}>
+                    <Image
+                      source={{ uri: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s` }}
+                      style={styles.recoThumb}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : (
+            <View style={styles.tabContent}>
+              <Text style={styles.subSectionTitle}>出演者</Text>
+              {workForDetail.staff.filter((s) => s.role === '出演者').map((s, idx) => (
+                <View key={`${s.role}-${idx}`} style={styles.castRow}
+                >
+                  <View style={styles.castAvatar} />
+                  <View style={styles.castInfo}>
+                    <Text style={styles.castRole}>{s.role}</Text>
+                    <Text style={styles.castName}>{s.name}</Text>
+                  </View>
+                  <View style={styles.castActions}>
+                    <Pressable
+                      style={styles.castBtn}
+                      onPress={() => {
+                        const accountId = resolveCastAccountIdByName(s.name)
+                        if (!accountId) return
+                        if (!requireLogin('coinGrant')) return
+                        setCoinGrantTarget({ id: accountId, name: s.name, roleLabel: s.role })
+                        setCoinGrantPrimaryReturnTo('workDetail')
+                        setCoinGrantPrimaryLabel('作品詳細へ戻る')
+                        goTo('coinGrant')
+                      }}
+                    >
+                      <Text style={styles.castBtnText}>推しポイント付与</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.castBtn}
+                      onPress={() => {
+                        if (!requireLogin('profile')) return
+                        setSelectedCast({
+                          id: `cast:${s.name}`,
+                          name: s.name,
+                          roleLabel: s.role,
+                        })
+                        goTo('profile')
+                      }}
+                    >
+                      <Text style={styles.castBtnText}>詳しく</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+
+              <Text style={styles.subSectionTitle}>スタッフ</Text>
+              {workForDetail.staff
+                .filter((s) => s.role !== '出演者' && !s.role.includes('制作プロダクション') && !s.role.includes('提供'))
+                .map((s, idx) => (
+                  <View key={`${s.role}-${idx}`} style={styles.castRow}
+                  >
+                    <View style={styles.castAvatar} />
+                    <View style={styles.castInfo}>
+                      <Text style={styles.castRole}>{s.role}</Text>
+                      <Text style={styles.castName}>{s.name}</Text>
+                    </View>
+                    <View style={styles.castActions}>
+                      <Pressable style={styles.castBtn}>
+                        <Text style={styles.castBtnText}>推しポイント付与</Text>
+                      </Pressable>
+                      <Pressable style={styles.castBtn}>
+                        <Text style={styles.castBtnText}>詳しく</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>制作プロダクション</Text>
+                <Text style={styles.infoValue}>{productionLabel}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>提供元</Text>
+                <Text style={styles.infoValue}>{providerLabel}</Text>
+              </View>
+
+              <PrimaryButton
+                label="出演者・スタッフを探す"
+                onPress={() => {
+                  if (!requireLogin('cast')) return
+                  goTo('cast')
+                }}
+              />
+            </View>
+          )}
+
+          <View style={styles.commentsSection}>
+            <Text style={styles.sectionTitle}>コメント（{(commentsError ? mockApprovedComments : approvedComments).length}件）</Text>
             <View style={styles.commentsBox}>
               {commentsBusy ? (
                 <View style={styles.loadingRow}>
@@ -2987,7 +3112,7 @@ export default function App() {
 
               {(commentsExpanded
                 ? (commentsError ? mockApprovedComments : approvedComments)
-                : (commentsError ? mockApprovedComments : approvedComments).slice(0, 10)
+                : (commentsError ? mockApprovedComments : approvedComments).slice(0, 5)
               ).map((c) => (
                 <View key={c.id} style={styles.commentItem}>
                   <Text style={styles.commentAuthor} numberOfLines={1} ellipsizeMode="tail">
@@ -2997,26 +3122,57 @@ export default function App() {
                 </View>
               ))}
 
-              {!commentsExpanded && (commentsError ? mockApprovedComments : approvedComments).length > 10 ? (
-                <Pressable onPress={() => setCommentsExpanded(true)}>
-                  <Text style={styles.moreLink}>もっと見る</Text>
+              {!commentsExpanded && (commentsError ? mockApprovedComments : approvedComments).length > 5 ? (
+                <Pressable style={styles.moreRow} onPress={() => setCommentsExpanded(true)}>
+                  <Text style={styles.moreLink}>さらに表示</Text>
+                  <IconDown width={14} height={14} />
                 </Pressable>
               ) : null}
             </View>
 
+            <Text style={styles.subSectionTitle}>コメント投稿</Text>
             <View style={styles.commentCtaWrap}>
-              <View style={styles.fakeInput}>
-                <Text style={styles.fakeInputText}>コメントを書く</Text>
+              <View style={styles.commentRatingRow}>
+                {Array.from({ length: 5 }).map((_, idx) => {
+                  const active = idx < commentRating
+                  return (
+                    <Pressable key={`rating-${idx}`} onPress={() => setCommentRating(idx + 1)}>
+                      {active ? <IconStarYellow width={18} height={18} /> : <IconStarEmpty width={18} height={18} />}
+                    </Pressable>
+                  )
+                })}
               </View>
+              <TextInput
+                value={commentDraft}
+                onChangeText={setCommentDraft}
+                placeholder="コメントを書く"
+                placeholderTextColor={THEME.textMuted}
+                style={styles.commentInput}
+                multiline
+              />
               <PrimaryButton
-                label="コメントを書く"
-                onPress={() => {
+                label="コメントを投稿する"
+                onPress={async () => {
+                  const trimmed = commentDraft.trim()
+                  if (!trimmed) return
                   setCommentJustSubmitted(false)
-                  setCommentTarget({
-                    workId: workIdForDetail,
-                    workTitle: workForDetail.title,
-                  })
-                  goTo('comment')
+                  try {
+                    const safeAuthor = (userProfile.displayName || '').trim().slice(0, 50) || '匿名'
+                    const res = await apiFetch(`${apiBaseUrl}/v1/comments`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ contentId: workIdForDetail, episodeId: '', author: safeAuthor, body: trimmed, rating: commentRating }),
+                    })
+                    if (!res.ok) {
+                      const msg = await res.text().catch(() => '')
+                      throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+                    }
+                    setCommentDraft('')
+                    setCommentRating(0)
+                    setCommentJustSubmitted(true)
+                  } catch {
+                    setCommentJustSubmitted(true)
+                  }
                 }}
               />
             </View>
@@ -3026,7 +3182,15 @@ export default function App() {
                 ※ コメントは管理者の確認後に公開されます。{`\n`}反映までお時間がかかる場合があります。
               </Text>
             ) : null}
-          </Section>
+          </View>
+
+          {favoriteToastVisible ? (
+            <View style={styles.favoriteToastWrap} pointerEvents="none">
+              <View style={styles.favoriteToast}>
+                <Text style={styles.favoriteToastText}>{favoriteToastText}</Text>
+              </View>
+            </View>
+          ) : null}
         </ScreenContainer>
       ) : null}
 
@@ -3243,6 +3407,14 @@ export default function App() {
           videoIdNoSub={playerVideoIdNoSub}
           videoIdWithSub={playerVideoIdWithSub}
           onBack={goBack}
+          currentEpisodeTitle={(() => {
+            if (!playerEpisodeContext) return null
+            if (playerEpisodeContext.workId !== workIdForDetail) return null
+            const currentIndex = playerEpisodeContext.currentIndex
+            if (currentIndex < 0 || currentIndex >= workForDetail.episodes.length) return null
+            const ep = workForDetail.episodes[currentIndex]
+            return ep ? `${ep.id} ${ep.title}` : null
+          })()}
           nextEpisodeTitle={(() => {
             if (!playerEpisodeContext) return null
             if (playerEpisodeContext.workId !== workIdForDetail) return null
@@ -3353,65 +3525,7 @@ export default function App() {
         }}
       />
 
-      <View pointerEvents="box-none" style={styles.devOverlayWrap}>
-        {debugOverlayHidden ? null : (
-          <Animated.View
-            style={[
-              styles.devOverlayCard,
-              {
-                transform: debugOverlayPan.getTranslateTransform(),
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.devOverlayHeader,
-                Platform.OS === 'web'
-                  ? (({
-                      cursor: debugOverlayWebDragRef.current.active ? 'grabbing' : 'grab',
-                      userSelect: 'none',
-                      touchAction: 'none',
-                    } as unknown) as any)
-                  : null,
-              ]}
-              {...(Platform.OS === 'web' && debugOverlayWebDragHandlers
-                ? debugOverlayWebDragHandlers
-                : debugOverlayPanResponder.panHandlers)}
-            >
-              <Text style={styles.devOverlayHeaderText}>DEBUG</Text>
-              <View style={styles.devOverlayHeaderRight}>
-                <Text style={styles.devOverlayHeaderHint}>ドラッグ可</Text>
-                <Pressable onPress={() => setDebugOverlayHidden(true)} style={styles.devOverlayClose}>
-                  <Text style={styles.devOverlayCloseText}>×</Text>
-                </Pressable>
-              </View>
-            </View>
-
-            <View style={styles.devOverlayRow}>
-              <Text style={styles.devOverlayLabel}>認証バイパス</Text>
-              <Switch value={debugAuthBypass} onValueChange={setDebugAuthBypass} />
-            </View>
-            <View style={styles.devOverlayRow}>
-              <Text style={styles.devOverlayLabel}>コード自動入力</Text>
-              <Switch value={debugAuthAutofill} onValueChange={setDebugAuthAutofill} />
-            </View>
-            <View style={styles.devOverlayRow}>
-              <Text style={styles.devOverlayLabel}>ログイン状態</Text>
-              <Switch value={loggedIn} onValueChange={(v) => void setLoggedInState(v)} />
-            </View>
-
-            <View style={styles.devOverlayRow}>
-              <Text style={styles.devOverlayLabel}>キャストユーザ</Text>
-              <Switch value={debugUserType === 'cast'} onValueChange={toggleDebugUserType} />
-            </View>
-
-            <View style={styles.devOverlayRow}>
-              <Text style={styles.devOverlayLabel}>Mock データ</Text>
-              <Switch value={debugMock} onValueChange={() => setDebugMock((v) => !v)} />
-            </View>
-          </Animated.View>
-        )}
-      </View>
+      {null}
 
       <StatusBar style="auto" />
     </SafeAreaView>
@@ -3535,7 +3649,7 @@ const styles = StyleSheet.create({
   authContent: {
     alignSelf: 'center',
     width: '100%',
-    maxWidth: 828,
+    maxWidth: 768,
     flex: 1,
     justifyContent: 'space-between',
   },
@@ -3728,43 +3842,66 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
   },
+  logo: {
+    width: 110,
+    height: 36,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerIconButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   heroImage: {
     width: '100%',
     aspectRatio: 16 / 9,
-    marginBottom: 16,
+    marginBottom: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: THEME.card,
   },
   heroPlaceholder: {
     flex: 1,
     backgroundColor: THEME.placeholder,
+  },
+  heroImageThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  heroPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  playBadge: {
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-  },
-  playBadgeText: {
-    color: THEME.text,
-    fontSize: 12,
-    fontWeight: '800',
-  },
   titleBlock: {
-    marginBottom: 8,
+    marginBottom: 12,
+    gap: 6,
   },
   h1: {
-    color: THEME.text,
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 4,
+    color: '#E6E6E6',
+    fontSize: 18,
+    fontWeight: '800',
   },
   h2: {
     color: THEME.textMuted,
     fontSize: 12,
-    marginBottom: 8,
+  },
+  badgeNew: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#FF3B30',
+  },
+  badgeNewText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
   },
   chipsWrap: {
     flexDirection: 'row',
@@ -3775,10 +3912,21 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    gap: 10,
+    flexWrap: 'wrap',
+    marginTop: 2,
   },
-  metaText: {
-    color: THEME.textMuted,
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metaTextBase: {
+    color: '#E6E6E6',
+    fontSize: 12,
+  },
+  metaTextAccent: {
+    color: '#E4A227',
     fontSize: 12,
   },
   metaDot: {
@@ -3789,11 +3937,210 @@ const styles = StyleSheet.create({
     color: THEME.textMuted,
     fontSize: 12,
     lineHeight: 18,
+    marginTop: 8,
+  },
+  tagList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 20,
+  },
+  tagChip: {
+    borderWidth: 1,
+    borderColor: '#E6E6E6',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'transparent',
+  },
+  tagChipText: {
+    color: '#E6E6E6',
+    fontSize: 11,
+  },
+  workTabsWrap: {
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  workTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 4,
+  },
+  workTabItem: {
+    width: '44%',
+    margin: "auto",
+  },
+  workTabText: {
+    color: THEME.textMuted,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  workTabTextActive: {
+    color: THEME.accent,
+  },
+  workTabUnderline: {
+    marginTop: 0,
+    height: 1,
+    borderRadius: 999,
+    backgroundColor: THEME.accent,
+  },
+  workTabsBaseline: {
+    height: 1,
+    backgroundColor: THEME.outline,
+  },
+  tabContent: {
+    gap: 8,
+    marginBottom: 18,
+  },
+  episodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.divider,
+  },
+  episodeThumb: {
+    width: 92,
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: THEME.placeholder,
+  },
+  episodeMeta: {
+    flex: 1,
+    gap: 4,
+  },
+  episodeTitle: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  episodeDuration: {
+    color: THEME.textMuted,
+    fontSize: 11,
+  },
+  episodeBadge: {
+    color: '#E4A227',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  recoList: {
+    gap: 12,
+    paddingVertical: 4,
+  },
+  recoCard: {
+    width: 140,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: THEME.card,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+  },
+  recoThumb: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+  },
+  recoTitle: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    color: '#E6E6E6',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  subSectionTitle: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.divider,
+  },
+  infoLabel: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  infoValue: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  castRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.divider,
+  },
+  castAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: THEME.placeholder,
+  },
+  castInfo: {
+    flex: 1,
+  },
+  castRole: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  castName: {
+    color: '#E6E6E6',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  castActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  castBtn: {
+    borderWidth: 1,
+    borderColor: '#E4A227',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  castBtnText: {
+    color: '#E4A227',
+    fontSize: 10,
+    fontWeight: '800',
   },
   actionsRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginTop: 14,
+    marginBottom: 20,
+  },
+  actionItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+  },
+  actionLabel: {
+    color: '#E6E6E6',
+    fontSize: 10,
+    fontWeight: '700',
   },
   emptyText: {
     color: THEME.textMuted,
@@ -3806,7 +4153,7 @@ const styles = StyleSheet.create({
     borderColor: THEME.outline,
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   loadingRow: {
     paddingHorizontal: 12,
@@ -3839,15 +4186,46 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   moreLink: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
     color: THEME.accent,
     fontSize: 12,
     fontWeight: '800',
-    textAlign: 'right',
+  },
+  moreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   commentCtaWrap: {
-    gap: 10,
+    gap: 14,
+  },
+  commentRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    justifyContent: 'center',
+  },
+  commentInput: {
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#E6E6E6',
+    fontSize: 12,
+    minHeight: 44,
+  },
+  commentRatingText: {
+    marginLeft: 4,
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  commentsSection: {
+    marginTop: 14,
   },
   fakeInput: {
     borderWidth: 1,
@@ -3874,6 +4252,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     fontWeight: '700',
+  },
+  favoriteToastWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 72,
+    alignItems: 'center',
+  },
+  favoriteToast: {
+    width: '100%',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  favoriteToastText: {
+    color: '#1F1D1A',
+    fontSize: 12,
+    fontWeight: '800',
   },
 })
 

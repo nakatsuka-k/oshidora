@@ -51,7 +51,7 @@ export function WithdrawalRequestScreen({ apiBaseUrl, authToken, initialEmail, o
   }, [apiBaseUrl, authToken, email, reason])
 
   return (
-    <ScreenContainer title="退会申請" onBack={onBack} maxWidth={828}>
+    <ScreenContainer title="退会申請" onBack={onBack} maxWidth={768}>
       <View style={styles.root}>
         {done ? (
           <View style={styles.card}>

@@ -80,7 +80,7 @@ export function CoinExchangePayPayScreen({
 
   if (!paypayLinked) {
     return (
-      <ScreenContainer title="コイン換金" onBack={onBack} maxWidth={828}>
+      <ScreenContainer title="コイン換金" onBack={onBack} maxWidth={768}>
         <View style={styles.root}>
           <View style={styles.card}>
             <Text style={styles.title}>PayPay連携が必要です</Text>
@@ -96,7 +96,7 @@ export function CoinExchangePayPayScreen({
   }
 
   return (
-    <ScreenContainer title="コイン換金" onBack={onBack} maxWidth={828}>
+    <ScreenContainer title="コイン換金" onBack={onBack} maxWidth={768}>
       <View style={styles.root}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>コイン状況</Text>

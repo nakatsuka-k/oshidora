@@ -69,7 +69,7 @@ export function CoinExchangeDestScreen({
   }, [busy, onUnlinkPaypay])
 
   return (
-    <ScreenContainer title="コイン換金" onBack={onBack} maxWidth={828}>
+    <ScreenContainer title="コイン換金" onBack={onBack} maxWidth={768}>
       <View style={styles.root}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>コイン状況</Text>

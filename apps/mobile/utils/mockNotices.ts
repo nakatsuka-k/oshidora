@@ -4,6 +4,7 @@ export type MockNotice = {
   publishedAt: string
   excerpt: string
   bodyHtml: string
+  tags?: string[]
 }
 
 const MOCK_NOTICES: MockNotice[] = [
@@ -12,6 +13,7 @@ const MOCK_NOTICES: MockNotice[] = [
     title: '【重要】サービス開始のお知らせ',
     publishedAt: '2026-01-13',
     excerpt: '推しドラの提供を開始しました。利用規約・プライバシーポリシーをご確認ください。',
+    tags: ['お知らせ'],
     bodyHtml: [
       '<p><strong>推しドラ</strong>をご利用いただきありがとうございます。</p>',
       '<p>本日よりサービス提供を開始しました。今後、機能追加や不具合修正を順次行っていきます。</p>',
@@ -28,6 +30,7 @@ const MOCK_NOTICES: MockNotice[] = [
     title: 'メンテナンス予定（サンプル）',
     publishedAt: '2026-01-20',
     excerpt: 'メンテナンスのため、一時的にアクセスできない時間帯が発生します。',
+    tags: ['メンテナンス'],
     bodyHtml: [
       '<p>下記の時間帯でシステムメンテナンスを実施します。</p>',
       '<p><strong>2026-01-20 02:00〜03:00（予定）</strong></p>',
@@ -42,14 +45,15 @@ export function getMockNoticeListItems(): Array<{
   title: string
   publishedAt: string
   excerpt: string
+  tags?: string[]
 }> {
-  return MOCK_NOTICES.map(({ id, title, publishedAt, excerpt }) => ({ id, title, publishedAt, excerpt }))
+  return MOCK_NOTICES.map(({ id, title, publishedAt, excerpt, tags }) => ({ id, title, publishedAt, excerpt, tags }))
 }
 
 export function getMockNoticeDetail(
   id: string
-): { id: string; title: string; publishedAt: string; bodyHtml: string } | null {
+): { id: string; title: string; publishedAt: string; bodyHtml: string; tags?: string[] } | null {
   const found = MOCK_NOTICES.find((n) => n.id === id)
   if (!found) return null
-  return { id: found.id, title: found.title, publishedAt: found.publishedAt, bodyHtml: found.bodyHtml }
+  return { id: found.id, title: found.title, publishedAt: found.publishedAt, bodyHtml: found.bodyHtml, tags: found.tags }
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import Svg, { Path } from 'react-native-svg'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { THEME } from './theme'
 
@@ -8,13 +9,14 @@ type ScreenContainerProps = {
   scroll?: boolean
   footer?: ReactNode
   headerRight?: ReactNode
+  headerLeft?: ReactNode
   maxWidth?: number
   padding?: number
   footerPaddingHorizontal?: number
   children: ReactNode
 }
 
-const DEFAULT_MAX_WIDTH = 828
+const DEFAULT_MAX_WIDTH = 768
 
 export function ScreenContainer({
   title,
@@ -22,6 +24,7 @@ export function ScreenContainer({
   scroll,
   footer,
   headerRight,
+  headerLeft,
   maxWidth,
   padding = 16,
   footerPaddingHorizontal,
@@ -52,14 +55,24 @@ export function ScreenContainer({
     } as const
   }
 
-  const showHeader = Boolean(onBack || title || headerRight)
+  const showHeader = Boolean(onBack || title || headerRight || headerLeft)
   const header = showHeader ? (
     <View style={headerOuterStyle({ bottom: 0 })}>
       <View style={[styles.contentInner, { maxWidth: resolvedMaxWidth }]}>
         <View style={styles.headerRow}>
-          {onBack ? (
+          {headerLeft ? (
+            <View style={styles.headerLeft}>{headerLeft}</View>
+          ) : onBack ? (
             <Pressable onPress={onBack} style={styles.headerBack} accessibilityRole="button">
-              <Text style={styles.headerBackText}>‹</Text>
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path
+                  d="M15.5 5.5 8.5 12l7 6.5"
+                  stroke={THEME.text}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
             </Pressable>
           ) : (
             <View style={styles.headerBackSpacer} />
@@ -170,19 +183,18 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: THEME.outline,
+    borderWidth: 0,
     borderRadius: 20,
-    backgroundColor: THEME.card,
-  },
-  headerBackText: {
-    color: THEME.text,
-    fontSize: 20,
-    lineHeight: 20,
+    backgroundColor: 'transparent',
   },
   headerBackSpacer: {
     width: 40,
     height: 40,
+  },
+  headerLeft: {
+    minWidth: 40,
+    height: 40,
+    justifyContent: 'center',
   },
   headerTitleWrap: {
     flex: 1,

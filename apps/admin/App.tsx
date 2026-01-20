@@ -4578,6 +4578,7 @@ function NoticesListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string)
 function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; onBack: () => void }) {
   const cfg = useCmsApi()
   const { confirm } = useDialog()
+  const noticeTagTemplates = useMemo(() => ['お知らせ', 'メンテナンス'], [])
   const [sentAt, setSentAt] = useState('2026-01-12 03:00')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
@@ -4594,6 +4595,15 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
 
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
+
+  const appliedTags = useMemo(() => csvToIdList(tagsCsv), [tagsCsv])
+  const addTemplateTag = useCallback(
+    (tag: string) => {
+      const next = Array.from(new Set([...appliedTags, tag]))
+      setTagsCsv(next.join(','))
+    },
+    [appliedTags]
+  )
 
   useEffect(() => {
     if (!id) {
@@ -4786,8 +4796,19 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>タグ（CSV）</Text>
-          <TextInput value={tagsCsv} onChangeText={setTagsCsv} placeholder="例: TAG001,TAG002" style={styles.input} />
+          <Text style={styles.label}>カテゴリ（タグ）</Text>
+          <View style={styles.tagTemplateRow}>
+            {noticeTagTemplates.map((tag) => (
+              <Pressable
+                key={tag}
+                onPress={() => addTemplateTag(tag)}
+                style={[styles.tagTemplateButton, appliedTags.includes(tag) ? styles.tagTemplateButtonActive : null]}
+              >
+                <Text style={[styles.tagTemplateText, appliedTags.includes(tag) ? styles.tagTemplateTextActive : null]}>{tag}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <TextInput value={tagsCsv} onChangeText={setTagsCsv} placeholder="例: お知らせ,メンテナンス" style={styles.input} />
         </View>
 
         <View style={styles.devRow}>
@@ -7422,7 +7443,6 @@ function SettingsScreen() {
 }
 
 function DevPage({
-  token,
   devMode,
   apiBase,
   uploaderBase,
@@ -7431,11 +7451,9 @@ function DevPage({
   onSetApiBase,
   onSetUploaderBase,
   onSetAdminEmail,
-  onSetLoggedInState,
   onNavigate,
   onOpenDevModal,
 }: {
-  token: string
   devMode: boolean
   apiBase: string
   uploaderBase: string
@@ -7444,11 +7462,9 @@ function DevPage({
   onSetApiBase: (v: string) => void
   onSetUploaderBase: (v: string) => void
   onSetAdminEmail: (v: string) => void
-  onSetLoggedInState: (next: boolean, persist: boolean) => void
   onNavigate: (id: RouteId) => void
   onOpenDevModal: () => void
 }) {
-  const [persist, setPersist] = useState(true)
   const [apiInput, setApiInput] = useState(apiBase)
   const [uploaderInput, setUploaderInput] = useState(uploaderBase)
   const [emailInput, setEmailInput] = useState(adminEmail)
@@ -7478,21 +7494,6 @@ function DevPage({
         <View style={styles.devRow}>
           <Text style={styles.devLabel}>DEV UI を有効化</Text>
           <Switch value={devMode} onValueChange={onSetDevMode} />
-        </View>
-
-        <View style={styles.devRow}>
-          <Text style={styles.devLabel}>ログイン状態</Text>
-          <Switch
-            value={Boolean(token)}
-            onValueChange={(v) => {
-              onSetLoggedInState(v, persist)
-            }}
-          />
-        </View>
-
-        <View style={styles.devRow}>
-          <Text style={styles.devLabel}>ログイン保持</Text>
-          <Switch value={persist} onValueChange={setPersist} />
         </View>
 
         <View style={styles.filtersGrid}>
@@ -7544,7 +7545,6 @@ function DevPage({
 
 function DevModal({
   visible,
-  token,
   apiBase,
   uploaderBase,
   adminEmail,
@@ -7555,11 +7555,8 @@ function DevModal({
   onSetUploaderBase,
   onSetMock,
   onNavigate,
-  onSkipLogin,
-  onSetLoggedInState,
 }: {
   visible: boolean
-  token: string
   apiBase: string
   uploaderBase: string
   adminEmail: string
@@ -7570,10 +7567,7 @@ function DevModal({
   onSetUploaderBase: (v: string) => void
   onSetMock: (v: boolean) => void
   onNavigate: (id: RouteId) => void
-  onSkipLogin: (persist: boolean) => void
-  onSetLoggedInState: (next: boolean, persist: boolean) => void
 }) {
-  const [persist, setPersist] = useState(true)
   const [apiInput, setApiInput] = useState(apiBase)
   const [uploaderInput, setUploaderInput] = useState(uploaderBase)
   const [emailInput, setEmailInput] = useState(adminEmail)
@@ -7629,21 +7623,6 @@ function DevModal({
 
         <View style={styles.devModalBody}>
           <View style={styles.devRow}>
-            <Text style={styles.devLabel}>ログイン状態</Text>
-            <Switch
-              value={Boolean(token)}
-              onValueChange={(v) => {
-                onSetLoggedInState(v, persist)
-              }}
-            />
-          </View>
-
-          <View style={styles.devRow}>
-            <Text style={styles.devLabel}>ログイン保持</Text>
-            <Switch value={persist} onValueChange={setPersist} />
-          </View>
-
-          <View style={styles.devRow}>
             <Text style={styles.devLabel}>MOCK</Text>
             <Switch value={mock} onValueChange={onSetMock} />
           </View>
@@ -7678,11 +7657,6 @@ function DevModal({
             </Pressable>
           </View>
 
-          {!token ? (
-            <Pressable onPress={() => onSkipLogin(persist)} style={styles.btnSecondary}>
-              <Text style={styles.btnSecondaryText}>ログインスキップ（DEBUG）</Text>
-            </Pressable>
-          ) : null}
         </View>
       </Animated.View>
     </View>
@@ -8249,10 +8223,6 @@ function LoginScreen({
   mock,
   onLoggedIn,
   initialBanner,
-  showDebugTools,
-  isLoggedIn,
-  onDebugToggleLogin,
-  onDebugSkipLogin,
   onForgotPassword,
   onOpenDevModal,
 }: {
@@ -8260,10 +8230,6 @@ function LoginScreen({
   mock: boolean
   onLoggedIn: (token: string, remember: boolean) => void
   initialBanner: string
-  showDebugTools: boolean
-  isLoggedIn: boolean
-  onDebugToggleLogin: (next: boolean, persist: boolean) => void
-  onDebugSkipLogin: (persist: boolean) => void
   onForgotPassword: () => void
   onOpenDevModal: () => void
 }) {
@@ -8402,18 +8368,6 @@ function LoginScreen({
               <Text style={styles.btnPrimaryText}>{busy ? 'ログイン中…' : 'ログイン'}</Text>
             </Pressable>
 
-            {showDebugTools ? (
-              <View style={styles.debugBox}>
-                <View style={styles.devRow}>
-                  <Text style={styles.devLabel}>ログイン状態</Text>
-                  <Switch value={isLoggedIn} onValueChange={(v) => onDebugToggleLogin(v, remember)} />
-                </View>
-
-                <Pressable onPress={() => onDebugSkipLogin(remember)} style={styles.btnSecondary}>
-                  <Text style={styles.btnSecondaryText}>ログインスキップ（DEBUG）</Text>
-                </Pressable>
-              </View>
-            ) : null}
           </View>
         </View>
       </View>
@@ -8518,15 +8472,6 @@ export default function App() {
     setHashRoute('dashboard')
   }, [])
 
-  const onSkipLogin = useCallback(
-    (persist: boolean) => {
-      const savedEmail = safeLocalStorageGet(STORAGE_EMAIL_KEY)
-      if (!savedEmail) safeLocalStorageSet(STORAGE_EMAIL_KEY, 'admin@example.com')
-      onLoggedIn(`dev-token-${Math.random().toString(36).slice(2)}`, persist)
-    },
-    [onLoggedIn]
-  )
-
   const onLogout = useCallback(() => {
     setToken('')
     setAdminEmail('')
@@ -8552,18 +8497,6 @@ export default function App() {
     window.addEventListener(UNAUTHORIZED_EVENT, handler as any)
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, handler as any)
   }, [onSessionExpired])
-
-  const onSetLoggedInState = useCallback(
-    (next: boolean, persist: boolean) => {
-      if (next) {
-        setLoginBanner('')
-        onSkipLogin(persist)
-        return
-      }
-      onLogout()
-    },
-    [onLogout, onSkipLogin]
-  )
 
   const onNavigate = useCallback((next: RouteId) => {
     const allowUnauthed = next === 'login' || next === 'dev' || next === 'password-reset'
@@ -8624,13 +8557,6 @@ export default function App() {
     setToken('')
     safeLocalStorageRemove(STORAGE_KEY)
   }, [])
-
-  const onDebugToggleLogin = useCallback(
-    (next: boolean, persist: boolean) => {
-      onSetLoggedInState(next, persist)
-    },
-    [onSetLoggedInState]
-  )
 
   const debugOverlayInitialPos = useMemo(() => {
     const raw = safeLocalStorageGet(STORAGE_DEBUG_OVERLAY_POS_KEY)
@@ -8742,10 +8668,6 @@ export default function App() {
             mock={mockMode}
             onLoggedIn={onLoggedIn}
             initialBanner={loginBanner}
-            showDebugTools={showDevButton}
-            isLoggedIn={Boolean(token)}
-            onDebugToggleLogin={onDebugToggleLogin}
-            onDebugSkipLogin={onSkipLogin}
             onForgotPassword={() => onNavigate('password-reset')}
             onOpenDevModal={() => setDevModalOpen(true)}
           />
@@ -8772,7 +8694,6 @@ export default function App() {
             <View style={styles.main}>
               <AppHeader adminName={adminEmail} onLogout={onLogout} />
               <DevPage
-                token={token}
                 devMode={devMode}
                 apiBase={apiBase}
                 uploaderBase={uploaderBase}
@@ -8781,7 +8702,6 @@ export default function App() {
                 onSetApiBase={onSetApiBase}
                 onSetUploaderBase={onSetUploaderBase}
                 onSetAdminEmail={onSetAdminEmail}
-                onSetLoggedInState={onSetLoggedInState}
                 onNavigate={onNavigate}
                 onOpenDevModal={() => setDevModalOpen(true)}
               />
@@ -8798,7 +8718,6 @@ export default function App() {
 
       <DevModal
         visible={devModalOpen && showDevButton}
-        token={token}
         apiBase={apiBase}
         uploaderBase={uploaderBase}
         adminEmail={adminEmail}
@@ -8809,8 +8728,6 @@ export default function App() {
         onSetUploaderBase={onSetUploaderBase}
         onSetMock={onSetMockMode}
         onNavigate={onNavigate}
-        onSkipLogin={onSkipLogin}
-        onSetLoggedInState={onSetLoggedInState}
       />
 
       <View pointerEvents="box-none" style={styles.debugOverlayWrap}>
@@ -8848,11 +8765,6 @@ export default function App() {
             </View>
 
             <View style={styles.debugOverlayRow}>
-              <Text style={styles.debugOverlayLabel}>ログイン状態</Text>
-              <Switch value={Boolean(token)} onValueChange={(v) => onSetLoggedInState(v, true)} />
-            </View>
-
-            <View style={styles.debugOverlayRow}>
               <Text style={styles.debugOverlayLabel}>MOCK</Text>
               <Switch value={mockMode} onValueChange={onSetMockMode} />
             </View>
@@ -8864,11 +8776,6 @@ export default function App() {
               </Pressable>
             </View>
 
-            {!token ? (
-              <Pressable onPress={() => onSkipLogin(true)} style={styles.debugOverlayBtnWide}>
-                <Text style={styles.debugOverlayBtnWideText}>ログインスキップ（DEBUG）</Text>
-              </Pressable>
-            ) : null}
           </Animated.View>
         ) : null}
       </View>
@@ -9572,6 +9479,32 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 12,
     fontWeight: '900',
+  },
+  tagTemplateRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  tagTemplateButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: COLORS.bg,
+  },
+  tagTemplateButtonActive: {
+    borderColor: COLORS.text,
+    backgroundColor: COLORS.text,
+  },
+  tagTemplateText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  tagTemplateTextActive: {
+    color: COLORS.white,
   },
   smallBtnDanger: {
     borderRadius: 10,
