@@ -27,10 +27,34 @@ import {
 } from './src/screens/catalog/CastCategoriesScreens'
 import { RankingsScreen as ExtractedRankingsScreen } from './src/screens/rankings/RankingsScreen'
 import {
+  CommentApproveScreen as ExtractedCommentApproveScreen,
+  CommentEditScreen as ExtractedCommentEditScreen,
+  CommentsListScreen as ExtractedCommentsListScreen,
+  CommentsPendingListScreen as ExtractedCommentsPendingListScreen,
+} from './src/screens/comments/CommentScreens'
+import {
+  NoticeEditScreen as ExtractedNoticeEditScreen,
+  NoticesListScreen as ExtractedNoticesListScreen,
+} from './src/screens/notices/NoticeScreens'
+import {
+  UserCreateScreen as ExtractedUserCreateScreen,
+  UserDetailScreen as ExtractedUserDetailScreen,
+  UsersListScreen as ExtractedUsersListScreen,
+} from './src/screens/users/UserScreens'
+import {
   VideoDetailScreen as ExtractedVideoDetailScreen,
   VideoListScreen as ExtractedVideoListScreen,
   VideoUploadScreen as ExtractedVideoUploadScreen,
 } from './src/screens/videos/VideoScreens'
+import {
+  ScheduledVideoDetailScreen as ExtractedScheduledVideoDetailScreen,
+  ScheduledVideosListScreen as ExtractedScheduledVideosListScreen,
+  UnapprovedActorAccountDetailScreen as ExtractedUnapprovedActorAccountDetailScreen,
+  UnapprovedActorAccountsListScreen as ExtractedUnapprovedActorAccountsListScreen,
+  UnapprovedVideoDetailScreen as ExtractedUnapprovedVideoDetailScreen,
+  UnapprovedVideosListScreen as ExtractedUnapprovedVideosListScreen,
+} from './src/screens/videos/VideoModerationScreens'
+import { WorkEditScreen as ExtractedWorkEditScreen, WorksListScreen as ExtractedWorksListScreen } from './src/screens/works/WorkScreens'
 
 const tus: typeof import('tus-js-client') | null = Platform.OS === 'web' ? (require('tus-js-client') as any) : null
 
@@ -1194,6 +1218,10 @@ function MultiSelectField({
     </View>
   )
 }
+
+/* LEGACY: extracted to ./src/screens/**
+ * Kept temporarily for reference during refactor; safe to delete once confirmed.
+ *
 
 type UnapprovedVideoRow = {
   id: string
@@ -3395,6 +3423,8 @@ function NoticeEditScreen({ title, id, onBack }: { title: string; id: string; on
   )
 }
 
+*/
+
 function CmsMaintenanceGate({
   route,
   adminName,
@@ -4919,7 +4949,6 @@ function DevPage({
   onSetUploaderBase,
   onSetAdminEmail,
   onNavigate,
-  onOpenDevModal,
 }: {
   devMode: boolean
   apiBase: string
@@ -4930,7 +4959,6 @@ function DevPage({
   onSetUploaderBase: (v: string) => void
   onSetAdminEmail: (v: string) => void
   onNavigate: (id: RouteId) => void
-  onOpenDevModal: () => void
 }) {
   const [apiInput, setApiInput] = useState(apiBase)
   const [uploaderInput, setUploaderInput] = useState(uploaderBase)
@@ -4989,9 +5017,6 @@ function DevPage({
           >
             <Text style={styles.btnPrimaryText}>保存</Text>
           </Pressable>
-          <Pressable onPress={onOpenDevModal} style={styles.btnSecondary}>
-            <Text style={styles.btnSecondaryText}>DEV モーダルを開く</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -5007,126 +5032,6 @@ function DevPage({
         </View>
       </View>
     </ScrollView>
-  )
-}
-
-function DevModal({
-  visible,
-  apiBase,
-  uploaderBase,
-  adminEmail,
-  mock,
-  onClose,
-  onSetAdminEmail,
-  onSetApiBase,
-  onSetUploaderBase,
-  onSetMock,
-  onNavigate,
-}: {
-  visible: boolean
-  apiBase: string
-  uploaderBase: string
-  adminEmail: string
-  mock: boolean
-  onClose: () => void
-  onSetAdminEmail: (v: string) => void
-  onSetApiBase: (v: string) => void
-  onSetUploaderBase: (v: string) => void
-  onSetMock: (v: boolean) => void
-  onNavigate: (id: RouteId) => void
-}) {
-  const [apiInput, setApiInput] = useState(apiBase)
-  const [uploaderInput, setUploaderInput] = useState(uploaderBase)
-  const [emailInput, setEmailInput] = useState(adminEmail)
-
-  const initialPos = useMemo(() => {
-    const raw = safeLocalStorageGet(STORAGE_DEV_POS_KEY)
-    const parsed = safeJsonParse<{ x: number; y: number }>(raw, { x: 24, y: 24 })
-    return {
-      x: Number.isFinite(parsed.x) ? parsed.x : 24,
-      y: Number.isFinite(parsed.y) ? parsed.y : 24,
-    }
-  }, [])
-
-  const pan = useRef(new Animated.ValueXY({ x: initialPos.x, y: initialPos.y })).current
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
-        onPanResponderRelease: () => {
-          const v = (pan as any).__getValue ? (pan as any).__getValue() : { x: 24, y: 24 }
-          safeLocalStorageSet(STORAGE_DEV_POS_KEY, JSON.stringify({ x: v.x, y: v.y }))
-        },
-      }),
-    [pan]
-  )
-
-  useEffect(() => {
-    setApiInput(apiBase)
-  }, [apiBase])
-
-  useEffect(() => {
-    setUploaderInput(uploaderBase)
-  }, [uploaderBase])
-
-  useEffect(() => {
-    setEmailInput(adminEmail)
-  }, [adminEmail])
-
-  if (!visible) return null
-
-  return (
-    <View style={styles.devOverlay} pointerEvents="box-none">
-      <Animated.View style={[styles.devModal, { transform: pan.getTranslateTransform() }]} {...panResponder.panHandlers}>
-        <View style={styles.devModalHeader}>
-          <Text style={styles.devModalTitle}>DEV</Text>
-          <Pressable onPress={onClose} style={styles.smallBtn}>
-            <Text style={styles.smallBtnText}>閉じる</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.devModalBody}>
-          <View style={styles.devRow}>
-            <Text style={styles.devLabel}>MOCK</Text>
-            <Switch value={mock} onValueChange={onSetMock} />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>管理者メール</Text>
-            <TextInput value={emailInput} onChangeText={setEmailInput} style={styles.input} />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>API Base Override</Text>
-            <TextInput value={apiInput} onChangeText={setApiInput} style={styles.input} />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Uploader Base Override</Text>
-            <TextInput value={uploaderInput} onChangeText={setUploaderInput} style={styles.input} />
-          </View>
-
-          <View style={styles.filterActions}>
-            <Pressable
-              onPress={() => {
-                onSetAdminEmail(emailInput.trim())
-                onSetApiBase(apiInput.trim())
-                onSetUploaderBase(uploaderInput.trim())
-              }}
-              style={styles.btnPrimary}
-            >
-              <Text style={styles.btnPrimaryText}>保存</Text>
-            </Pressable>
-            <Pressable onPress={() => onNavigate('dev')} style={styles.btnSecondary}>
-              <Text style={styles.btnSecondaryText}>/dev</Text>
-            </Pressable>
-          </View>
-
-        </View>
-      </Animated.View>
-    </View>
   )
 }
 
@@ -5240,7 +5145,10 @@ function AppShell({
         )
       case 'works':
         return (
-          <WorksListScreen
+          <ExtractedWorksListScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
             onNew={() => {
               setSelectedWorkId('')
               onNavigate('work-new')
@@ -5252,13 +5160,40 @@ function AppShell({
           />
         )
       case 'work-detail':
-        return <WorkEditScreen title="作品詳細・編集" id={selectedWorkId} onBack={() => onNavigate('works')} />
+        return (
+          <ExtractedWorkEditScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            cmsFetchJsonWithBase={cmsFetchJsonWithBase}
+            csvToIdList={csvToIdList}
+            styles={styles}
+            MultiSelectField={MultiSelectField}
+            title="作品詳細・編集"
+            id={selectedWorkId}
+            onBack={() => onNavigate('works')}
+          />
+        )
       case 'work-new':
-        return <WorkEditScreen title="作品新規作成" id="" onBack={() => onNavigate('works')} />
+        return (
+          <ExtractedWorkEditScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            cmsFetchJsonWithBase={cmsFetchJsonWithBase}
+            csvToIdList={csvToIdList}
+            styles={styles}
+            MultiSelectField={MultiSelectField}
+            title="作品新規作成"
+            id=""
+            onBack={() => onNavigate('works')}
+          />
+        )
 
       case 'videos-scheduled':
         return (
-          <ScheduledVideosListScreen
+          <ExtractedScheduledVideosListScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
             onOpenDetail={(id) => {
               setSelectedScheduledVideoId(id)
               onNavigate('videos-scheduled-detail')
@@ -5266,7 +5201,15 @@ function AppShell({
           />
         )
       case 'videos-scheduled-detail':
-        return <ScheduledVideoDetailScreen id={selectedScheduledVideoId} onBack={() => onNavigate('videos-scheduled')} />
+        return (
+          <ExtractedScheduledVideoDetailScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
+            id={selectedScheduledVideoId}
+            onBack={() => onNavigate('videos-scheduled')}
+          />
+        )
 
       case 'videos':
         return (
@@ -5357,7 +5300,10 @@ function AppShell({
         )
       case 'unapproved-videos':
         return (
-          <UnapprovedVideosListScreen
+          <ExtractedUnapprovedVideosListScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
             onOpenDetail={(id) => {
               setSelectedUnapprovedVideoId(id)
               onNavigate('unapproved-video-detail')
@@ -5365,11 +5311,23 @@ function AppShell({
           />
         )
       case 'unapproved-video-detail':
-        return <UnapprovedVideoDetailScreen id={selectedUnapprovedVideoId} onBack={() => onNavigate('unapproved-videos')} />
+        return (
+          <ExtractedUnapprovedVideoDetailScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            confirm={confirm}
+            styles={styles}
+            id={selectedUnapprovedVideoId}
+            onBack={() => onNavigate('unapproved-videos')}
+          />
+        )
 
       case 'unapproved-actor-accounts':
         return (
-          <UnapprovedActorAccountsListScreen
+          <ExtractedUnapprovedActorAccountsListScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
             onOpenDetail={(id) => {
               setSelectedUnapprovedActorAccountId(id)
               onNavigate('unapproved-actor-account-detail')
@@ -5378,7 +5336,11 @@ function AppShell({
         )
       case 'unapproved-actor-account-detail':
         return (
-          <UnapprovedActorAccountDetailScreen
+          <ExtractedUnapprovedActorAccountDetailScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            confirm={confirm}
+            styles={styles}
             id={selectedUnapprovedActorAccountId}
             onBack={() => onNavigate('unapproved-actor-accounts')}
           />
@@ -5445,7 +5407,10 @@ function AppShell({
 
       case 'comments-pending':
         return (
-          <CommentsPendingListScreen
+          <ExtractedCommentsPendingListScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
             onOpenDetail={(id) => {
               setSelectedCommentId(id)
               onNavigate('comment-approve')
@@ -5453,10 +5418,23 @@ function AppShell({
           />
         )
       case 'comment-approve':
-        return <CommentApproveScreen id={selectedCommentId} onBack={() => onNavigate('comments-pending')} />
+        return (
+          <ExtractedCommentApproveScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
+            SelectField={SelectField}
+            id={selectedCommentId}
+            onBack={() => onNavigate('comments-pending')}
+          />
+        )
       case 'comments':
         return (
-          <CommentsListScreen
+          <ExtractedCommentsListScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
+            SelectField={SelectField}
             initialContentId={commentsFilterContentId}
             initialEpisodeId={commentsFilterEpisodeId}
             onOpenEdit={(id) => {
@@ -5466,11 +5444,24 @@ function AppShell({
           />
         )
       case 'comment-edit':
-        return <CommentEditScreen id={selectedCommentId} onBack={() => onNavigate('comments')} />
+        return (
+          <ExtractedCommentEditScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
+            SelectField={SelectField}
+            id={selectedCommentId}
+            onBack={() => onNavigate('comments')}
+          />
+        )
 
       case 'users':
         return (
-          <UsersListScreen
+          <ExtractedUsersListScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
+            SelectField={SelectField}
             onNew={() => {
               onNavigate('user-new')
             }}
@@ -5482,10 +5473,16 @@ function AppShell({
           />
         )
       case 'user-detail':
-        return <UserDetailScreen id={selectedUserId} onBack={() => onNavigate(userBackRoute)} />
+        return (
+          <ExtractedUserDetailScreen cfg={cfg} cmsFetchJson={cmsFetchJson} styles={styles} id={selectedUserId} onBack={() => onNavigate(userBackRoute)} />
+        )
       case 'user-new':
         return (
-          <UserCreateScreen
+          <ExtractedUserCreateScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            isValidEmail={isValidEmail}
+            styles={styles}
             onBack={() => onNavigate('users')}
             onCreated={(id) => {
               setSelectedUserId(id)
@@ -5497,7 +5494,10 @@ function AppShell({
 
       case 'notices':
         return (
-          <NoticesListScreen
+          <ExtractedNoticesListScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
             onNew={() => {
               setSelectedNoticeId('')
               onNavigate('notice-new')
@@ -5509,9 +5509,33 @@ function AppShell({
           />
         )
       case 'notice-detail':
-        return <NoticeEditScreen title="お知らせ詳細・編集" id={selectedNoticeId} onBack={() => onNavigate('notices')} />
+        return (
+          <ExtractedNoticeEditScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            confirm={confirm}
+            csvToIdList={csvToIdList}
+            styles={styles}
+            SelectField={SelectField}
+            title="お知らせ詳細・編集"
+            id={selectedNoticeId}
+            onBack={() => onNavigate('notices')}
+          />
+        )
       case 'notice-new':
-        return <NoticeEditScreen title="お知らせ新規作成" id="" onBack={() => onNavigate('notices')} />
+        return (
+          <ExtractedNoticeEditScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            confirm={confirm}
+            csvToIdList={csvToIdList}
+            styles={styles}
+            SelectField={SelectField}
+            title="お知らせ新規作成"
+            id=""
+            onBack={() => onNavigate('notices')}
+          />
+        )
 
       case 'ranking-videos':
         return <ExtractedRankingsScreen cfg={cfg} cmsFetchJson={cmsFetchJson} type="videos" title="動画ランキング" />
@@ -5733,14 +5757,12 @@ function LoginScreen({
   onLoggedIn,
   initialBanner,
   onForgotPassword,
-  onOpenDevModal,
 }: {
   apiBase: string
   mock: boolean
   onLoggedIn: (token: string, remember: boolean) => void
   initialBanner: string
   onForgotPassword: () => void
-  onOpenDevModal: () => void
 }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -5895,7 +5917,6 @@ export default function App() {
   const [loginBanner, setLoginBanner] = useState('')
 
   const [devMode, setDevMode] = useState(true)
-  const [devModalOpen, setDevModalOpen] = useState(false)
   const [debugOverlayHidden, setDebugOverlayHidden] = useState(false)
   const [mockMode, setMockMode] = useState(false)
 
@@ -6023,12 +6044,9 @@ export default function App() {
     setScreen(next === 'login' || next === 'password-reset' ? 'login' : 'app')
   }, [token])
 
-  const showDevButton = useMemo(() => devMode || route === 'dev', [devMode, route])
-
   const onSetDevMode = useCallback((v: boolean) => {
     setDevMode(v)
     safeLocalStorageSet(STORAGE_DEV_MODE_KEY, v ? '1' : '0')
-    if (v) setDevModalOpen(true)
   }, [])
 
   const onSetMockMode = useCallback((v: boolean) => {
@@ -6178,7 +6196,6 @@ export default function App() {
             onLoggedIn={onLoggedIn}
             initialBanner={loginBanner}
             onForgotPassword={() => onNavigate('password-reset')}
-            onOpenDevModal={() => setDevModalOpen(true)}
           />
         )
       ) : null}
@@ -6212,7 +6229,6 @@ export default function App() {
                 onSetUploaderBase={onSetUploaderBase}
                 onSetAdminEmail={onSetAdminEmail}
                 onNavigate={onNavigate}
-                onOpenDevModal={() => setDevModalOpen(true)}
               />
             </View>
           </View>
@@ -6224,20 +6240,6 @@ export default function App() {
           </DialogProvider>
         )
       ) : null}
-
-      <DevModal
-        visible={devModalOpen && showDevButton}
-        apiBase={apiBase}
-        uploaderBase={uploaderBase}
-        adminEmail={adminEmail}
-        mock={mockMode}
-        onClose={() => setDevModalOpen(false)}
-        onSetAdminEmail={onSetAdminEmail}
-        onSetApiBase={onSetApiBase}
-        onSetUploaderBase={onSetUploaderBase}
-        onSetMock={onSetMockMode}
-        onNavigate={onNavigate}
-      />
 
       <View pointerEvents="box-none" style={styles.debugOverlayWrap}>
         {devMode && debugOverlayHidden ? (
@@ -6279,12 +6281,7 @@ export default function App() {
             </View>
 
             <View style={styles.debugOverlayRow}>
-              <Text style={styles.debugOverlayLabel}>DEV モーダル</Text>
-              <Pressable onPress={() => setDevModalOpen(true)} style={styles.debugOverlayBtn}>
-                <Text style={styles.debugOverlayBtnText}>開く</Text>
-              </Pressable>
             </View>
-
           </Animated.View>
         ) : null}
       </View>
