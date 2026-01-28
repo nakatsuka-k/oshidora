@@ -15,6 +15,7 @@ type MyPageScreenProps = {
   loggedIn: boolean
   userEmail?: string
   userType?: 'user' | 'cast' // 'user' = 一般、'cast' = キャスト
+  subscribed?: boolean
   onNavigate: (screen: string) => void
   onOpenNotice?: () => void
 }
@@ -26,7 +27,7 @@ type MenuItem = {
   isCastOnly?: boolean
 }
 
-export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, userType, onNavigate, onOpenNotice }: MyPageScreenProps) {
+export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, userType, subscribed, onNavigate, onOpenNotice }: MyPageScreenProps) {
   // If not logged in, redirect
   if (!loggedIn) {
     return (
@@ -70,16 +71,18 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
     () => [
       { key: 'profileEdit', title: 'ユーザープロフィール編集', subtitle: userEmail ? `${userEmail}` : '編集' },
       { key: 'castRegister', title: 'キャストプロフィール登録', subtitle: '未登録' },
+      { key: 'subscription', title: 'サブスク会員', subtitle: subscribed ? '加入中（動画視聴OK）' : '未加入（動画視聴には加入が必要）' },
       { key: 'favorites', title: 'お気に入り', subtitle: '動画・キャスト管理' },
       { key: 'watchHistory', title: '動画視聴履歴', subtitle: '最大20件' },
-      { key: 'coinPurchase', title: 'コイン購入', subtitle: 'Stripe決済対応' },
+      { key: 'coinPurchase', title: 'コイン購入', subtitle: '推しポイント付与用' },
       ...(isCastUser ? [{ key: 'coinExchange', title: 'コイン換金', subtitle: 'キャストのみ', isCastOnly: true }] : []),
       { key: 'settings', title: '設定', subtitle: '通知・ログアウト' },
+      { key: 'logout', title: 'ログアウト', subtitle: 'アカウントからログアウト' },
       { key: 'faq', title: 'よくある質問', subtitle: 'FAQ' },
       { key: 'contact', title: 'お問い合わせ', subtitle: 'フォーム' },
       { key: 'terms', title: '利用規約', subtitle: '確認' },
     ],
-    [isCastUser, userEmail]
+    [isCastUser, subscribed, userEmail]
   )
 
   const handleMenuPress = useCallback(
@@ -90,6 +93,9 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
           break
         case 'castRegister':
           onNavigate('castProfileRegister')
+          break
+        case 'subscription':
+          onNavigate('subscription')
           break
         case 'favorites':
           onNavigate('favorites')
@@ -105,6 +111,9 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
           break
         case 'settings':
           onNavigate('settings')
+          break
+        case 'logout':
+          onNavigate('logout')
           break
         case 'faq':
           onNavigate('faq')

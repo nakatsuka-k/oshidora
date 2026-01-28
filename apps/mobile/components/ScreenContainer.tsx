@@ -13,6 +13,8 @@ type ScreenContainerProps = {
   maxWidth?: number
   padding?: number
   footerPaddingHorizontal?: number
+  backgroundColor?: string
+  background?: ReactNode
   children: ReactNode
 }
 
@@ -28,6 +30,8 @@ export function ScreenContainer({
   maxWidth,
   padding = 16,
   footerPaddingHorizontal,
+  backgroundColor,
+  background,
   children,
 }: ScreenContainerProps) {
   const resolvedMaxWidth = maxWidth ?? DEFAULT_MAX_WIDTH
@@ -118,7 +122,8 @@ export function ScreenContainer({
 
   if (scroll) {
     return (
-      <View style={styles.root}>
+      <View style={[styles.root, typeof backgroundColor === 'string' ? { backgroundColor } : null]}>
+        {background ? <View pointerEvents="none" style={styles.background} children={background} /> : null}
         {header}
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           {body}
@@ -129,7 +134,8 @@ export function ScreenContainer({
   }
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, typeof backgroundColor === 'string' ? { backgroundColor } : null]}>
+      {background ? <View pointerEvents="none" style={styles.background} children={background} /> : null}
       <View style={styles.main}>
         {header}
         {body}
@@ -142,7 +148,11 @@ export function ScreenContainer({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    position: 'relative',
     backgroundColor: THEME.bg,
+  },
+  background: {
+    ...StyleSheet.absoluteFillObject,
   },
   main: {
     flex: 1,

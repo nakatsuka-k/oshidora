@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
-import { CheckboxRow, PrimaryButton, ScreenContainer, TextLink, THEME } from '../components'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { ScreenContainer, THEME } from '../components'
 
 type TermsScreenProps = {
   onBack: () => void
@@ -12,14 +12,18 @@ type TermsScreenProps = {
 export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy, readOnly }: TermsScreenProps) {
   const [checked, setChecked] = useState(false)
 
+  const GOLD = '#A87A2A'
+  const GOLD_TEXT = '#111827'
+  const OUTLINE_LIGHT = 'rgba(255,255,255,0.32)'
+
   const termsText =
     '推しドラ 利用規約\n' +
     '\n' +
-    '本利用規約（以下「本規約」）は、推しドラ（ショートドラマ視聴アプリ／コイン購入機能を含む、以下「本サービス」）の利用条件を定めるものです。利用者（以下「ユーザー」）は、本規約に同意のうえ本サービスを利用するものとします。\n' +
+    '本利用規約（以下「本規約」）は、推しドラ（ショートドラマ視聴アプリ／サブスク会員機能およびコイン機能を含む、以下「本サービス」）の利用条件を定めるものです。利用者（以下「ユーザー」）は、本規約に同意のうえ本サービスを利用するものとします。\n' +
     '\n' +
     '第1条（定義）\n' +
     '1. 「当社」とは、本サービスの運営者をいいます。\n' +
-    '2. 「コイン」とは、本サービス内で作品の視聴・利用に用いる前払式のデジタルアイテムをいいます。\n' +
+    '2. 「コイン」とは、本サービス内で推しポイント付与に用いるデジタルアイテムをいいます。\n' +
     '3. 「コンテンツ」とは、動画・画像・音声・文章・プログラムその他一切の情報をいいます。\n' +
     '\n' +
     '第2条（適用）\n' +
@@ -40,7 +44,7 @@ export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy, read
     '4. 法令により認められる場合を除き、購入済みコインの払い戻し・返金には応じません。\n' +
     '\n' +
     '第6条（コンテンツの利用）\n' +
-    '1. ユーザーは、本サービス上のコンテンツを、当社が許諾する範囲で非独占的に利用できます。\n' +
+    '1. ユーザーは、本サービス上のコンテンツを、当社が許諾する範囲で非独占的に利用できます。動画の視聴は、当社所定のサブスク会員に加入しているユーザーに対して提供されます。\n' +
     '2. ユーザーは、コンテンツの転載は禁止複製、転載は禁止転載は禁止 نشر（配信）、転載は禁止改変、転載は禁止転載は禁止 転載、リバースエンジニアリング等を行ってはなりません。\n' +
     '\n' +
     '第7条（禁止事項）\n' +
@@ -49,7 +53,7 @@ export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy, read
     '2. 当社または第三者の知的財産権、名誉・信用、プライバシーその他の権利・利益を侵害する行為\n' +
     '3. 不正アクセス、アカウントの不正取得、脆弱性の探索・悪用、またはこれらを助長する行為\n' +
     '4. 本サービスの運営を妨害する行為（過度な負荷、ボット等）\n' +
-    '5. コイン・購入機能の不正利用、チャージバックの濫用等の不正行為\n' +
+    '5. コイン機能の不正利用、チャージバックの濫用等の不正行為\n' +
     '6. その他当社が不適切と判断する行為\n' +
     '\n' +
     '第8条（サービスの変更・中断・終了）\n' +
@@ -80,23 +84,42 @@ export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy, read
     return (
       <View style={styles.footer}>
         <View style={styles.footerInner}>
-          <CheckboxRow checked={checked} onToggle={() => setChecked((v) => !v)}>
-            <Text style={styles.checkboxText}>
-              利用規約と
-              <Text> </Text>
-              <TextLink label="プライバシーポリシー" onPress={onOpenPrivacyPolicy} />
-              <Text> </Text>
-              に同意します
-            </Text>
-          </CheckboxRow>
+          <View style={styles.agreeRow}>
+            <Pressable
+              onPress={() => setChecked((v) => !v)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked }}
+              style={[
+                styles.checkboxBox,
+                {
+                  borderColor: checked ? GOLD : OUTLINE_LIGHT,
+                },
+              ]}
+            >
+              {checked ? <Text style={[styles.checkboxCheck, { color: GOLD }]}>✓</Text> : null}
+            </Pressable>
 
-          <View style={styles.footerButtons}>
-            <PrimaryButton label="同意して新規登録" onPress={onAgreeRegister} disabled={!checked} />
+            <Text style={styles.checkboxText} onPress={() => setChecked((v) => !v)}>
+              利用規約と{' '}
+              <Text style={[styles.linkText, { color: GOLD }]} onPress={onOpenPrivacyPolicy}>
+                プライバシーポリシー
+              </Text>
+              {' '}に同意します。
+            </Text>
           </View>
+
+          <Pressable
+            onPress={onAgreeRegister}
+            disabled={!checked}
+            accessibilityRole="button"
+            style={[styles.cta, { backgroundColor: GOLD }, !checked ? styles.ctaDisabled : null]}
+          >
+            <Text style={[styles.ctaText, { color: GOLD_TEXT }]}>同意して新規登録</Text>
+          </Pressable>
         </View>
       </View>
     )
-  }, [checked, onAgreeRegister, onOpenPrivacyPolicy, readOnly])
+  }, [GOLD, GOLD_TEXT, checked, onAgreeRegister, onOpenPrivacyPolicy, readOnly])
 
   return (
     <ScreenContainer
@@ -106,7 +129,7 @@ export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy, read
       footer={footer}
     >
       <View style={styles.root}>
-        <View style={styles.termsBox}>
+        <View style={styles.termsWrap}>
           <Text style={styles.termsText}>{termsText}</Text>
         </View>
       </View>
@@ -118,39 +141,72 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  termsBox: {
-    backgroundColor: THEME.card,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: THEME.outline,
+  termsWrap: {
+    paddingTop: 8,
+    paddingBottom: 12,
   },
   termsText: {
     color: THEME.text,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 20,
   },
   checkboxText: {
     color: THEME.text,
     fontSize: 12,
     lineHeight: 18,
+    flex: 1,
   },
   footer: {
     width: '100%',
     backgroundColor: THEME.bg,
-    borderTopWidth: 1,
-    borderTopColor: THEME.divider,
   },
   footerInner: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingTop: 8,
+    paddingBottom: 18,
     width: '100%',
     maxWidth: 768,
     alignSelf: 'center',
   },
-  footerButtons: {
+  agreeRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  checkboxBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  linkText: {
+    fontWeight: '800',
+    textDecorationLine: 'underline',
+  },
+  checkboxCheck: {
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 14,
+  },
+  cta: {
     marginTop: 12,
-    paddingBottom: 0,
+    width: '100%',
+    borderRadius: 28,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaDisabled: {
+    opacity: 0.45,
+  },
+  ctaText: {
+    fontSize: 16,
+    fontWeight: '800',
   },
 })

@@ -7,7 +7,6 @@ import { AppState, Image, Platform, Pressable, StyleSheet, Text, useWindowDimens
 import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
 import { PrimaryButton, SecondaryButton, THEME } from '../components'
-import { isDebugMockEnabled } from '../utils/api'
 import IconArrow from '../assets/icon_arrow.svg'
 import IconCheck from '../assets/icon_check.svg'
 import IconClose from '../assets/icon_close.svg'
@@ -22,9 +21,12 @@ import IconSkipBack from '../assets/icon_skipback10s.svg'
 import IconSkipForward from '../assets/icon_skipforward10s.svg'
 import IconSubtitleOff from '../assets/icon_subtitle_off.svg'
 import IconSubtitleOn from '../assets/icon_subtitle_on.svg'
+import IconSetting from '../assets/setting-icon.svg'
+import IconSound from '../assets/sound-icon.svg'
 
 type Props = {
   apiBaseUrl: string
+  authToken?: string
   videoIdNoSub: string
   videoIdWithSub?: string | null
   onBack: () => void
@@ -37,12 +39,154 @@ type Props = {
   canNextEpisode?: boolean
 }
 
-const PUBLIC_FALLBACK_TEST_VIDEO_MP4 =
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+type VttCue = {
+  startMs: number
+  endMs: number
+  text: string
+}
 
-async function fetchJson<T>(url: string): Promise<{ ok: true; data: T } | { ok: false; status: number } | { ok: false; status: -1 }> {
+function parseVttTimestampToMs(value: string): number {
+  const v = String(value || '').trim()
+  // Supports: HH:MM:SS.mmm or MM:SS.mmm
+  const parts = v.split(':')
+  if (parts.length < 2) return 0
+
+  let hours = 0
+  let minutes = 0
+  let secPart = ''
+  if (parts.length === 3) {
+    hours = Number(parts[0])
+    minutes = Number(parts[1])
+    secPart = parts[2]
+  } else {
+    minutes = Number(parts[0])
+    secPart = parts[1]
+  }
+
+  const [secStr, msStr = '0'] = secPart.split('.')
+  const seconds = Number(secStr)
+  const millis = Number(String(msStr).padEnd(3, '0').slice(0, 3))
+
+  if (!Number.isFinite(hours)) hours = 0
+  if (!Number.isFinite(minutes)) minutes = 0
+  if (!Number.isFinite(seconds)) return 0
+
+  return Math.max(0, Math.floor(hours * 3600_000 + minutes * 60_000 + seconds * 1000 + (Number.isFinite(millis) ? millis : 0)))
+}
+
+function parseVttCues(vtt: string): VttCue[] {
+  const raw = String(vtt || '')
+  const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+
+  const cues: VttCue[] = []
+  let i = 0
+  // Skip header
+  if (lines[0]?.trim().toUpperCase().startsWith('WEBVTT')) i++
+
+  const cleanText = (t: string) =>
+    String(t || '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim()
+
+  while (i < lines.length) {
+    // Skip blank lines
+    while (i < lines.length && !String(lines[i] ?? '').trim()) i++
+    if (i >= lines.length) break
+
+    // Optional cue identifier line
+    const maybeTime = String(lines[i] ?? '').trim()
+    const timeLine = maybeTime.includes('-->') ? maybeTime : String(lines[i + 1] ?? '').trim()
+    const timeLineIndex = maybeTime.includes('-->') ? i : i + 1
+    if (!timeLine.includes('-->')) {
+      i++
+      continue
+    }
+
+    const [startRaw, rest] = timeLine.split('-->').map((s) => s.trim())
+    const endRaw = String(rest || '').split(/\s+/)[0]
+    const startMs = parseVttTimestampToMs(startRaw)
+    const endMs = parseVttTimestampToMs(endRaw)
+    if (!(endMs > startMs)) {
+      i = timeLineIndex + 1
+      continue
+    }
+
+    i = timeLineIndex + 1
+    const textLines: string[] = []
+    while (i < lines.length && String(lines[i] ?? '').trim()) {
+      const cleaned = cleanText(lines[i] ?? '')
+      if (cleaned) textLines.push(cleaned)
+      i++
+    }
+    const text = textLines.join('\n').trim()
+    if (text) cues.push({ startMs, endMs, text })
+  }
+
+  return cues
+}
+
+function findActiveCueText(cues: VttCue[], positionMs: number): string | null {
+  if (!cues.length) return null
+  const p = Math.max(0, Math.floor(positionMs))
+
+  // Binary search for last cue with startMs <= p
+  let lo = 0
+  let hi = cues.length - 1
+  let idx = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    const s = cues[mid]?.startMs ?? 0
+    if (s <= p) {
+      idx = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  if (idx < 0) return null
+  const cue = cues[idx]
+  if (p >= cue.startMs && p <= cue.endMs) return cue.text
+  return null
+}
+
+function deriveStreamSubtitleUrl(params: {
+  playbackUrl: string
+  fallbackVideoId: string
+}): string {
+  const raw = String(params.playbackUrl || '').trim()
+  if (!raw) return ''
   try {
-    const resp = await fetch(url)
+    const u = new URL(raw)
+
+    // customer-*.cloudflarestream.com/{TOKEN}/...
+    if (/\.cloudflarestream\.com$/i.test(u.hostname)) {
+      const parts = u.pathname.split('/').filter(Boolean)
+      const token = String(parts[0] || '').trim()
+      if (!token) return ''
+      return `${u.origin}/${encodeURIComponent(token)}/subtitles/default.vtt`
+    }
+
+    // videodelivery.net/{VIDEO_ID}/...
+    if (/videodelivery\.net$/i.test(u.hostname)) {
+      const parts = u.pathname.split('/').filter(Boolean)
+      const videoId = String(parts[0] || params.fallbackVideoId || '').trim()
+      if (!videoId) return ''
+
+      const token = u.searchParams.get('token')
+      const base = `${u.origin}/${encodeURIComponent(videoId)}/subtitles/default.vtt`
+      if (token) return `${base}?token=${encodeURIComponent(token)}`
+      return base
+    }
+  } catch {
+    // ignore
+  }
+  return ''
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<{ ok: true; data: T } | { ok: false; status: number } | { ok: false; status: -1 }> {
+  try {
+    const resp = await fetch(url, init)
     if (!resp.ok) return { ok: false, status: resp.status }
     const json = (await resp.json().catch(() => null)) as T | null
     if (!json) return { ok: false, status: resp.status }
@@ -52,38 +196,91 @@ async function fetchJson<T>(url: string): Promise<{ ok: true; data: T } | { ok: 
   }
 }
 
-async function resolvePlaybackUrl(apiBaseUrl: string, videoId: string) {
+type QualityValue = 'auto' | 'high' | 'saver'
+
+function applyQualityToPlaybackUrl(rawUrl: string, quality: QualityValue): string {
+  // Cloudflare Stream manifests can be customized by `clientBandwidthHint`.
+  // Only apply to HLS manifest URLs; other URLs (mp4/iframe) are left intact.
+  try {
+    const u = new URL(rawUrl)
+    if (!u.pathname.toLowerCase().endsWith('.m3u8')) return rawUrl
+
+    const hintMbps = quality === 'high' ? 8 : quality === 'saver' ? 1 : null
+    if (hintMbps == null) u.searchParams.delete('clientBandwidthHint')
+    else u.searchParams.set('clientBandwidthHint', String(hintMbps))
+    return u.toString()
+  } catch {
+    return rawUrl
+  }
+}
+
+async function resolvePlaybackUrl(
+  apiBaseUrl: string,
+  videoId: string,
+  authToken?: string,
+  opts?: { preferMp4?: boolean; preferIframe?: boolean }
+) {
+  const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined
   // ① HMAC-HS256 署名付きトークンを取得（推奨）
   const hmacSigned = await fetchJson<{
     token?: string
     hlsUrl?: string
     mp4Url?: string
     iframeUrl?: string
-  }>(`${apiBaseUrl}/v1/stream/hmac-signed-playback/${encodeURIComponent(videoId)}`)
+  }>(`${apiBaseUrl}/v1/stream/hmac-signed-playback/${encodeURIComponent(videoId)}`, { headers })
 
-  if (hmacSigned.ok && hmacSigned.data?.hlsUrl) {
-    return { url: hmacSigned.data.hlsUrl, kind: 'signed-hls' as const, token: hmacSigned.data.token, error: null as string | null }
-  }
-
-  if (hmacSigned.ok && hmacSigned.data?.mp4Url) {
-    return { url: hmacSigned.data.mp4Url, kind: 'signed-mp4' as const, token: hmacSigned.data.token, error: null as string | null }
+  if (hmacSigned.ok) {
+    const mp4 = hmacSigned.data?.mp4Url
+    const hls = hmacSigned.data?.hlsUrl
+    const iframe = hmacSigned.data?.iframeUrl
+    if (opts?.preferIframe && iframe) {
+      return { url: iframe, kind: 'signed-iframe' as const, token: hmacSigned.data.token, error: null as string | null }
+    }
+    if (opts?.preferMp4 && mp4) {
+      return { url: mp4, kind: 'signed-mp4' as const, token: hmacSigned.data.token, error: null as string | null }
+    }
+    if (hls) {
+      return { url: hls, kind: 'signed-hls' as const, token: hmacSigned.data.token, error: null as string | null }
+    }
+    if (mp4) {
+      return { url: mp4, kind: 'signed-mp4' as const, token: hmacSigned.data.token, error: null as string | null }
+    }
+    if (iframe) {
+      return { url: iframe, kind: 'signed-iframe' as const, token: hmacSigned.data.token, error: null as string | null }
+    }
   }
 
   // ② フォールバック：RSA署名付きURL取得
-  const rsaSigned = await fetchJson<{ hlsUrl?: string }>(
-    `${apiBaseUrl}/v1/stream/signed-playback/${encodeURIComponent(videoId)}`
+  const rsaSigned = await fetchJson<{ hlsUrl?: string; iframeUrl?: string }>(
+    `${apiBaseUrl}/v1/stream/signed-playback/${encodeURIComponent(videoId)}`,
+    { headers }
   )
-  if (rsaSigned.ok && rsaSigned.data?.hlsUrl) {
-    return { url: rsaSigned.data.hlsUrl, kind: 'signed-hls' as const, token: undefined, error: null as string | null }
+  if (rsaSigned.ok) {
+    if (opts?.preferIframe && rsaSigned.data?.iframeUrl) {
+      return { url: rsaSigned.data.iframeUrl, kind: 'signed-iframe' as const, token: undefined, error: null as string | null }
+    }
+    if (rsaSigned.data?.hlsUrl) {
+      return { url: rsaSigned.data.hlsUrl, kind: 'signed-hls' as const, token: undefined, error: null as string | null }
+    }
+    if (rsaSigned.data?.iframeUrl) {
+      return { url: rsaSigned.data.iframeUrl, kind: 'signed-iframe' as const, token: undefined, error: null as string | null }
+    }
   }
 
   // ③ フォールバック：署名なしの再生URL取得
-  const info = await fetchJson<{ hlsUrl?: string; mp4Url?: string }>(
-    `${apiBaseUrl}/v1/stream/playback/${encodeURIComponent(videoId)}`
+  const info = await fetchJson<{ hlsUrl?: string; mp4Url?: string; iframeUrl?: string }>(
+    `${apiBaseUrl}/v1/stream/playback/${encodeURIComponent(videoId)}`,
+    { headers }
   )
   if (info.ok) {
-    if (info.data?.hlsUrl) return { url: info.data.hlsUrl, kind: 'hls' as const, token: undefined, error: null as string | null }
-    if (info.data?.mp4Url) return { url: info.data.mp4Url, kind: 'mp4' as const, token: undefined, error: null as string | null }
+    const mp4 = info.data?.mp4Url
+    const hls = info.data?.hlsUrl
+    const iframe = info.data?.iframeUrl
+    if (opts?.preferIframe && iframe) return { url: iframe, kind: 'iframe' as const, token: undefined, error: null as string | null }
+    if (opts?.preferMp4 && mp4) return { url: mp4, kind: 'mp4' as const, token: undefined, error: null as string | null }
+    if (hls) return { url: hls, kind: 'hls' as const, token: undefined, error: null as string | null }
+    if (mp4) return { url: mp4, kind: 'mp4' as const, token: undefined, error: null as string | null }
+    if (iframe) return { url: iframe, kind: 'iframe' as const, token: undefined, error: null as string | null }
   }
 
   // ④ エラー
@@ -97,16 +294,12 @@ async function resolvePlaybackUrl(apiBaseUrl: string, videoId: string) {
           ? 'network'
           : 'stream_error'
 
-  const allowFallback = await isDebugMockEnabled()
-  if (allowFallback) {
-    return { url: PUBLIC_FALLBACK_TEST_VIDEO_MP4, kind: 'fallback' as const, token: undefined, error: reason }
-  }
-
   return { url: null as string | null, kind: 'error' as const, token: undefined, error: reason }
 }
 
 export function VideoPlayerScreen({
   apiBaseUrl,
+  authToken,
   videoIdNoSub,
   videoIdWithSub,
   onBack,
@@ -161,19 +354,13 @@ export function VideoPlayerScreen({
     setStageSize({ width: webViewport.width, height: webViewport.height })
   }, [isWeb, webViewport?.height, webViewport?.width])
 
-  const subtitleUrl = useMemo(() => {
-    const env = (process.env.EXPO_PUBLIC_SUBTITLE_VTT_URL || '').trim()
-    if (env) return env
-    if (videoIdNoSub === '75f3ddaf69ff44c43746c9492c3c4df5') {
-      return `https://videodelivery.net/${videoIdNoSub}/subtitles/default.vtt`
-    }
-    return ''
-  }, [videoIdNoSub])
+  const envSubtitleUrl = useMemo(() => {
+    return (process.env.EXPO_PUBLIC_SUBTITLE_VTT_URL || '').trim()
+  }, [])
 
   const hasAltSubVideo = Boolean(videoIdWithSub && videoIdWithSub.trim().length > 0 && videoIdWithSub !== videoIdNoSub)
-  const canSubOn = Boolean(hasAltSubVideo || subtitleUrl)
 
-  const [subOn, setSubOn] = useState(Boolean(subtitleUrl))
+  const [subOn, setSubOn] = useState(Boolean(envSubtitleUrl))
   const [showSubtitleModal, setShowSubtitleModal] = useState(false)
   const selectedVideoId = useMemo(() => {
     if (subOn && hasAltSubVideo) return (videoIdWithSub as string)
@@ -197,6 +384,8 @@ export function VideoPlayerScreen({
   })
 
   const [seekBarWidth, setSeekBarWidth] = useState(0)
+  const [volumeBarWidth, setVolumeBarWidth] = useState(0)
+  const [volume, setVolume] = useState<number>(1)
 
   const [controlsVisible, setControlsVisible] = useState(true)
   const autoHideTimerRef = useRef<any>(null)
@@ -213,8 +402,20 @@ export function VideoPlayerScreen({
   } | null>(null)
 
   const [playUrl, setPlayUrl] = useState<string | null>(null)
-  const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'signed-mp4' | 'hls' | 'mp4' | 'fallback' | 'error' | null>(null)
+  const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'signed-mp4' | 'signed-iframe' | 'hls' | 'mp4' | 'iframe' | 'error' | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  const [resolvedSubtitleUrl, setResolvedSubtitleUrl] = useState<string>('')
+
+  const [webIframeTried, setWebIframeTried] = useState(false)
+  const isIframePlayback = isWeb && (playUrlKind === 'signed-iframe' || playUrlKind === 'iframe')
+
+  const subtitleTrackUrl = envSubtitleUrl || resolvedSubtitleUrl
+  const canSubOn = Boolean(hasAltSubVideo || subtitleTrackUrl)
+
+  const vttCacheRef = useRef<{ url: string; cues: VttCue[] } | null>(null)
+  const [vttCues, setVttCues] = useState<VttCue[] | null>(null)
+  const [vttLoading, setVttLoading] = useState(false)
 
   const [captureWarning, setCaptureWarning] = useState<string>('')
 
@@ -222,6 +423,23 @@ export function VideoPlayerScreen({
   const playbackRates = useMemo(() => [0.5, 0.75, 1.0, 1.25, 1.5], [])
   const [playbackRate, setPlaybackRate] = useState(1)
   const [showPlaybackRateModal, setShowPlaybackRateModal] = useState(false)
+
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [showQualityModal, setShowQualityModal] = useState(false)
+  const qualityOptions = useMemo(
+    () => [
+      { value: 'auto' as const, label: '自動（推奨）' },
+      { value: 'high' as const, label: '高画質' },
+      { value: 'saver' as const, label: 'データセーバー' },
+    ],
+    []
+  )
+  const [quality, setQuality] = useState<(typeof qualityOptions)[number]['value']>('auto')
+
+  const effectivePlayUrl = useMemo(() => {
+    if (!playUrl) return null
+    return applyQualityToPlaybackUrl(playUrl, quality)
+  }, [playUrl, quality])
 
   const videoRef = useRef<Video | null>(null)
   const videoWrapRef = useRef<any>(null)
@@ -253,12 +471,35 @@ export function VideoPlayerScreen({
     setPlayUrl(null)
     setPlayUrlKind(null)
     setLoadError(null)
+    setWebIframeTried(false)
+    setResolvedSubtitleUrl('')
 
-    const resolved = await resolvePlaybackUrl(apiBaseUrl, selectedVideoId)
+    const resolved = await resolvePlaybackUrl(apiBaseUrl, selectedVideoId, authToken, {
+      // On web, HLS playback is not supported by most browsers (except Safari) without hls.js.
+      // Prefer MP4 for widest compatibility.
+      preferMp4: Platform.OS === 'web',
+    })
     setPlayUrl(resolved.url ?? null)
     setPlayUrlKind(resolved.kind)
     setLoadError(resolved.error)
-  }, [apiBaseUrl, selectedVideoId])
+
+    if (
+      resolved.url &&
+      (resolved.kind === 'signed-hls' ||
+        resolved.kind === 'signed-mp4' ||
+        resolved.kind === 'signed-iframe' ||
+        resolved.kind === 'hls' ||
+        resolved.kind === 'mp4' ||
+        resolved.kind === 'iframe')
+    ) {
+      setResolvedSubtitleUrl(
+        deriveStreamSubtitleUrl({
+          playbackUrl: resolved.url,
+          fallbackVideoId: selectedVideoId,
+        })
+      )
+    }
+  }, [apiBaseUrl, authToken, selectedVideoId])
 
   useEffect(() => {
     void load()
@@ -336,6 +577,29 @@ export function VideoPlayerScreen({
     setPendingResume({ positionMillis, shouldPlay })
     setSubOn((v) => !v)
   }, [canSubOn])
+
+  const setQualityValue = useCallback(
+    async (next: QualityValue) => {
+      if (next === quality) return
+
+      // Keep position when switching manifest parameters (best-effort).
+      let positionMillis = 0
+      let shouldPlay = uiShouldPlay
+      try {
+        const status: any = await videoRef.current?.getStatusAsync?.()
+        if (status?.isLoaded) {
+          positionMillis = typeof status.positionMillis === 'number' ? status.positionMillis : 0
+          shouldPlay = typeof status.isPlaying === 'boolean' ? Boolean(status.isPlaying) : uiShouldPlay
+        }
+      } catch {
+        // ignore
+      }
+
+      setPendingResume({ positionMillis, shouldPlay })
+      setQuality(next)
+    },
+    [quality, uiShouldPlay]
+  )
 
   const setSubOnValue = useCallback((next: boolean) => {
     if (!canSubOn) return
@@ -439,16 +703,108 @@ export function VideoPlayerScreen({
   }, [playbackRate])
 
   useEffect(() => {
-    if (!subtitleUrl) return
+    const next = Math.max(0, Math.min(1, Number(volume)))
+    const anyRef: any = videoRef.current as any
+    if (typeof anyRef?.setVolumeAsync === 'function') {
+      void anyRef.setVolumeAsync(next).catch(() => {})
+      return
+    }
+    if (typeof anyRef?.setStatusAsync === 'function') {
+      void anyRef.setStatusAsync({ volume: next }).catch(() => {})
+    }
+  }, [volume])
+
+  useEffect(() => {
+    if (!envSubtitleUrl) return
     setSubOn(true)
-  }, [subtitleUrl])
+  }, [envSubtitleUrl])
+
+  useEffect(() => {
+    // When using separate subtitle-baked video, no VTT overlay is needed.
+    if (!subOn) {
+      setVttCues(null)
+      setVttLoading(false)
+      return
+    }
+    if (hasAltSubVideo) {
+      setVttCues(null)
+      setVttLoading(false)
+      return
+    }
+    const url = String(subtitleTrackUrl || '').trim()
+    if (!url) {
+      setVttCues(null)
+      setVttLoading(false)
+      return
+    }
+
+    if (vttCacheRef.current?.url === url) {
+      setVttCues(vttCacheRef.current.cues)
+      setVttLoading(false)
+      return
+    }
+
+    let mounted = true
+    setVttLoading(true)
+    void (async () => {
+      try {
+        if (Platform.OS === 'web') {
+          // eslint-disable-next-line no-console
+          console.info('[subtitle] vtt fetch start', { url })
+        }
+
+        const res = await fetch(url)
+        if (!res.ok) {
+          if (Platform.OS === 'web') {
+            // eslint-disable-next-line no-console
+            console.warn('[subtitle] vtt fetch http error', {
+              url,
+              status: res.status,
+              statusText: (res as any)?.statusText,
+            })
+          }
+          throw new Error(`vtt_http_${res.status}`)
+        }
+
+        const text = await res.text()
+        const cues = parseVttCues(text)
+        if (Platform.OS === 'web') {
+          // eslint-disable-next-line no-console
+          console.info('[subtitle] vtt fetch ok', { url, bytes: text.length, cues: cues.length })
+        }
+        if (!mounted) return
+        vttCacheRef.current = { url, cues }
+        setVttCues(cues)
+      } catch {
+        if (Platform.OS === 'web') {
+          // eslint-disable-next-line no-console
+          console.warn('[subtitle] vtt fetch failed', { url })
+        }
+        if (!mounted) return
+        setVttCues([])
+      } finally {
+        if (!mounted) return
+        setVttLoading(false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [hasAltSubVideo, subOn, subtitleTrackUrl])
+
+  const activeSubtitleText = useMemo(() => {
+    if (!subOn) return null
+    if (!vttCues) return null
+    if (!playback.isLoaded) return null
+    return findActiveCueText(vttCues, playback.positionMillis)
+  }, [playback.isLoaded, playback.positionMillis, subOn, vttCues])
 
   useEffect(() => {
     // Auto-hide controls once playback has started a bit.
     if (!hasStarted) return
     if (!controlsVisible) return
     if (!uiShouldPlay) return
-    if (!(playback.positionMillis > 1200)) return
     scheduleAutoHide()
     return () => {
       if (autoHideTimerRef.current) {
@@ -456,13 +812,17 @@ export function VideoPlayerScreen({
         autoHideTimerRef.current = null
       }
     }
-  }, [controlsVisible, hasStarted, playback.positionMillis, scheduleAutoHide, uiShouldPlay])
+  }, [controlsVisible, hasStarted, scheduleAutoHide, uiShouldPlay])
 
   const seekProgress = useMemo(() => {
     const d = playback.durationMillis
     if (!(d > 0)) return 0
     return Math.max(0, Math.min(1, playback.positionMillis / d))
   }, [playback.durationMillis, playback.positionMillis])
+
+  const volumeProgress = useMemo(() => {
+    return Math.max(0, Math.min(1, Number(volume)))
+  }, [volume])
 
   const formatTime = useCallback((millis: number) => {
     const totalSec = Math.max(0, Math.floor(millis / 1000))
@@ -515,50 +875,123 @@ export function VideoPlayerScreen({
             } as any)
           : null)}
       >
-        {playUrl ? (
-          <Video
-            key={`${selectedVideoId}:${playUrl}`}
-            ref={(el) => {
-              videoRef.current = el
-            }}
-            style={styles.video}
-            videoStyle={styles.videoInner}
-            source={{ uri: playUrl }}
-            {...(subtitleUrl
-              ? ({
-                  textTracks: [
-                    {
-                      title: '日本語',
-                      language: 'ja',
-                      type: 'text/vtt',
-                      uri: subtitleUrl,
-                    },
-                  ],
-                  selectedTextTrack: subOn
-                    ? { type: 'index', value: 0 }
-                    : Platform.OS === 'web'
-                      ? undefined
-                      : { type: 'disabled' },
-                } as any)
-              : null)}
-            useNativeControls={false}
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay={uiShouldPlay}
-            progressUpdateIntervalMillis={250}
-            onLoad={() => {
-              if (!pendingAutoPlay) return
-              setPendingAutoPlay(false)
-              void videoRef.current?.playAsync?.().catch(() => {})
-            }}
-            onReadyForDisplay={(e: any) => {
-              const ns = e?.naturalSize
-              const w = Number(ns?.width)
-              const h = Number(ns?.height)
-              if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-                setNaturalSize({ width: w, height: h })
-              }
-            }}
-            onPlaybackStatusUpdate={(status: any) => {
+        {effectivePlayUrl ? (
+          isIframePlayback ? (
+            <iframe
+              key={`${selectedVideoId}:${effectivePlayUrl}`}
+              src={effectivePlayUrl}
+              allow="autoplay; fullscreen; picture-in-picture"
+              allowFullScreen
+              style={{ width: '100%', height: '100%', border: 0 }}
+            />
+          ) : (
+            <Video
+              key={`${selectedVideoId}:${effectivePlayUrl}`}
+              ref={(el) => {
+                videoRef.current = el
+              }}
+              style={styles.video}
+              videoStyle={styles.videoInner}
+              source={{ uri: effectivePlayUrl }}
+              {...(subtitleTrackUrl
+                ? ({
+                    textTracks: [
+                      {
+                        title: '日本語',
+                        language: 'ja',
+                        type: 'text/vtt',
+                        uri: subtitleTrackUrl,
+                      },
+                    ],
+                    selectedTextTrack: subOn ? { type: 'language', value: 'ja' } : { type: 'disabled' },
+                  } as any)
+                : null)}
+              useNativeControls={false}
+              resizeMode={ResizeMode.CONTAIN}
+              shouldPlay={uiShouldPlay}
+              progressUpdateIntervalMillis={250}
+              onError={async () => {
+                // Web resiliency:
+                // - MP4 downloads may be disabled on Stream, which results in 404.
+                // - If MP4 fails, try HLS; if HLS fails too, fall back to Stream iframe.
+                if (!isWeb) return
+
+                try {
+                  if (playUrlKind === 'signed-mp4' || playUrlKind === 'mp4') {
+                    const resolved = await resolvePlaybackUrl(apiBaseUrl, selectedVideoId, authToken, { preferMp4: false })
+                    if (resolved.url) {
+                      setPlayUrl(resolved.url)
+                      setPlayUrlKind(resolved.kind)
+                      setLoadError(null)
+                      if (
+                        resolved.url &&
+                        (resolved.kind === 'signed-hls' ||
+                          resolved.kind === 'signed-mp4' ||
+                          resolved.kind === 'signed-iframe' ||
+                          resolved.kind === 'hls' ||
+                          resolved.kind === 'mp4' ||
+                          resolved.kind === 'iframe')
+                      ) {
+                        setResolvedSubtitleUrl(
+                          deriveStreamSubtitleUrl({
+                            playbackUrl: resolved.url,
+                            fallbackVideoId: selectedVideoId,
+                          })
+                        )
+                      } else {
+                        setResolvedSubtitleUrl('')
+                      }
+                      return
+                    }
+                  }
+
+                  if ((playUrlKind === 'signed-hls' || playUrlKind === 'hls') && !webIframeTried) {
+                    setWebIframeTried(true)
+                    const resolved = await resolvePlaybackUrl(apiBaseUrl, selectedVideoId, authToken, { preferIframe: true })
+                    if (resolved.url) {
+                      setUiShouldPlay(false)
+                      setPlayUrl(resolved.url)
+                      setPlayUrlKind(resolved.kind)
+                      setLoadError(null)
+                      if (
+                        resolved.url &&
+                        (resolved.kind === 'signed-hls' ||
+                          resolved.kind === 'signed-mp4' ||
+                          resolved.kind === 'signed-iframe' ||
+                          resolved.kind === 'hls' ||
+                          resolved.kind === 'mp4' ||
+                          resolved.kind === 'iframe')
+                      ) {
+                        setResolvedSubtitleUrl(
+                          deriveStreamSubtitleUrl({
+                            playbackUrl: resolved.url,
+                            fallbackVideoId: selectedVideoId,
+                          })
+                        )
+                      } else {
+                        setResolvedSubtitleUrl('')
+                      }
+                      return
+                    }
+                  }
+                } catch {
+                  // ignore
+                }
+              }}
+              onLoad={() => {
+                if (!pendingAutoPlay) return
+                setPendingAutoPlay(false)
+                void videoRef.current?.playAsync?.().catch(() => {})
+              }}
+              onReadyForDisplay={(e: any) => {
+                const ns = e?.naturalSize
+                const w = Number(ns?.width)
+                const h = Number(ns?.height)
+                if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+                  setNaturalSize({ width: w, height: h })
+                }
+              }}
+              onPlaybackStatusUpdate={(status: any) => {
               if (status?.isLoaded) {
                 const positionMillis = typeof status.positionMillis === 'number' ? status.positionMillis : 0
                 const durationMillis = typeof status.durationMillis === 'number' ? status.durationMillis : 0
@@ -607,7 +1040,8 @@ export function VideoPlayerScreen({
                 }
               })()
             }}
-          />
+            />
+          )
         ) : (
           <View style={styles.loadingBox}>
             <Text style={styles.loadingText}>{loadError ? `再生URL取得に失敗しました（${loadError}）` : '読み込み中…'}</Text>
@@ -620,12 +1054,20 @@ export function VideoPlayerScreen({
           </View>
         ) : null}
 
-        {hasStarted && playUrl && !uiShouldPlay ? (
+        {hasStarted && playUrl && !uiShouldPlay && !isIframePlayback ? (
           <View pointerEvents="none" style={styles.pauseDim} />
         ) : null}
 
+        {subOn && !hasAltSubVideo && !isIframePlayback && (activeSubtitleText || vttLoading) ? (
+          <View pointerEvents="none" style={styles.subtitleOverlay}>
+            <Text style={styles.subtitleOverlayText}>
+              {activeSubtitleText || (vttLoading ? '字幕を読み込み中…' : '')}
+            </Text>
+          </View>
+        ) : null}
+
         {/* Tap stage to toggle play/pause (behind controls) */}
-        {hasStarted && playUrl ? (
+        {hasStarted && playUrl && !isIframePlayback ? (
           <Pressable
             onPress={onStageTap}
             style={StyleSheet.absoluteFillObject}
@@ -665,7 +1107,7 @@ export function VideoPlayerScreen({
         ) : null}
 
         {/* Right actions */}
-        {controlsVisible && !showPrePlay ? (
+        {controlsVisible && !showPrePlay && !isIframePlayback ? (
           <View style={styles.sideActions} pointerEvents="box-none">
             <Pressable style={styles.sideAction} accessibilityRole="button" accessibilityLabel="エピソード">
               <IconEpisode width={20} height={20} />
@@ -684,11 +1126,24 @@ export function VideoPlayerScreen({
               {isFavorite ? <IconFavoriteOn width={20} height={20} /> : <IconFavoriteOff width={20} height={20} />}
               <Text style={styles.sideActionText}>お気に入り</Text>
             </Pressable>
+            <Pressable
+              style={styles.sideAction}
+              accessibilityRole="button"
+              accessibilityLabel="設定"
+              onPress={() => {
+                setControlsVisible(true)
+                cancelAutoHide()
+                setShowSettingsModal(true)
+              }}
+            >
+              <IconSetting width={20} height={20} />
+              <Text style={styles.sideActionText}>設定</Text>
+            </Pressable>
           </View>
         ) : null}
 
         {/* Center controls */}
-        {hasStarted && playUrl && controlsVisible ? (
+        {hasStarted && playUrl && controlsVisible && !isIframePlayback ? (
           <View style={styles.centerControls} pointerEvents="box-none">
             <Pressable
               style={styles.centerButton}
@@ -734,42 +1189,8 @@ export function VideoPlayerScreen({
         ) : null}
 
         {/* Bottom controls */}
-        {hasStarted && playUrl && controlsVisible ? (
+        {hasStarted && playUrl && controlsVisible && !isIframePlayback ? (
           <View style={styles.bottomControls} pointerEvents="box-none">
-            <View style={styles.bottomRow}>
-              <Text style={styles.timeLabel}>
-                {formatTime(playback.positionMillis)} / {formatTime(playback.durationMillis)}
-              </Text>
-              <View style={styles.bottomRight}>
-                {canSubOn ? (
-                  <Pressable
-                    style={styles.subButton}
-                    accessibilityRole="button"
-                    accessibilityLabel={subOn ? '字幕OFF' : '字幕ON'}
-                    onPress={() => {
-                      setControlsVisible(true)
-                      cancelAutoHide()
-                      setShowSubtitleModal(true)
-                    }}
-                  >
-                    {subOn ? <IconSubtitleOn width={20} height={20} /> : <IconSubtitleOff width={20} height={20} />}
-                  </Pressable>
-                ) : null}
-                <Pressable
-                  style={styles.rateButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="再生速度"
-                  onPress={() => {
-                    setControlsVisible(true)
-                    cancelAutoHide()
-                    setShowPlaybackRateModal(true)
-                  }}
-                >
-                  <Text style={styles.rateText}>{playbackRate.toFixed(2).replace(/\.00$/, '')}x</Text>
-                </Pressable>
-              </View>
-            </View>
-
             <View
               style={styles.seekTrack}
               onLayout={(e) => {
@@ -811,6 +1232,54 @@ export function VideoPlayerScreen({
                   },
                 ]}
               />
+            </View>
+
+            <View style={styles.seekMetaRow}>
+              <View style={styles.volumeGroup}>
+                <IconSound width={22} height={22} />
+                <View
+                  style={styles.volumeTrack}
+                  onLayout={(e) => {
+                    const w = e.nativeEvent.layout.width
+                    if (Number.isFinite(w) && w > 0) setVolumeBarWidth(w)
+                  }}
+                  onStartShouldSetResponder={() => true}
+                  onResponderGrant={() => {
+                    setControlsVisible(true)
+                    cancelAutoHide()
+                  }}
+                  onResponderRelease={(e: any) => {
+                    if (!(volumeBarWidth > 0)) return
+                    const x = Number(e?.nativeEvent?.locationX)
+                    if (!Number.isFinite(x)) return
+                    const ratio = Math.max(0, Math.min(1, x / volumeBarWidth))
+                    setVolume(ratio)
+                    if (uiShouldPlay) scheduleAutoHide()
+                  }}
+                >
+                  <View style={styles.volumeTrackBg} />
+                  <View
+                    style={[
+                      styles.volumeFill,
+                      {
+                        width: Math.max(0, Math.min(volumeBarWidth, Math.round(volumeProgress * volumeBarWidth))),
+                      },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.volumeKnob,
+                      {
+                        left: Math.max(0, Math.min(volumeBarWidth - 10, Math.round(volumeProgress * volumeBarWidth) - 5)),
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+
+              <Text style={styles.timeLabel}>
+                {formatTime(playback.positionMillis)} / {formatTime(playback.durationMillis)}
+              </Text>
             </View>
           </View>
         ) : null}
@@ -876,6 +1345,17 @@ export function VideoPlayerScreen({
             />
             <View style={styles.subtitleModalCard}>
               <View style={styles.subtitleModalHeader}>
+                <Pressable
+                  style={styles.modalBack}
+                  accessibilityRole="button"
+                  accessibilityLabel="設定に戻る"
+                  onPress={() => {
+                    setShowSubtitleModal(false)
+                    setShowSettingsModal(true)
+                  }}
+                >
+                  <IconArrow width={16} height={16} />
+                </Pressable>
                 <Text style={styles.subtitleModalTitle}>字幕</Text>
                 <Pressable
                   style={styles.subtitleModalClose}
@@ -946,6 +1426,17 @@ export function VideoPlayerScreen({
             />
             <View style={styles.rateModalCard}>
               <View style={styles.rateModalHeader}>
+                <Pressable
+                  style={styles.modalBack}
+                  accessibilityRole="button"
+                  accessibilityLabel="設定に戻る"
+                  onPress={() => {
+                    setShowPlaybackRateModal(false)
+                    setShowSettingsModal(true)
+                  }}
+                >
+                  <IconArrow width={16} height={16} />
+                </Pressable>
                 <Text style={styles.rateModalTitle}>再生速度</Text>
                 <Pressable
                   style={styles.rateModalClose}
@@ -986,6 +1477,146 @@ export function VideoPlayerScreen({
           </View>
         ) : null}
 
+        {showSettingsModal ? (
+          <View style={styles.settingsModalWrap} pointerEvents="box-none">
+            <Pressable
+              style={styles.settingsModalScrim}
+              onPress={() => {
+                setShowSettingsModal(false)
+                if (uiShouldPlay) scheduleAutoHide()
+              }}
+            />
+            <View style={styles.settingsModalCard}>
+              <View style={styles.settingsModalHeader}>
+                <View style={styles.modalBack} />
+                <Text style={styles.settingsModalTitle}>設定</Text>
+                <Pressable
+                  style={styles.settingsModalClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="閉じる"
+                  onPress={() => {
+                    setShowSettingsModal(false)
+                    if (uiShouldPlay) scheduleAutoHide()
+                  }}
+                >
+                  <IconClose width={16} height={16} />
+                </Pressable>
+              </View>
+
+              <Pressable
+                style={styles.settingsOption}
+                accessibilityRole="button"
+                accessibilityLabel="字幕"
+                onPress={() => {
+                  setShowSettingsModal(false)
+                  setShowSubtitleModal(true)
+                }}
+              >
+                <Text style={styles.settingsOptionText}>字幕</Text>
+                <View style={styles.settingsOptionRight}>
+                  <Text style={styles.settingsOptionValue}>{subOn ? '日本語(字幕ガイド)' : 'オフ'}</Text>
+                  <Text style={styles.settingsOptionChevron}>›</Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                style={styles.settingsOption}
+                accessibilityRole="button"
+                accessibilityLabel="画質"
+                onPress={() => {
+                  setShowSettingsModal(false)
+                  setShowQualityModal(true)
+                }}
+              >
+                <Text style={styles.settingsOptionText}>画質</Text>
+                <View style={styles.settingsOptionRight}>
+                  <Text style={styles.settingsOptionValue}>
+                    {qualityOptions.find((o) => o.value === quality)?.label ?? '自動（推奨）'}
+                  </Text>
+                  <Text style={styles.settingsOptionChevron}>›</Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                style={styles.settingsOption}
+                accessibilityRole="button"
+                accessibilityLabel="再生速度"
+                onPress={() => {
+                  setShowSettingsModal(false)
+                  setShowPlaybackRateModal(true)
+                }}
+              >
+                <Text style={styles.settingsOptionText}>再生速度</Text>
+                <View style={styles.settingsOptionRight}>
+                  <Text style={styles.settingsOptionValue}>{`${playbackRate.toFixed(2).replace(/\.00$/, '')}x`}</Text>
+                  <Text style={styles.settingsOptionChevron}>›</Text>
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {showQualityModal ? (
+          <View style={styles.qualityModalWrap} pointerEvents="box-none">
+            <Pressable
+              style={styles.qualityModalScrim}
+              onPress={() => {
+                setShowQualityModal(false)
+                if (uiShouldPlay) scheduleAutoHide()
+              }}
+            />
+            <View style={styles.qualityModalCard}>
+              <View style={styles.qualityModalHeader}>
+                <Pressable
+                  style={styles.modalBack}
+                  accessibilityRole="button"
+                  accessibilityLabel="設定に戻る"
+                  onPress={() => {
+                    setShowQualityModal(false)
+                    setShowSettingsModal(true)
+                  }}
+                >
+                  <IconArrow width={16} height={16} />
+                </Pressable>
+                <Text style={styles.qualityModalTitle}>画質</Text>
+                <Pressable
+                  style={styles.qualityModalClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="閉じる"
+                  onPress={() => {
+                    setShowQualityModal(false)
+                    if (uiShouldPlay) scheduleAutoHide()
+                  }}
+                >
+                  <IconClose width={16} height={16} />
+                </Pressable>
+              </View>
+
+              {qualityOptions.map((opt) => {
+                const isActive = opt.value === quality
+                return (
+                  <Pressable
+                    key={`quality-${opt.value}`}
+                    style={styles.qualityOption}
+                    accessibilityRole="button"
+                    accessibilityLabel={opt.label}
+                    onPress={() => {
+                      void setQualityValue(opt.value as QualityValue)
+                      setShowQualityModal(false)
+                      if (uiShouldPlay) scheduleAutoHide()
+                    }}
+                  >
+                    <View style={styles.qualityOptionLeft}>
+                      {isActive ? <IconCheck width={12} height={12} /> : <View style={styles.qualityOptionIconPlaceholder} />}
+                      <Text style={styles.qualityOptionText}>{opt.label}</Text>
+                    </View>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </View>
+        ) : null}
+
         {showPrePlay ? (
           <View style={styles.prePlayOverlay} pointerEvents="box-none">
             <View style={styles.prePlayScrim} pointerEvents="none" />
@@ -1005,6 +1636,8 @@ export function VideoPlayerScreen({
                   setHasStarted(true)
                   setPendingAutoPlay(true)
                   setUiShouldPlay(true)
+                  setControlsVisible(false)
+                  cancelAutoHide()
                   void videoRef.current?.playAsync?.().catch(() => {})
                 }}
               >
@@ -1050,6 +1683,8 @@ export function VideoPlayerScreen({
                   // Start playback exactly when the user presses play.
                   setPendingAutoPlay(true)
                   setUiShouldPlay(true)
+                  setControlsVisible(false)
+                  cancelAutoHide()
                   void videoRef.current?.playAsync?.().catch(() => {})
                 }}
                 disabled={!playUrl || playUrlKind === 'error'}
@@ -1071,11 +1706,6 @@ export function VideoPlayerScreen({
                 )}
               </Pressable>
 
-              {loadError && playUrlKind === 'fallback' ? (
-                <Text style={styles.warnText}>
-                  ※ Stream の非公開再生設定が未完了のため、テスト動画で再生します（{loadError}）。
-                </Text>
-              ) : null}
             </View>
           </View>
         ) : null}
@@ -1130,6 +1760,25 @@ const styles = StyleSheet.create({
   pauseDim: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  subtitleOverlay: {
+    position: 'absolute',
+    left: 18,
+    right: 18,
+    bottom: 98,
+    alignItems: 'center',
+    zIndex: 3,
+  },
+  subtitleOverlayText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    overflow: 'hidden',
   },
   loadingBox: {
     ...StyleSheet.absoluteFillObject,
@@ -1270,6 +1919,43 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: THEME.accent,
   },
+  seekMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+  },
+  volumeGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    paddingRight: 12,
+  },
+  volumeTrack: {
+    width: 140,
+    height: 16,
+    justifyContent: 'center',
+  },
+  volumeTrackBg: {
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  volumeFill: {
+    position: 'absolute',
+    left: 0,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: THEME.text,
+  },
+  volumeKnob: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: THEME.text,
+  },
   subtitleModalWrap: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
@@ -1297,8 +1983,16 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontSize: 16,
     fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
   },
   subtitleModalClose: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBack: {
     width: 28,
     height: 28,
     alignItems: 'center',
@@ -1351,6 +2045,8 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontSize: 16,
     fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
   },
   rateModalClose: {
     width: 28,
@@ -1372,6 +2068,124 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   rateOptionIconPlaceholder: {
+    width: 12,
+    height: 12,
+  },
+
+  settingsModalWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    zIndex: 3,
+  },
+  settingsModalScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  settingsModalCard: {
+    backgroundColor: '#111111',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    paddingBottom: 18,
+    paddingHorizontal: 18,
+  },
+  settingsModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  settingsModalTitle: {
+    color: THEME.text,
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
+  },
+  settingsModalClose: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsOption: {
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  settingsOptionText: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  settingsOptionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  settingsOptionValue: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  settingsOptionChevron: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: -1,
+  },
+
+  qualityModalWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    zIndex: 3,
+  },
+  qualityModalScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  qualityModalCard: {
+    backgroundColor: '#111111',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    paddingBottom: 18,
+    paddingHorizontal: 18,
+  },
+  qualityModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  qualityModalTitle: {
+    color: THEME.text,
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
+  },
+  qualityModalClose: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qualityOption: {
+    paddingVertical: 12,
+  },
+  qualityOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  qualityOptionText: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  qualityOptionIconPlaceholder: {
     width: 12,
     height: 12,
   },

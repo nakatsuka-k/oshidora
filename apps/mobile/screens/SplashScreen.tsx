@@ -1,17 +1,19 @@
-import { ResizeMode, Video } from 'expo-av'
 import * as ScreenOrientation from 'expo-screen-orientation'
+import { StatusBar } from 'expo-status-bar'
 import { useEffect, useMemo, useRef } from 'react'
-import { Platform, StyleSheet, View } from 'react-native'
+import { Animated, Easing, Image, Platform, StyleSheet, View } from 'react-native'
 import { THEME } from '../components'
 
 type Props = {
-  videoUri: string
+  videoUri?: string
   maxDurationMs?: number
   onDone: () => void
 }
 
 export function SplashScreen({ videoUri, maxDurationMs = 3000, onDone }: Props) {
   const doneRef = useRef(false)
+  const bgOpacity = useRef(new Animated.Value(1)).current
+  const contentOpacity = useRef(new Animated.Value(1)).current
 
   const finishOnce = () => {
     if (doneRef.current) return
@@ -33,10 +35,35 @@ export function SplashScreen({ videoUri, maxDurationMs = 3000, onDone }: Props) 
       }
     })()
 
+    const fadeMs = 700
+    const startFadeAt = Math.max(0, maxDurationMs - fadeMs)
+
     const t = setTimeout(() => {
       if (cancelled) return
-      finishOnce()
-    }, Math.max(0, maxDurationMs))
+      const contentFadeDelayMs = 80
+      const contentFadeMs = 200
+
+      Animated.parallel([
+        Animated.timing(bgOpacity, {
+          toValue: 0,
+          duration: fadeMs,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.sequence([
+          Animated.delay(contentFadeDelayMs),
+          Animated.timing(contentOpacity, {
+            toValue: 0,
+            duration: contentFadeMs,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start(() => {
+        if (cancelled) return
+        finishOnce()
+      })
+    }, startFadeAt)
 
     return () => {
       cancelled = true
@@ -52,62 +79,69 @@ export function SplashScreen({ videoUri, maxDurationMs = 3000, onDone }: Props) 
   }, [maxDurationMs])
 
   return (
-    <View style={styles.root}>
-      <View style={[styles.videoWrap, Platform.OS === 'web' ? styles.videoWrapWeb : null]}>
-        {Platform.OS === 'web' ? (
-          // Use a native <video> on web to reliably center the content.
-          // react-native-web's style mapping doesn't always apply object-position to the <video> element.
-          <video
-            src={videoUri}
-            autoPlay
-            playsInline
-            muted={shouldMute}
-            controls={false}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              objectPosition: 'center center',
-              overflow: 'hidden',
-              display: 'block',
-            }}
-            onEnded={() => finishOnce()}
-            onError={() => finishOnce()}
-          />
+    <View style={styles.root} pointerEvents="auto">
+      <StatusBar hidden />
+      <Animated.View style={[styles.bg, { opacity: bgOpacity }]} />
+      <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
+        {videoUri && Platform.OS === 'web' ? (
+          <View style={[styles.videoWrap, styles.videoWrapWeb]}>
+            <video
+              src={videoUri}
+              autoPlay
+              playsInline
+              muted={shouldMute}
+              controls={false}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                objectPosition: 'center center',
+                overflow: 'hidden',
+                display: 'block',
+              }}
+              onEnded={() => finishOnce()}
+              onError={() => finishOnce()}
+            />
+          </View>
         ) : (
-          <Video
-            style={styles.video}
-            source={{ uri: videoUri }}
-            // Keep the full frame visible, centered within the container.
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay
-            isLooping={false}
-            useNativeControls={false}
-            isMuted={shouldMute}
-            volume={0}
-            onPlaybackStatusUpdate={(status: any) => {
-              if (!status?.isLoaded) return
-              if (status.didJustFinish) {
-                finishOnce()
-              }
-            }}
-            onError={() => {
-              // If video fails, proceed to next screen (spec: do not block).
-              finishOnce()
-            }}
-          />
+          <View style={styles.logoWrap}>
+            <Image source={require('../assets/oshidora-logo.png')} style={styles.logo} resizeMode="contain" />
+          </View>
         )}
-      </View>
+      </Animated.View>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   root: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+    zIndex: 9999,
+    elevation: 9999,
+  },
+  bg: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: THEME.bg,
+  },
+  content: {
+    flex: 1,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  logoWrap: {
+    width: '100%',
+    maxWidth: 768,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  logo: {
+    width: '70%',
+    maxWidth: 260,
+    aspectRatio: 260 / 120,
   },
   videoWrap: {
     width: '100%',
@@ -118,9 +152,5 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginLeft: 'auto',
     marginRight: 'auto',
-  },
-  video: {
-    width: '100%',
-    height: '100%',
   },
 })

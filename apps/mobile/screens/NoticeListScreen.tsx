@@ -34,15 +34,9 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDet
   const [error, setError] = useState('')
 
   const emptyState = useMemo(() => {
-    if (!loggedIn) {
-      return {
-        title: 'お知らせはありません',
-        body: 'ログインすると、\nお知らせを受け取れます。',
-      }
-    }
     return {
       title: 'お知らせはありません',
-      body: '現在表示できるお知らせがありません。',
+      body: !loggedIn ? 'ログインすると、\n通知として受け取れます。' : '現在表示できるお知らせがありません。',
     }
   }, [loggedIn])
 
@@ -51,13 +45,6 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDet
 
     if (mock) {
       setItems(getMockNoticeListItems())
-      setLoading(false)
-      setError('')
-      return
-    }
-
-    if (!loggedIn) {
-      setItems([])
       setLoading(false)
       setError('')
       return

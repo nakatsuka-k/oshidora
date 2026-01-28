@@ -114,6 +114,27 @@ export default {
     }
 
     const res = await env.ASSETS.fetch(request);
+
+    // SPA fallback: serve /index.html for non-asset HTML routes.
+    // This prevents deep-link navigation (e.g. /unapproved-videos) from returning not_found.
+    const accept = request.headers.get('Accept') || '';
+    const url = new URL(request.url);
+    const isGet = request.method === 'GET';
+    const isHtml = accept.includes('text/html');
+    const looksLikeAsset = /\.[a-zA-Z0-9]+$/.test(url.pathname);
+    if (res.status === 404 && isGet && isHtml && !looksLikeAsset) {
+      const indexUrl = new URL(request.url);
+      indexUrl.pathname = '/index.html';
+      const indexRes = await env.ASSETS.fetch(new Request(indexUrl.toString(), request));
+      const headers = new Headers(indexRes.headers);
+      headers.set('X-Robots-Tag', ROBOTS_TAG);
+      return new Response(indexRes.body, {
+        status: indexRes.status,
+        statusText: indexRes.statusText,
+        headers,
+      });
+    }
+
     const headers = new Headers(res.headers);
     headers.set('X-Robots-Tag', ROBOTS_TAG);
     return new Response(res.body, {

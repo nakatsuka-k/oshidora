@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef } from 'react'
+import type { StyleProp, TextStyle, ViewStyle } from 'react-native'
 import { StyleSheet, TextInput, View } from 'react-native'
 import { digitsOnly } from '../utils/validators'
 import { THEME } from './theme'
@@ -8,9 +9,11 @@ type PinInputProps = {
   value: string
   onChange: (next: string) => void
   error?: boolean
+  rowStyle?: StyleProp<ViewStyle>
+  inputStyle?: StyleProp<TextStyle>
 }
 
-export function PinInput({ length, value, onChange, error }: PinInputProps) {
+export function PinInput({ length, value, onChange, error, rowStyle, inputStyle }: PinInputProps) {
   const refs = useRef<Array<TextInput | null>>([])
 
   const digits = useMemo(() => {
@@ -51,7 +54,7 @@ export function PinInput({ length, value, onChange, error }: PinInputProps) {
   )
 
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, rowStyle]}>
       {digits.map((d, idx) => (
         <TextInput
           key={idx}
@@ -64,7 +67,7 @@ export function PinInput({ length, value, onChange, error }: PinInputProps) {
           keyboardType="number-pad"
           autoCapitalize="none"
           maxLength={1}
-          style={[styles.input, error ? styles.inputError : null]}
+          style={[styles.input, inputStyle, error ? styles.inputError : null]}
         />
       ))}
     </View>

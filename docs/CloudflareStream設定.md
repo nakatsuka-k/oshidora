@@ -53,6 +53,20 @@ API（`apps/api`）に以下を実装しています。
 
 ※これは「Stream管理APIから動画情報を引く」用途で残しています。非公開配信の再生には `signed-playback` を利用してください。
 
+### 4) （管理画面向け）字幕（WebVTT）アップロード/一覧
+
+管理画面（`apps/admin`）から、Cloudflare Stream に **字幕トラック（WebVTT）** を登録してプレビュー確認できます。
+
+- `POST /cms/stream/captions/:videoId`
+  - `multipart/form-data`
+  - フィールド:
+    - `file`（必須）: `.vtt`
+    - `language`（任意）: 例 `ja`
+    - `label`（任意）: 例 `日本語`
+    - `default`（任意）: `true` を送るとデフォルト字幕
+- `GET /cms/stream/captions/:videoId`
+  - 登録済み字幕の一覧を返します
+
 ## 必要な環境変数（Secrets/Vars）
 
 ### API（Cloudflare Workers）側
@@ -109,7 +123,6 @@ npm run stream:create-signing-key
 
 ### Mobile（Expo）側
 
-- `EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID`
   - 例: `75f3ddaf69ff44c43746c9492c3c4df5`
   - これは **公開されても問題ない** videoId のみを置きます
 

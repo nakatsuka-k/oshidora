@@ -4,30 +4,54 @@ const ALLOWED_IPS = [
   '117.102.205.215',
   '133.232.96.225',
   '3.114.72.126',
-  '133.200.10.97',
-  '192.168.20.123',
 ]
+
+function splitXForwardedFor(xff: string | null): string[] {
+  if (!xff) return []
+  return xff
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function normalizeIp(value: string): string {
+  const s = String(value || '').trim()
+  if (!s) return ''
+  // IPv6 in brackets: [::1]:1234
+  if (s.startsWith('[')) {
+    const end = s.indexOf(']')
+    if (end > 0) return s.slice(1, end)
+    return s
+  }
+  // IPv4 with port: 1.2.3.4:1234
+  const m = s.match(/^(\d+\.\d+\.\d+\.\d+)(?::\d+)?$/)
+  if (m) return m[1]
+  return s
+}
+
+function getClientIp(request: Request): string {
+  const cf = request.headers.get('CF-Connecting-IP')
+  if (cf) return normalizeIp(cf)
+  const xff = request.headers.get('X-Forwarded-For')
+  const first = splitXForwardedFor(xff)[0]
+  if (first) return normalizeIp(first)
+  return ''
+}
 
 // Pages project domain
 const PAGES_URL = 'https://oshidra-web.pages.dev'
 
 export default {
   async fetch(request: Request, _env: unknown): Promise<Response> {
-    // Get client IP
-    const clientIP =
-      request.headers.get('CF-Connecting-IP') ||
-      request.headers.get('X-Forwarded-For') ||
-      'unknown'
-
-    // Check if IP is in allowlist
-    const isAllowed = ALLOWED_IPS.some((ip) => clientIP.includes(ip))
+    const clientIP = getClientIp(request)
+    const isAllowed = !!clientIP && ALLOWED_IPS.includes(clientIP)
 
     if (!isAllowed) {
       return new Response(
         JSON.stringify({
           error: 'Access Denied',
           message: 'Your IP address is not authorized to access this resource.',
-          your_ip: clientIP,
+          your_ip: clientIP || 'unknown',
         }),
         {
           status: 403,

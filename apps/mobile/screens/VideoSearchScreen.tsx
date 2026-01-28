@@ -155,7 +155,7 @@ export function VideoSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenP
                     {v.title}
                   </Text>
                   {typeof v.priceCoin === 'number' && v.priceCoin > 0 ? (
-                    <Text style={styles.videoPrice}>{v.priceCoin}コイン</Text>
+                    <Text style={styles.videoPrice}>会員限定</Text>
                   ) : null}
                 </View>
               </Pressable>

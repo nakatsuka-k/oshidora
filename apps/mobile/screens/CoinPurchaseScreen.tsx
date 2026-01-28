@@ -103,7 +103,7 @@ export function CoinPurchaseScreen({ apiBaseUrl, ownedCoins, onBack, onStartChec
 
         <View style={styles.topBox}>
           <Text style={styles.balance}>所持コイン：{Number.isFinite(balance) ? balance : 0}</Text>
-          <Text style={styles.desc}>コインを購入して動画を視聴できます</Text>
+          <Text style={styles.desc}>コインを購入して推しポイントを付与できます</Text>
         </View>
 
         <View style={styles.list}>

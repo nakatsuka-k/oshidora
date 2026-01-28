@@ -1,3 +1,4 @@
+import type { StyleProp, TextStyle, ViewStyle } from 'react-native'
 import { Pressable, StyleSheet, Text } from 'react-native'
 import { THEME } from './theme'
 
@@ -6,28 +7,35 @@ type ButtonProps = {
   onPress?: () => void
   disabled?: boolean
   fullWidth?: boolean
+  containerStyle?: StyleProp<ViewStyle>
+  textStyle?: StyleProp<TextStyle>
 }
 
-export function PrimaryButton({ label, onPress, disabled, fullWidth = true }: ButtonProps) {
+export function PrimaryButton({ label, onPress, disabled, fullWidth = true, containerStyle, textStyle }: ButtonProps) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={[styles.primary, fullWidth ? styles.fullWidth : styles.flex, disabled ? styles.disabled : null]}
+      style={[
+        styles.primary,
+        fullWidth ? styles.fullWidth : styles.flex,
+        disabled ? styles.disabled : null,
+        containerStyle,
+      ]}
     >
-      <Text style={styles.primaryText}>{label}</Text>
+      <Text style={[styles.primaryText, textStyle]}>{label}</Text>
     </Pressable>
   )
 }
 
-export function SecondaryButton({ label, onPress, disabled }: ButtonProps) {
+export function SecondaryButton({ label, onPress, disabled, containerStyle, textStyle }: ButtonProps) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={[styles.secondary, disabled ? styles.disabled : null]}
+      style={[styles.secondary, disabled ? styles.disabled : null, containerStyle]}
     >
-      <Text style={styles.secondaryText}>{label}</Text>
+      <Text style={[styles.secondaryText, textStyle]}>{label}</Text>
     </Pressable>
   )
 }

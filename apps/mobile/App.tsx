@@ -1,4 +1,6 @@
+import { detectSocialService } from './utils/socialLinks'
 import { StatusBar } from 'expo-status-bar'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -24,6 +26,7 @@ import {
   ConfirmDialog,
   IconButton,
   NoticeBellButton,
+  PagedCarousel,
   PaginationDots,
   PrimaryButton,
   RowItem,
@@ -31,16 +34,18 @@ import {
   SecondaryButton,
   Section,
   Slideshow,
+  SubscriptionPromptModal,
   TabBar,
   THEME,
 } from './components'
 
 import IconShare from './assets/icon_share.svg'
+import IconFavoriteOn from './assets/icon_favorite_on.svg'
 import IconFavoriteOff from './assets/icon_favorite_off.svg'
 import IconPen from './assets/pen-icon.svg'
 import IconStarYellow from './assets/star-yellow.svg'
 import IconHeartYellow from './assets/hairt-yellow.svg'
-import IconStarEmpty from './assets/empty-star.svg'
+import IconStarEmpty from './assets/none-start.svg'
 import IconPlayWhite from './assets/icon_play_white.svg'
 import IconDown from './assets/icon_down.svg'
 import IconNotification from './assets/icon_notification.svg'
@@ -49,6 +54,7 @@ import IconSearch from './assets/icon_search.svg'
 import {
   DeveloperMenuScreen,
   EmailVerifyScreen,
+  EmailChangeStartScreen,
   RegisterCompleteScreen,
   SignupScreen,
   Sms2faScreen,
@@ -59,7 +65,7 @@ import {
   VideoListScreen,
   WelcomeTopScreen,
   PrivacyPolicyScreen,
-  PaidVideoPurchaseScreen,
+  SubscriptionScreen,
   CommentPostScreen,
   VideoPlayerScreen,
   StaffCastReviewScreen,
@@ -97,6 +103,15 @@ import { apiFetch, DEBUG_MOCK_KEY } from './utils/api'
 import { getBoolean, setBoolean, getString, setString } from './utils/storage'
 import { useIpAddress } from './utils/useIpAddress'
 import { upsertWatchHistory } from './utils/watchHistory'
+import {
+  getTutorialSlideCount,
+  parseTutorialIndexFromPathname,
+  screenToWebPath,
+  splitPathname,
+  tutorialIndexToWebPath,
+  videoPlayerToWebUrl,
+  webPathnameToScreen,
+} from './utils/webRoutes'
 
 const FALLBACK_ALLOWED_IPS = [
   '223.135.200.51',
@@ -107,13 +122,19 @@ const FALLBACK_ALLOWED_IPS = [
   '159.28.175.137',
 ]
 
+const CAST_PROFILE_CAROUSEL_CARD_WIDTH = 210
+const CAST_PROFILE_CAROUSEL_GAP = 12
+
 const AUTH_TOKEN_KEY = 'auth_token'
 const DEBUG_AUTH_AUTOFILL_KEY = 'debug_auth_autofill'
 const DEBUG_USER_TYPE_KEY = 'debug_user_type_v1'
 const DEBUG_PAYPAY_LINKED_KEY = 'debug_paypay_linked_v1'
+const SUBSCRIPTION_KEY = 'user_is_subscribed_v1'
 
 const MOCK_LOGIN_EMAIL = 'demo@oshidora.jp'
 const MOCK_LOGIN_PASSWORD = 'password123'
+
+const TUTORIAL_SLIDE_COUNT = getTutorialSlideCount()
 
 type Oshi = {
   id: string
@@ -125,12 +146,45 @@ type WorkDetailWork = {
   id: string
   title: string
   subtitle: string
+  thumbnailUrl?: string | null
   tags: string[]
   rating: number
   reviews: number
   story: string
-  episodes: Array<{ id: string; title: string; priceCoin: number }>
+  episodes: Array<{
+    id: string
+    title: string
+    priceCoin: number
+    episodeNo?: number | null
+    thumbnailUrl?: string | null
+    streamVideoId?: string | null
+    streamVideoIdClean?: string | null
+    streamVideoIdSubtitled?: string | null
+  }>
   staff: Array<{ role: string; name: string }>
+}
+
+type ApiWorkDetailResponse = {
+  item?: {
+    id?: string
+    title?: string
+    description?: string
+    thumbnailUrl?: string
+    tags?: string[]
+    published?: boolean
+  }
+  episodes?: Array<{
+    id?: string
+    title?: string
+    priceCoin?: number
+    episodeNo?: number | null
+    thumbnailUrl?: string
+    streamVideoId?: string
+    streamVideoIdClean?: string
+    streamVideoIdSubtitled?: string
+    published?: boolean
+    scheduledAt?: string | null
+  }>
 }
 
 type WorkKey = 'doutcall' | 'mysteryX' | 'romanceY' | 'comedyZ' | 'actionW'
@@ -160,7 +214,7 @@ type Screen =
   | 'tutorial'
   | 'terms'
   | 'privacy'
-  | 'purchase'
+  | 'subscription'
   | 'coinPurchase'
   | 'coinGrant'
   | 'coinGrantComplete'
@@ -170,6 +224,8 @@ type Screen =
   | 'comment'
   | 'signup'
   | 'emailVerify'
+  | 'emailChangeStart'
+  | 'emailChangeVerify'
   | 'sms2fa'
   | 'profileRegister'
   | 'registerComplete'
@@ -196,6 +252,7 @@ type Screen =
   | 'top'
   | 'dev'
   | 'profile'
+  | 'phoneChange'
   | 'castReview'
   | 'workReview'
   | 'workDetail'
@@ -205,263 +262,6 @@ type Screen =
   | 'logout'
 
 const WEB_DEFAULT_SCREEN: Screen = 'splash'
-
-const TUTORIAL_SLIDE_COUNT = 3
-
-function screenToWebHash(screen: Screen): string {
-  switch (screen) {
-    case 'splash':
-      return '#/splash'
-    case 'home':
-      return '#/home'
-    case 'videoList':
-      return '#/videos'
-    case 'cast':
-      return '#/cast'
-    case 'castSearchResult':
-      return '#/cast-result'
-    case 'search':
-      return '#/search'
-    case 'work':
-      return '#/work-search'
-    case 'mypage':
-      return '#/mypage'
-    case 'castProfileRegister':
-      return '#/cast-profile-register'
-    case 'profileEdit':
-      return '#/profile-edit'
-    case 'profileRegister':
-      return '#/profile-register'
-    case 'welcome':
-      return '#/welcome'
-    case 'login':
-      return '#/login'
-    case 'tutorial':
-      return '#/tutorial/1'
-    case 'terms':
-      return '#/terms'
-    case 'privacy':
-      return '#/privacy'
-    case 'purchase':
-      return '#/purchase'
-    case 'coinPurchase':
-      return '#/coin-purchase'
-    case 'coinGrant':
-      return '#/coin-grant'
-    case 'coinGrantComplete':
-      return '#/coin-grant-complete'
-    case 'coinExchangeDest':
-      return '#/coin-exchange'
-    case 'coinExchangePayPay':
-      return '#/coin-exchange/paypay'
-    case 'coinExchangeComplete':
-      return '#/coin-exchange/complete'
-    case 'comment':
-      return '#/comment'
-    case 'signup':
-      return '#/signup'
-    case 'emailVerify':
-      return '#/email-verify'
-    case 'sms2fa':
-      return '#/sms-2fa'
-    case 'registerComplete':
-      return '#/register-complete'
-    case 'phone':
-      return '#/phone'
-    case 'otp':
-      return '#/otp'
-    case 'ranking':
-      return '#/ranking'
-    case 'favorites':
-      return '#/favorites'
-    case 'favoriteVideos':
-      return '#/favorites/videos'
-    case 'favoriteCasts':
-      return '#/favorites/casts'
-    case 'favoriteCastsEdit':
-      return '#/favorites/casts/edit'
-    case 'watchHistory':
-      return '#/watch-history'
-    case 'settings':
-      return '#/settings'
-    case 'withdrawalRequest':
-      return '#/withdrawal'
-    case 'logout':
-      return '#/logout'
-    case 'notice':
-      return '#/notice'
-    case 'noticeDetail':
-      return '#/notice-detail'
-    case 'contact':
-      return '#/contact'
-    case 'faq':
-      return '#/faq'
-    case 'profile':
-      return '#/profile'
-    case 'castReview':
-      return '#/cast-review'
-    case 'workReview':
-      return '#/work-review'
-    case 'workDetail':
-      return '#/work'
-    case 'videoPlayer':
-      // Player supports deep link params via hash query (workId, episodeId).
-      // Keep a bare path as a safe default.
-      return '#/play'
-    case 'top':
-      return '#/debug'
-    case 'dev':
-      return '#/dev'
-    default:
-      return '#/welcome'
-  }
-}
-
-function videoPlayerToWebHash(params: { workId: string; episodeId?: string | null }): string {
-  const workId = String(params.workId || '').trim()
-  const episodeId = String(params.episodeId || '').trim()
-  const qs = new URLSearchParams()
-  if (workId) qs.set('workId', workId)
-  if (episodeId) qs.set('episodeId', episodeId)
-  const q = qs.toString()
-  return q ? `#/play?${q}` : '#/play'
-}
-
-function tutorialIndexToWebHash(index: number): string {
-  const safe = Math.max(0, Math.min(index, Math.max(0, TUTORIAL_SLIDE_COUNT - 1)))
-  return `#/tutorial/${safe + 1}`
-}
-
-function parseTutorialIndexFromWebHash(hash: string): number | null {
-  const value = (hash || '').trim()
-  const path = value.startsWith('#') ? value.slice(1) : value
-  if (!path.startsWith('/tutorial')) return null
-
-  const parts = path.split('?')[0].split('/').filter(Boolean)
-  // parts: ['tutorial', '2']
-  if (parts.length >= 2) {
-    const raw = Number(parts[1])
-    if (Number.isFinite(raw)) {
-      const zeroBased = Math.floor(raw) - 1
-      return Math.max(0, Math.min(zeroBased, Math.max(0, TUTORIAL_SLIDE_COUNT - 1)))
-    }
-  }
-  return 0
-}
-
-function webHashToScreen(hash: string): Screen {
-  const value = (hash || '').trim()
-  const raw = value.startsWith('#') ? value.slice(1) : value
-  const path = raw.split('?')[0]
-
-  switch (path) {
-    case '/':
-    case '/splash':
-      return 'splash'
-    case '/welcome':
-      return 'welcome'
-    case '/login':
-      return 'login'
-    case '/tutorial':
-    case '/tutorial/':
-      return 'tutorial'
-    case '/terms':
-      return 'terms'
-    case '/privacy':
-      return 'privacy'
-    case '/purchase':
-      return 'purchase'
-    case '/coin-purchase':
-      return 'coinPurchase'
-    case '/coin-grant':
-      return 'coinGrant'
-    case '/coin-grant-complete':
-      return 'coinGrantComplete'
-    case '/coin-exchange':
-      return 'coinExchangeDest'
-    case '/coin-exchange/paypay':
-      return 'coinExchangePayPay'
-    case '/coin-exchange/complete':
-      return 'coinExchangeComplete'
-    case '/comment':
-      return 'comment'
-    case '/signup':
-      return 'signup'
-    case '/email-verify':
-      return 'emailVerify'
-    case '/profile-register':
-      return 'profileRegister'
-    case '/sms-2fa':
-      return 'sms2fa'
-    case '/register-complete':
-      return 'registerComplete'
-    case '/phone':
-      return 'phone'
-    case '/otp':
-      return 'otp'
-    case '/home':
-      return 'home'
-    case '/videos':
-      return 'videoList'
-    case '/cast':
-      return 'cast'
-    case '/cast-result':
-      return 'castSearchResult'
-    case '/search':
-      return 'search'
-    case '/work-search':
-      return 'work'
-    case '/mypage':
-      return 'mypage'
-    case '/cast-profile-register':
-      return 'castProfileRegister'
-    case '/profile-edit':
-      return 'profileEdit'
-    case '/ranking':
-      return 'ranking'
-    case '/favorites':
-      return 'favorites'
-    case '/favorites/videos':
-      return 'favoriteVideos'
-    case '/favorites/casts':
-      return 'favoriteCasts'
-    case '/favorites/casts/edit':
-      return 'favoriteCastsEdit'
-    case '/watch-history':
-      return 'watchHistory'
-    case '/settings':
-      return 'settings'
-    case '/withdrawal':
-      return 'withdrawalRequest'
-    case '/logout':
-      return 'logout'
-    case '/notice':
-      return 'notice'
-    case '/notice-detail':
-      return 'noticeDetail'
-    case '/contact':
-      return 'contact'
-    case '/faq':
-      return 'faq'
-    case '/profile':
-      return 'profile'
-    case '/cast-review':
-      return 'castReview'
-    case '/work-review':
-      return 'workReview'
-    case '/work':
-      return 'workDetail'
-    case '/play':
-      return 'videoPlayer'
-    case '/debug':
-      return 'top'
-    case '/dev':
-      return 'dev'
-    default:
-      if (path.startsWith('/tutorial/')) return 'tutorial'
-      return WEB_DEFAULT_SCREEN
-  }
-}
 
 function screenToDocumentTitle(
   screen: Screen,
@@ -484,8 +284,8 @@ function screenToDocumentTitle(
       return `${base} | 利用規約`
     case 'privacy':
       return `${base} | プライバシーポリシー`
-    case 'purchase':
-      return `${base} | 購入確認`
+    case 'subscription':
+      return `${base} | サブスク会員`
     case 'coinPurchase':
       return `${base} | コイン購入`
     case 'coinGrant':
@@ -504,6 +304,10 @@ function screenToDocumentTitle(
       return `${base} | 新規登録`
     case 'emailVerify':
       return `${base} | メール認証`
+    case 'emailChangeStart':
+      return `${base} | メール変更`
+    case 'emailChangeVerify':
+      return `${base} | メール変更（認証）`
     case 'sms2fa':
       return `${base} | SMS認証`
     case 'profileRegister':
@@ -514,6 +318,8 @@ function screenToDocumentTitle(
       return `${base} | SMS認証（電話番号）`
     case 'otp':
       return `${base} | 2段階認証`
+    case 'phoneChange':
+      return `${base} | 電話番号変更（SMS認証）`
     case 'home':
       return `${base} | トップ`
     case 'videoList':
@@ -613,8 +419,24 @@ function resolveShareAppBaseUrl(apiBaseUrl?: string): string | null {
   return fallback ? fallback : null
 }
 
+function ensureWebDocumentBackground() {
+  if (Platform.OS !== 'web') return
+  const doc = (globalThis as any).document
+  if (!doc) return
+  try {
+    if (doc.documentElement?.style) doc.documentElement.style.backgroundColor = THEME.bg
+    if (doc.body?.style) doc.body.style.backgroundColor = THEME.bg
+  } catch {
+    // ignore
+  }
+}
+
 export default function App() {
   const TUTORIAL_SEEN_KEY = 'tutorial_seen_v1'
+
+  useEffect(() => {
+    ensureWebDocumentBackground()
+  }, [])
 
   const apiBaseUrl = useMemo(() => {
     const env = process.env.EXPO_PUBLIC_API_BASE_URL
@@ -645,21 +467,63 @@ export default function App() {
   const { ipInfo, isLoading: ipLoading, error: ipError, refetch: refetchIp } = useIpAddress({ enabled: ipRestrictionEnabled })
   const ipAllowed = !ipRestrictionEnabled || (ipInfo?.ip ? allowedIpSet.has(ipInfo.ip) : false)
 
-  const streamSampleVideoId = useMemo(() => {
-    const env = process.env.EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID
-    return env && env.trim().length > 0 ? env.trim() : '75f3ddaf69ff44c43746c9492c3c4df5'
-  }, [])
+  const [maintenanceMode, setMaintenanceMode] = useState<boolean>(false)
+  const [maintenanceMessage, setMaintenanceMessage] = useState<string>('')
+  const [maintenanceCheckedOnce, setMaintenanceCheckedOnce] = useState<boolean>(false)
+
+  const refreshMaintenance = useCallback(async () => {
+    try {
+      const res = await apiFetch(`${apiBaseUrl.replace(/\/$/, '')}/v1/settings`)
+      if (!res.ok) throw new Error(`settings_http_${res.status}`)
+      const json = (await res.json().catch(() => ({}))) as { maintenanceMode?: unknown; maintenanceMessage?: unknown }
+      setMaintenanceMode(Boolean(json.maintenanceMode))
+      setMaintenanceMessage(String(json.maintenanceMessage ?? ''))
+    } catch {
+      // ignore network errors; do not hard-block app
+    } finally {
+      setMaintenanceCheckedOnce(true)
+    }
+  }, [apiBaseUrl])
+
+  useEffect(() => {
+    let mounted = true
+    const tick = async () => {
+      if (!mounted) return
+      await refreshMaintenance()
+    }
+    void tick()
+    const t = setInterval(() => void tick(), 30_000)
+    return () => {
+      mounted = false
+      clearInterval(t)
+    }
+  }, [refreshMaintenance])
 
   // Player context (AXCMS-PL-001)
-  const [playerVideoIdNoSub, setPlayerVideoIdNoSub] = useState<string>('75f3ddaf69ff44c43746c9492c3c4df5')
+  const [playerVideoIdNoSub, setPlayerVideoIdNoSub] = useState<string>(() => '')
   const [playerVideoIdWithSub, setPlayerVideoIdWithSub] = useState<string | null>(null)
   const [playerEpisodeContext, setPlayerEpisodeContext] = useState<{
     workId: string
     episodeIds: string[]
     currentIndex: number
   } | null>(null)
+  const [playerHydrating, setPlayerHydrating] = useState<boolean>(false)
 
-  const [screen, setScreen] = useState<Screen>('splash')
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const h = (window.location.hash || '').trim()
+      // Migrate legacy hash-based URLs (/#/home) to clean paths (/home).
+      if (h.startsWith('#/')) {
+        try {
+          window.history.replaceState(null, '', h.slice(1))
+        } catch {
+          // ignore
+        }
+      }
+      return webPathnameToScreen(window.location.pathname) as Screen
+    }
+    return 'splash'
+  })
   const [history, setHistory] = useState<Screen[]>([])
 
   const [postLoginTarget, setPostLoginTarget] = useState<Screen | null>(null)
@@ -676,53 +540,101 @@ export default function App() {
   const [registerPassword, setRegisterPassword] = useState<string>('')
   const [registerPhone, setRegisterPhone] = useState<string>('')
 
+  const [emailChangeEmail, setEmailChangeEmail] = useState<string>('')
+  const [debugEmailChangeCode, setDebugEmailChangeCode] = useState<string>('')
+  const [debugPhoneChangeCode, setDebugPhoneChangeCode] = useState<string>('')
+
   const [userProfile, setUserProfile] = useState<{
     displayName: string
+    fullName: string
+    fullNameKana: string
     email: string
     phone: string
     birthDate: string
+    favoriteGenres: string[]
     avatarUrl?: string
   }>({
     displayName: '',
+    fullName: '',
+    fullNameKana: '',
     email: '',
     phone: '',
     birthDate: '',
+    favoriteGenres: [],
     avatarUrl: undefined,
   })
 
-  const goTo = useCallback((next: Screen) => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.location.hash = next === 'tutorial' ? tutorialIndexToWebHash(0) : screenToWebHash(next)
-      return
-    }
-
-    setHistory((prev) => [...prev, screen])
-    setScreen(next)
-  }, [screen])
-
-  const replaceWebHash = useCallback((hash: string) => {
+  const pushWebUrl = useCallback((url: string) => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return
-    // Avoid growing history for tutorial swipes.
     try {
-      window.history.replaceState(null, '', hash)
+      window.history.pushState(null, '', url)
+      window.dispatchEvent(new PopStateEvent('popstate'))
     } catch {
-      window.location.hash = hash
+      window.location.assign(url)
     }
   }, [])
+
+  const replaceWebUrl = useCallback((url: string) => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return
+    try {
+      window.history.replaceState(null, '', url)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    } catch {
+      window.location.assign(url)
+    }
+  }, [])
+
+  const goTo = useCallback(
+    (next: Screen) => {
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        if (next === 'tutorial') {
+          setTutorialIndex(0)
+          pushWebUrl(tutorialIndexToWebPath(0))
+          return
+        }
+
+        // Keep IDs in URL to avoid "refresh -> mock".
+        // Work detail links should be created by the caller (e.g. openWorkDetail) with explicit IDs.
+        if (next === 'workDetail') {
+          pushWebUrl('/work')
+          return
+        }
+
+        if (next === 'videoPlayer') {
+          const wid = String(playerEpisodeContext?.workId ?? '').trim()
+          const eid = wid
+            ? String(playerEpisodeContext?.episodeIds?.[playerEpisodeContext.currentIndex] ?? '').trim()
+            : ''
+          pushWebUrl(wid ? videoPlayerToWebUrl({ workId: wid, episodeId: eid }) : '/play')
+          return
+        }
+
+        pushWebUrl(screenToWebPath(next))
+        return
+      }
+
+      setHistory((prev) => [...prev, screen])
+      setScreen(next)
+    },
+    [playerEpisodeContext, pushWebUrl, screen]
+  )
 
   const onTutorialIndexChange = useCallback((next: number) => {
     setTutorialIndex(next)
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      replaceWebHash(tutorialIndexToWebHash(next))
+      // Avoid growing history for tutorial swipes.
+      replaceWebUrl(tutorialIndexToWebPath(next))
     }
-  }, [replaceWebHash])
+  }, [replaceWebUrl])
 
   const goBack = useCallback(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       if (window.history.length > 1) {
         window.history.back()
       } else {
-        window.location.hash = screenToWebHash(WEB_DEFAULT_SCREEN)
+        replaceWebUrl(screenToWebPath(WEB_DEFAULT_SCREEN))
+        setHistory([])
+        setScreen(WEB_DEFAULT_SCREEN)
       }
       return
     }
@@ -754,7 +666,7 @@ export default function App() {
   const [debugAuthAutofill, setDebugAuthAutofill] = useState<boolean>(false)
   const [debugUserType, setDebugUserType] = useState<'user' | 'cast'>('user')
   const [debugPaypayLinked, setDebugPaypayLinked] = useState<boolean>(false)
-  const [debugMock, setDebugMock] = useState<boolean>(true)
+  const [debugMock, setDebugMock] = useState<boolean>(false)
   const [debugPaypayMaskedLabel] = useState<string>('********')
   const [debugEmailCode, setDebugEmailCode] = useState<string>('')
   const [debugSmsCode, setDebugSmsCode] = useState<string>('')
@@ -851,12 +763,11 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [token, autofill, userTypeValue, paypayLinked, mock] = await Promise.all([
+        const [token, autofill, userTypeValue, paypayLinked] = await Promise.all([
           getString(AUTH_TOKEN_KEY),
           getBoolean(DEBUG_AUTH_AUTOFILL_KEY),
           getString(DEBUG_USER_TYPE_KEY),
           getBoolean(DEBUG_PAYPAY_LINKED_KEY),
-          getBoolean(DEBUG_MOCK_KEY),
         ])
         if (token) {
           setAuthToken(token)
@@ -867,7 +778,10 @@ export default function App() {
         const t = (userTypeValue || '').trim()
         if (t === 'cast' || t === 'user') setDebugUserType(t)
         setDebugPaypayLinked(paypayLinked)
-        setDebugMock(mock)
+
+        // Force-disable app-side mock mode even if previously enabled.
+        setDebugMock(false)
+        void setBoolean(DEBUG_MOCK_KEY, false)
       } catch {
         // ignore
       }
@@ -886,9 +800,7 @@ export default function App() {
     void setBoolean(DEBUG_PAYPAY_LINKED_KEY, debugPaypayLinked)
   }, [debugPaypayLinked])
 
-  useEffect(() => {
-    void setBoolean(DEBUG_MOCK_KEY, debugMock)
-  }, [debugMock])
+  // Do not persist DEBUG_MOCK_KEY; mock mode is disabled.
 
   useEffect(() => {
     if (!authToken) return
@@ -910,12 +822,12 @@ export default function App() {
 
   const resetToLogin = useCallback(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.location.hash = screenToWebHash('login')
+      replaceWebUrl(screenToWebPath('login'))
       return
     }
     setHistory([])
     setScreen('login')
-  }, [])
+  }, [replaceWebUrl])
 
   const toggleDebugUserType = useCallback(() => {
     setDebugUserType((prev) => (prev === 'cast' ? 'user' : 'cast'))
@@ -938,12 +850,12 @@ export default function App() {
 
     setPostLoginTarget(screen)
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.location.hash = screenToWebHash('login')
+      replaceWebUrl(screenToWebPath('login'))
       return
     }
     setHistory([])
     setScreen('login')
-  }, [loggedIn, screen])
+  }, [loggedIn, replaceWebUrl, screen])
 
   const requireLogin = useCallback((next: Screen): boolean => {
     if (loggedIn) return true
@@ -951,6 +863,111 @@ export default function App() {
     goTo('login')
     return false
   }, [goTo, loggedIn])
+
+  const hydratePlayerFromEpisodeId = useCallback(
+    async (episodeId: string, opts?: { workId?: string }) => {
+      const rawEpisodeId = String(episodeId ?? '').trim()
+      if (!rawEpisodeId) {
+        setPlayerVideoIdNoSub('')
+        setPlayerVideoIdWithSub(null)
+        setPlayerHydrating(false)
+        return
+      }
+
+      setPlayerHydrating(true)
+
+      try {
+        const looksLikeStreamUid = /^[a-f0-9]{32}$/i.test(rawEpisodeId)
+        if (looksLikeStreamUid) {
+          setPlayerVideoIdNoSub(rawEpisodeId)
+          setPlayerVideoIdWithSub(null)
+          return
+        }
+
+        // Prefer resolving via work detail when workId is known.
+        const requestedWorkId = String(opts?.workId ?? '').trim()
+        if (requestedWorkId) {
+          const workRes = await apiFetch(`${apiBaseUrl}/v1/works/${encodeURIComponent(requestedWorkId)}`)
+          if (workRes.ok) {
+            const workJson = (await workRes.json().catch(() => ({}))) as any
+            const eps = Array.isArray(workJson?.episodes) ? workJson.episodes : []
+            const ep = eps.find((e: any) => String(e?.id ?? '').trim() === rawEpisodeId)
+            const chosenNoSub = String(ep?.streamVideoId || '').trim()
+            if (chosenNoSub) {
+              setSelectedWorkId(requestedWorkId)
+              setPlayerVideoIdNoSub(chosenNoSub)
+              setPlayerVideoIdWithSub(null)
+              return
+            }
+          }
+        }
+
+        const res = await apiFetch(`${apiBaseUrl}/v1/videos/${encodeURIComponent(rawEpisodeId)}`)
+        if (!res.ok) {
+          setPlayerVideoIdNoSub('')
+          setPlayerVideoIdWithSub(null)
+          return
+        }
+        const json = (await res.json().catch(() => ({}))) as any
+        const item = json?.item
+
+        const resolvedWorkId = String(item?.workId ?? opts?.workId ?? '').trim()
+        if (resolvedWorkId) setSelectedWorkId(resolvedWorkId)
+
+        const chosenNoSub = String(item?.streamVideoId || '').trim()
+
+        setPlayerVideoIdNoSub(chosenNoSub)
+        setPlayerVideoIdWithSub(null)
+      } catch {
+        // ignore
+        setPlayerVideoIdNoSub('')
+        setPlayerVideoIdWithSub(null)
+      } finally {
+        setPlayerHydrating(false)
+      }
+    },
+    [apiBaseUrl]
+  )
+
+  const hydratePlayerFromWorkId = useCallback(
+    async (workId: string) => {
+      const wid = String(workId ?? '').trim()
+      if (!wid) return
+
+      setPlayerHydrating(true)
+      try {
+        const workRes = await apiFetch(`${apiBaseUrl}/v1/works/${encodeURIComponent(wid)}`)
+        if (!workRes.ok) {
+          setPlayerVideoIdNoSub('')
+          setPlayerVideoIdWithSub(null)
+          return
+        }
+
+        const workJson = (await workRes.json().catch(() => ({}))) as any
+        const eps = Array.isArray(workJson?.episodes) ? workJson.episodes : []
+        const episodeIds = eps.map((e: any) => String(e?.id ?? '').trim()).filter(Boolean)
+        const firstEpisodeId = String(episodeIds[0] ?? '').trim()
+
+        setPlayerEpisodeContext({ workId: wid, episodeIds, currentIndex: 0 })
+
+        if (firstEpisodeId) {
+          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            pushWebUrl(videoPlayerToWebUrl({ workId: wid, episodeId: firstEpisodeId }))
+          }
+          await hydratePlayerFromEpisodeId(firstEpisodeId, { workId: wid })
+        } else {
+          setPlayerVideoIdNoSub('')
+          setPlayerVideoIdWithSub(null)
+        }
+      } catch {
+        setPlayerVideoIdNoSub('')
+        setPlayerVideoIdWithSub(null)
+      } finally {
+        setPlayerHydrating(false)
+      }
+    },
+    [apiBaseUrl, hydratePlayerFromEpisodeId]
+  )
 
   type ApprovedComment = { id: string; author: string; body: string; createdAt?: string }
 
@@ -961,11 +978,12 @@ export default function App() {
 
   const [workReviewSummary, setWorkReviewSummary] = useState<{ ratingAvg: number; reviewCount: number } | null>(null)
   const [workReviewError, setWorkReviewError] = useState('')
-  const [isWorkFavorite, setIsWorkFavorite] = useState(false)
+  const [favoriteWorkIds, setFavoriteWorkIds] = useState<string[]>([])
   const [favoriteToastText, setFavoriteToastText] = useState('')
   const [favoriteToastVisible, setFavoriteToastVisible] = useState(false)
   const favoriteToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [workDetailTab, setWorkDetailTab] = useState<'episodes' | 'info'>('episodes')
+  const [workDetailEpisodeIdFromHash, setWorkDetailEpisodeIdFromHash] = useState<string | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
   const [commentRating, setCommentRating] = useState(0)
 
@@ -991,31 +1009,37 @@ export default function App() {
     if (next === 'cast' && !requireLogin('cast')) return
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.location.hash = screenToWebHash(next)
+      pushWebUrl(screenToWebPath(next))
       return
     }
 
     setHistory([])
     setScreen(next)
-  }, [requireLogin])
+  }, [pushWebUrl, requireLogin])
 
   const [debugDotsIndex, setDebugDotsIndex] = useState<number>(0)
   const [debugSlideIndex, setDebugSlideIndex] = useState<number>(0)
+
+  const [castProfileSlideIndex, setCastProfileSlideIndex] = useState<number>(0)
+  const [castCommentsExpanded, setCastCommentsExpanded] = useState(false)
+  const [castCommentDraft, setCastCommentDraft] = useState('')
+  const [castCommentRating, setCastCommentRating] = useState(0)
+  const [castLocalComments, setCastLocalComments] = useState<ApprovedComment[]>([])
+  const [castFavorite, setCastFavorite] = useState(false)
 
   const mockProfile = useMemo(
     () => ({
       id: 'cast-1',
       name: '松岡美沙',
+      nameKana: 'マツオカミサ',
+      nameEn: 'Misa Matsuoka',
       affiliation: 'フリーランス',
       genre: ['女優'],
       biography:
         '生年月日：1998年11月29日\n神奈川県出身\n趣味：映画・アニメ鑑賞・カフェ巡り\n特技：ダンス・歌',
       worksText:
         '・ダウトコール\n・ミステリーX\n・ラブストーリーY',
-      snsLinks: [
-        { label: 'X', url: 'https://x.com/' },
-        { label: 'Instagram', url: 'https://www.instagram.com/' },
-      ],
+      snsLinks: ['https://x.com/', 'https://www.instagram.com/'],
       selfPr:
         '作品の世界観を大切に、観る人の心に残るお芝居を目指しています。応援よろしくお願いします。',
     }),
@@ -1150,19 +1174,32 @@ export default function App() {
     [mockWork]
   )
 
-  const [selectedWorkId, setSelectedWorkId] = useState<string>(mockWork.id)
+  const [selectedWorkId, setSelectedWorkId] = useState<string>(() => (Platform.OS === 'web' ? '' : mockWork.id))
+  const [guestWorkAuthCtaDismissed, setGuestWorkAuthCtaDismissed] = useState<boolean>(false)
+
+  const [remoteWorkDetail, setRemoteWorkDetail] = useState<{ loading: boolean; error: string; work: WorkDetailWork | null }>(
+    () => ({ loading: false, error: '', work: null })
+  )
 
   const workIdForDetail = useMemo(() => {
     const v = String(selectedWorkId || '').trim()
-    return v || mockWork.id
-  }, [mockWork.id, selectedWorkId])
+    return v
+  }, [selectedWorkId])
+
+  const isWorkFavorite = useMemo(() => favoriteWorkIds.includes(workIdForDetail), [favoriteWorkIds, workIdForDetail])
 
   const workForDetail = useMemo<WorkDetailWork>(() => {
+    if (remoteWorkDetail.work && remoteWorkDetail.work.id === workIdForDetail) return remoteWorkDetail.work
     const key = resolveWorkKeyById(workIdForDetail)
     const base = mockWorksByKey[key] ?? mockWork
     // Keep id consistent with the selected id for history/share/comments.
     return { ...base, id: workIdForDetail }
-  }, [mockWork, mockWorksByKey, workIdForDetail])
+  }, [mockWork, mockWorksByKey, remoteWorkDetail.work, workIdForDetail])
+
+  useEffect(() => {
+    if (loggedIn) return
+    setGuestWorkAuthCtaDismissed(false)
+  }, [loggedIn, workIdForDetail])
 
   const workRatingAvg = workReviewSummary ? workReviewSummary.ratingAvg : workForDetail.rating
   const workReviewCount = workReviewSummary ? workReviewSummary.reviewCount : workForDetail.reviews
@@ -1183,11 +1220,42 @@ export default function App() {
   const openWorkDetail = useCallback(
     (id: string) => {
       const nextId = String(id || '').trim()
-      if (nextId) setSelectedWorkId(nextId)
+      if (!nextId) return
+      setSelectedWorkId(nextId)
+      setWorkDetailEpisodeIdFromHash(null)
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        pushWebUrl(`/work?workId=${encodeURIComponent(nextId)}`)
+        return
+      }
       goTo('workDetail')
     },
-    [goTo]
+    [goTo, pushWebUrl]
   )
+
+  const workDetailHeroThumbnailUrl = useMemo(() => {
+    const workThumb = typeof workForDetail.thumbnailUrl === 'string' ? workForDetail.thumbnailUrl.trim() : ''
+    if (workThumb) return workThumb
+    const epThumb = typeof workForDetail.episodes?.[0]?.thumbnailUrl === 'string' ? workForDetail.episodes[0].thumbnailUrl.trim() : ''
+    if (epThumb) return epThumb
+    const streamUid = String(workForDetail.episodes?.[0]?.streamVideoId || '').trim()
+    if (/^[a-f0-9]{32}$/i.test(streamUid)) {
+      return `https://videodelivery.net/${encodeURIComponent(streamUid)}/thumbnails/thumbnail.jpg?time=1s`
+    }
+    return ''
+  }, [workForDetail.episodes, workForDetail.thumbnailUrl])
+
+  const workDetailPreferredEpisodeId = useMemo(() => {
+    const preferred = String(workDetailEpisodeIdFromHash || '').trim()
+    if (preferred) return preferred
+    const first = String(workForDetail.episodes?.[0]?.id ?? '').trim()
+    return first || null
+  }, [workDetailEpisodeIdFromHash, workForDetail.episodes])
+
+  const workDetailPreferredEpisodeIndex = useMemo(() => {
+    if (!workDetailPreferredEpisodeId) return 0
+    const idx = workForDetail.episodes.map((x) => x.id).indexOf(workDetailPreferredEpisodeId)
+    return idx >= 0 ? idx : 0
+  }, [workDetailPreferredEpisodeId, workForDetail.episodes])
 
   const resolveCastAccountIdByName = useCallback((name: string): string | null => {
     const n = (name || '').trim()
@@ -1197,16 +1265,27 @@ export default function App() {
     return null
   }, [mockProfile.id, mockProfile.name])
 
-  const shareUrlForWork = useCallback((contentId: string, videoIdNoSub: string, title: string) => {
-    // Use Cloudflare Stream thumbnail (public) for OG image when available.
-    const thumb = `https://videodelivery.net/${encodeURIComponent(videoIdNoSub)}/thumbnails/thumbnail.jpg?time=1s`
+  const shareUrlForWork = useCallback((contentId: string, episodeId: string | null | undefined, title: string, thumbUrl?: string | null) => {
+    const ep = String(episodeId || '').trim()
+    const cleanedThumb = (() => {
+      const explicit = typeof thumbUrl === 'string' ? thumbUrl.trim() : ''
+      if (explicit) return explicit
+      // Cloudflare Stream video uid is typically 32 hex chars.
+      if (/^[a-f0-9]{32}$/i.test(ep)) {
+        return `https://videodelivery.net/${encodeURIComponent(ep)}/thumbnails/thumbnail.jpg?time=1s`
+      }
+      return ''
+    })()
     const appBase = resolveShareAppBaseUrl(apiBaseUrl)
     if (!appBase) return ''
     const params = new URLSearchParams()
     params.set('workId', contentId)
     params.set('title', title)
-    params.set('thumb', thumb)
-    return `${appBase}#/work?${params.toString()}`
+    if (cleanedThumb) params.set('thumb', cleanedThumb)
+    const q = params.toString()
+    // Prefer path-form deep link: /work/<episodeId>
+    if (ep) return `${appBase}/work/${encodeURIComponent(ep)}${q ? `?${q}` : ''}`
+    return `${appBase}/work${q ? `?${q}` : ''}`
   }, [apiBaseUrl])
 
   const shareUrlForCast = useCallback((castId: string, castName: string) => {
@@ -1215,7 +1294,7 @@ export default function App() {
     const params = new URLSearchParams()
     params.set('castId', castId)
     params.set('title', castName)
-    return `${appBase}#/profile?${params.toString()}`
+    return `${appBase}/profile?${params.toString()}`
   }, [apiBaseUrl])
 
   const mockApprovedComments = useMemo(
@@ -1258,57 +1337,202 @@ export default function App() {
   const [coinExchangeLastCoinAmount, setCoinExchangeLastCoinAmount] = useState<number>(0)
   const [coinExchangeLastPointAmount, setCoinExchangeLastPointAmount] = useState<number>(0)
 
-  const [purchasedTargets, setPurchasedTargets] = useState<Set<string>>(() => new Set())
-  const [purchaseTarget, setPurchaseTarget] = useState<
-    | {
-        targetType: 'episode'
-        targetId: string
-        title: string
-        requiredCoins: number
-        contentTypeLabel: string
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(false)
+  const [subscriptionNote, setSubscriptionNote] = useState<string | null>(null)
+  const [subscriptionReturnTo, setSubscriptionReturnTo] = useState<Screen>('mypage')
+  const [subscriptionResume, setSubscriptionResume] = useState<{ workId: string; episodeId?: string | null } | null>(null)
+
+  const [subscriptionPrompt, setSubscriptionPrompt] = useState<{
+    visible: boolean
+    workId?: string
+    episodeId?: string
+    workTitle?: string
+    thumbnailUrl?: string
+  }>({ visible: false })
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const v = await getBoolean(SUBSCRIPTION_KEY)
+        setIsSubscribed(v)
+      } catch {
+        setIsSubscribed(false)
       }
-    | null
-  >(null)
+    })()
+  }, [])
 
-  const [episodePurchaseDialog, setEpisodePurchaseDialog] = useState<
-    | {
-        episodeId: string
-        title: string
-        requiredCoins: number
-      }
-    | null
-  >(null)
-  const [episodePurchaseBusy, setEpisodePurchaseBusy] = useState(false)
-  const [episodePurchaseError, setEpisodePurchaseError] = useState('')
-
-
-  const purchaseEpisode = useCallback(
-    async (episodeId: string, requiredCoins: number) => {
-      const key = `episode:${episodeId}`
-      if (purchasedTargets.has(key)) return
-      if (ownedCoins < requiredCoins) throw new Error('コインが不足しています')
-      await new Promise((r) => setTimeout(r, 400))
-      setOwnedCoins((v) => v - requiredCoins)
-      setPurchasedTargets((prev) => {
-        const next = new Set(prev)
-        next.add(key)
-        return next
+  const refreshSubscriptionFromApi = useCallback(async (): Promise<boolean | null> => {
+    if (!authToken) return null
+    try {
+      const res = await apiFetch(`${apiBaseUrl}/v1/me`, {
+        headers: {
+          authorization: `Bearer ${authToken}`,
+        },
       })
+      if (!res.ok) return null
+      const json = (await res.json().catch(() => ({}))) as any
+      const subscribed = Boolean(json?.isSubscribed)
+      setIsSubscribed(subscribed)
+      await setBoolean(SUBSCRIPTION_KEY, subscribed)
+
+      const p = json?.profile
+      if (p && typeof p === 'object') {
+        const favoriteGenres = Array.isArray(p.favoriteGenres) ? p.favoriteGenres.map((v: any) => String(v ?? '').trim()).filter(Boolean) : []
+        setUserProfile((prev) => ({
+          ...prev,
+          displayName: String(p.displayName ?? prev.displayName ?? ''),
+          fullName: String(p.fullName ?? prev.fullName ?? ''),
+          fullNameKana: String(p.fullNameKana ?? prev.fullNameKana ?? ''),
+          birthDate: String(p.birthDate ?? prev.birthDate ?? ''),
+          avatarUrl: String(p.avatarUrl ?? prev.avatarUrl ?? ''),
+          favoriteGenres,
+          email: String(json?.email ?? prev.email ?? ''),
+          phone: String(json?.phone ?? prev.phone ?? ''),
+        }))
+      }
+      return subscribed
+    } catch {
+      // ignore
+      return null
+    }
+  }, [apiBaseUrl, authToken])
+
+  const saveUserProfileToApi = useCallback(
+    async (opts: {
+      displayName: string
+      fullName: string
+      fullNameKana: string
+      birthDate: string
+      favoriteGenres: string[]
+      avatarUrl?: string
+    }) => {
+      if (!authToken) throw new Error('ログイン情報が不明です')
+      const res = await apiFetch(`${apiBaseUrl}/v1/me/profile`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          displayName: opts.displayName,
+          fullName: opts.fullName,
+          fullNameKana: opts.fullNameKana,
+          birthDate: opts.birthDate,
+          favoriteGenres: opts.favoriteGenres,
+          avatarUrl: opts.avatarUrl,
+        }),
+      })
+      const json = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) throw new Error(String(json?.error ?? '保存に失敗しました'))
     },
-    [ownedCoins, purchasedTargets]
+    [apiBaseUrl, authToken]
   )
 
-  const confirmEpisodePurchase = useCallback(
-    (opts: { episodeId: string; title: string; requiredCoins: number }) => {
-      const { episodeId, title, requiredCoins } = opts
-      const key = `episode:${episodeId}`
-      if (purchasedTargets.has(key)) return
-
-      setEpisodePurchaseError('')
-      setEpisodePurchaseDialog({ episodeId, title, requiredCoins })
+  const startEmailChange = useCallback(
+    async (email: string): Promise<string | void> => {
+      if (!authToken) throw new Error('ログイン情報が不明です')
+      const res = await apiFetch(`${apiBaseUrl}/v1/me/email/change/start`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ email }),
+      })
+      const json = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) {
+        const code = String(json?.error ?? '')
+        if (code === 'email_in_use') throw new Error('このメールアドレスはすでに使われています')
+        throw new Error('認証コードの送信に失敗しました')
+      }
+      const dbg = String(json?.debugCode ?? '')
+      setDebugEmailChangeCode(dbg)
+      return dbg
     },
-    [purchasedTargets]
+    [apiBaseUrl, authToken]
   )
+
+  const resendEmailChange = useCallback(
+    async (email: string): Promise<string | void> => {
+      if (!authToken) throw new Error('ログイン情報が不明です')
+      const res = await apiFetch(`${apiBaseUrl}/v1/me/email/change/resend`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ email }),
+      })
+      const json = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) throw new Error('認証コードの再送に失敗しました')
+      const dbg = String(json?.debugCode ?? '')
+      setDebugEmailChangeCode(dbg)
+      return dbg
+    },
+    [apiBaseUrl, authToken]
+  )
+
+  const verifyEmailChange = useCallback(
+    async (email: string, code: string): Promise<void> => {
+      if (!authToken) throw new Error('ログイン情報が不明です')
+      const res = await apiFetch(`${apiBaseUrl}/v1/me/email/change/verify`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ email, code }),
+      })
+      const json = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) {
+        const err = String(json?.error ?? '')
+        if (err === 'email_in_use') throw new Error('このメールアドレスはすでに使われています')
+        throw new Error('認証コードが正しくありません')
+      }
+    },
+    [apiBaseUrl, authToken]
+  )
+
+  const startPhoneChange = useCallback(
+    async (phone: string): Promise<string | void> => {
+      if (!authToken) throw new Error('ログイン情報が不明です')
+      const res = await apiFetch(`${apiBaseUrl}/v1/me/phone/change/start`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ phone }),
+      })
+      const json = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) throw new Error('SMSの送信に失敗しました')
+      const dbg = String(json?.debugCode ?? '')
+      setDebugPhoneChangeCode(dbg)
+      return dbg
+    },
+    [apiBaseUrl, authToken]
+  )
+
+  const verifyPhoneChange = useCallback(
+    async (phone: string, code: string): Promise<void> => {
+      if (!authToken) throw new Error('ログイン情報が不明です')
+      const res = await apiFetch(`${apiBaseUrl}/v1/me/phone/change/verify`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ phone, code }),
+      })
+      const json = (await res.json().catch(() => ({}))) as any
+      if (!res.ok) throw new Error('認証コードが正しくありません')
+    },
+    [apiBaseUrl, authToken]
+  )
+
+  useEffect(() => {
+    void refreshSubscriptionFromApi()
+  }, [refreshSubscriptionFromApi])
 
   const truncateCommentBody = useCallback((value: string) => {
     const v = String(value ?? '')
@@ -1405,6 +1629,108 @@ export default function App() {
     [apiBaseUrl]
   )
 
+  const fetchFavoriteWorkIdsFromApi = useCallback(async () => {
+    if (!authToken) {
+      setFavoriteWorkIds([])
+      return
+    }
+
+    try {
+      const res = await apiFetch(`${apiBaseUrl}/api/favorites/videos`, {
+        headers: {
+          authorization: `Bearer ${authToken}`,
+        },
+      })
+      if (!res.ok) return
+      const json = (await res.json().catch(() => ({}))) as any
+      const items = Array.isArray(json?.items) ? json.items : []
+      const ids = items.map((it: any) => String(it?.id ?? '').trim()).filter(Boolean)
+      setFavoriteWorkIds(Array.from(new Set(ids)))
+    } catch {
+      // ignore
+    }
+  }, [apiBaseUrl, authToken])
+
+  const fetchWorkDetailFromApi = useCallback(
+    async (workId: string) => {
+      const trimmed = String(workId || '').trim()
+      if (!trimmed) return
+
+      setRemoteWorkDetail((prev) => ({ ...prev, loading: true, error: '' }))
+      try {
+        const res = await apiFetch(`${apiBaseUrl}/v1/works/${encodeURIComponent(trimmed)}`)
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`)
+        }
+
+        const json = (await res.json().catch(() => ({}))) as ApiWorkDetailResponse
+        const item = json?.item
+        const eps = Array.isArray(json?.episodes) ? json.episodes : []
+
+        const title = String(item?.title ?? '').trim()
+        const description = String(item?.description ?? '')
+        const workThumbnailUrlRaw = String(item?.thumbnailUrl ?? '').trim()
+        const workThumbnailUrl = workThumbnailUrlRaw ? workThumbnailUrlRaw : null
+        const tags = Array.isArray(item?.tags) ? item?.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : []
+
+        // If API doesn't recognize the id, fall back to the existing mock mapping.
+        if (!title) {
+          setRemoteWorkDetail({ loading: false, error: 'not_found', work: null })
+          return
+        }
+
+        const episodes = eps
+          .map((e) => ({
+            id: String(e?.id ?? '').trim(),
+            title: String(e?.title ?? '').trim(),
+            priceCoin: Number(e?.priceCoin ?? 0) || 0,
+            episodeNo: e?.episodeNo == null ? null : Number(e.episodeNo),
+            thumbnailUrl: (() => {
+              const v = String(e?.thumbnailUrl ?? '').trim()
+              return v ? v : null
+            })(),
+            streamVideoId: (() => {
+              const v = String((e as any)?.streamVideoId ?? '').trim()
+              return v ? v : null
+            })(),
+            streamVideoIdClean: (() => {
+              const v = String((e as any)?.streamVideoIdClean ?? '').trim()
+              return v ? v : null
+            })(),
+            streamVideoIdSubtitled: (() => {
+              const v = String((e as any)?.streamVideoIdSubtitled ?? '').trim()
+              return v ? v : null
+            })(),
+          }))
+          .filter((e) => e.id && e.title)
+          .sort((a, b) => {
+            const an = a.episodeNo == null ? Number.POSITIVE_INFINITY : a.episodeNo
+            const bn = b.episodeNo == null ? Number.POSITIVE_INFINITY : b.episodeNo
+            if (an !== bn) return an - bn
+            return a.title.localeCompare(b.title)
+          })
+
+        const work: WorkDetailWork = {
+          id: trimmed,
+          title,
+          subtitle: '',
+          thumbnailUrl: workThumbnailUrl,
+          tags,
+          rating: 0,
+          reviews: 0,
+          story: description,
+          episodes,
+          staff: [],
+        }
+
+        setRemoteWorkDetail({ loading: false, error: '', work })
+      } catch (e) {
+        setRemoteWorkDetail({ loading: false, error: e instanceof Error ? e.message : String(e), work: null })
+      }
+    },
+    [apiBaseUrl]
+  )
+
   const fetchCastReviewSummary = useCallback(
     async (castId: string) => {
       setCastReviewError('')
@@ -1431,10 +1757,22 @@ export default function App() {
 
   useEffect(() => {
     if (screen !== 'workDetail') return
+    if (!workIdForDetail) {
+      setCommentsExpanded(false)
+      setRemoteWorkDetail({ loading: false, error: '', work: null })
+      return
+    }
     setCommentsExpanded(false)
+    void fetchWorkDetailFromApi(workIdForDetail)
     void fetchApprovedComments(workIdForDetail)
     void fetchWorkReviewSummary(workIdForDetail)
-  }, [fetchApprovedComments, fetchWorkReviewSummary, screen, workIdForDetail])
+    if (loggedIn) void fetchFavoriteWorkIdsFromApi()
+  }, [fetchApprovedComments, fetchFavoriteWorkIdsFromApi, fetchWorkDetailFromApi, fetchWorkReviewSummary, loggedIn, screen, workIdForDetail])
+
+  useEffect(() => {
+    if (loggedIn) return
+    setFavoriteWorkIds([])
+  }, [loggedIn])
 
   useEffect(() => {
     if (screen !== 'profile') return
@@ -1498,25 +1836,162 @@ export default function App() {
   }, [checkHealth, loadOshi])
 
   useEffect(() => {
+    // Self-heal: if we land on the player via deep link but video IDs are not resolved yet,
+    // try hydrating again from URL/context.
+    if (screen !== 'videoPlayer') return
+    if (playerHydrating) return
+    if (String(playerVideoIdNoSub || '').trim() || String(playerVideoIdWithSub || '').trim()) return
+
+    // Prefer episodeId from stateful context.
+    const ctxWorkId = String(playerEpisodeContext?.workId ?? '').trim()
+    const ctxEpisodeId = playerEpisodeContext
+      ? String(playerEpisodeContext.episodeIds?.[playerEpisodeContext.currentIndex] ?? '').trim()
+      : ''
+
+    if (ctxEpisodeId) {
+      setPlayerHydrating(true)
+      void hydratePlayerFromEpisodeId(ctxEpisodeId, { workId: ctxWorkId })
+      return
+    }
+
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return
+    const params = new URLSearchParams((window.location.search || '').replace(/^\?/, ''))
+
+    const pathSegments = splitPathname(window.location.pathname)
+    const decode = (v: string) => {
+      try {
+        return decodeURIComponent(v)
+      } catch {
+        return v
+      }
+    }
+    const pathPlay = (() => {
+      if (pathSegments[0] !== 'play') return { workId: '', episodeId: '' }
+      if (pathSegments.length >= 3) return { workId: decode(pathSegments[1] ?? ''), episodeId: decode(pathSegments[2] ?? '') }
+      if (pathSegments.length >= 2) return { workId: '', episodeId: decode(pathSegments[1] ?? '') }
+      return { workId: '', episodeId: '' }
+    })()
+
+    const workId = (params.get('workId') || pathPlay.workId || '').trim()
+    const episodeIdRaw = (params.get('episodeId') || params.get('videoId') || pathPlay.episodeId || '').trim()
+    if (episodeIdRaw) {
+      setPlayerHydrating(true)
+      void hydratePlayerFromEpisodeId(episodeIdRaw, { workId })
+      return
+    }
+    if (workId) {
+      void hydratePlayerFromWorkId(workId)
+    }
+  }, [hydratePlayerFromEpisodeId, hydratePlayerFromWorkId, playerEpisodeContext, playerHydrating, playerVideoIdNoSub, playerVideoIdWithSub, screen])
+
+  useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return
 
-    const syncFromHash = () => {
-      const raw = (window.location.hash || '').trim()
-      const hashBody = raw.startsWith('#') ? raw.slice(1) : raw
-      const queryIndex = hashBody.indexOf('?')
-      const queryString = queryIndex >= 0 ? hashBody.slice(queryIndex + 1) : ''
-      const params = new URLSearchParams(queryString)
+    const syncFromLocation = () => {
+      // Migrate legacy hash routes (/#/home) to clean paths (/home).
+      const h = String(window.location.hash || '').trim()
+      if (h.startsWith('#/')) {
+        try {
+          window.history.replaceState(null, '', h.slice(1))
+        } catch {
+          // ignore
+        }
+      }
 
-      const next = webHashToScreen(window.location.hash)
+      const params = new URLSearchParams((window.location.search || '').replace(/^\?/, ''))
+
+      const pathSegments = splitPathname(window.location.pathname)
+
+      // Path-form deep link parsing: /work/<episodeId>
+      const pathEpisodeId = (() => {
+        // pathSegments: ['work', '<episodeId>']
+        if (pathSegments[0] !== 'work') return ''
+        const rawId = pathSegments[1] ?? ''
+        try {
+          return decodeURIComponent(rawId)
+        } catch {
+          return rawId
+        }
+      })().trim()
+
+      // Path-form deep link parsing for player: /play/<episodeId> or /play/<workId>/<episodeId>
+      const pathPlay = (() => {
+        if (pathSegments[0] !== 'play') return { workId: '', episodeId: '' }
+
+        const decode = (v: string) => {
+          try {
+            return decodeURIComponent(v)
+          } catch {
+            return v
+          }
+        }
+
+        // pathSegments: ['play', '<episodeId>'] OR ['play', '<workId>', '<episodeId>']
+        if (pathSegments.length >= 3) {
+          return { workId: decode(pathSegments[1] ?? ''), episodeId: decode(pathSegments[2] ?? '') }
+        }
+        if (pathSegments.length >= 2) {
+          return { workId: '', episodeId: decode(pathSegments[1] ?? '') }
+        }
+        return { workId: '', episodeId: '' }
+      })()
+
+      const next = webPathnameToScreen(window.location.pathname) as Screen
       if (next === 'tutorial') {
-        const parsed = parseTutorialIndexFromWebHash(window.location.hash)
+        const parsed = parseTutorialIndexFromPathname(window.location.pathname)
         if (typeof parsed === 'number') setTutorialIndex(parsed)
       }
 
       // Deep link hydration for share URLs.
       if (next === 'workDetail') {
         const workId = (params.get('workId') || '').trim()
+        const episodeId = ((params.get('episodeId') || '').trim() || pathEpisodeId).trim()
+
+        // Shared URLs are intended to land on episodes.
+        setWorkDetailTab('episodes')
+        setWorkDetailEpisodeIdFromHash(episodeId || null)
+
+        if (workId) {
+          setSelectedWorkId(workId)
+        } else if (episodeId) {
+          // Resolve work id from episode id (video id).
+          void (async () => {
+            try {
+              const res = await apiFetch(`${apiBaseUrl}/v1/videos/${encodeURIComponent(episodeId)}`)
+              if (!res.ok) return
+              const json = (await res.json().catch(() => ({}))) as any
+              const resolved = String(json?.item?.workId ?? '').trim()
+              if (resolved) setSelectedWorkId(resolved)
+            } catch {
+              // ignore
+            }
+          })()
+        }
+      }
+
+      // Deep link hydration for player URLs (/play?workId=...&episodeId=...)
+      if (next === 'videoPlayer') {
+        const workId = (params.get('workId') || pathPlay.workId || '').trim()
+        const episodeIdRaw = (params.get('episodeId') || params.get('videoId') || pathPlay.episodeId || '').trim()
+
         if (workId) setSelectedWorkId(workId)
+
+        if (episodeIdRaw) {
+          setPlayerHydrating(true)
+          if (workId) {
+            setPlayerEpisodeContext({ workId, episodeIds: [episodeIdRaw], currentIndex: 0 })
+          } else {
+            setPlayerEpisodeContext(null)
+          }
+
+          // Resolve and hydrate Stream UIDs.
+          void hydratePlayerFromEpisodeId(episodeIdRaw, { workId })
+        } else if (workId) {
+          void hydratePlayerFromWorkId(workId)
+        } else {
+          setPlayerHydrating(false)
+          setPlayerEpisodeContext(null)
+        }
       }
       if (next === 'profile') {
         const castId = (params.get('castId') || '').trim()
@@ -1530,15 +2005,14 @@ export default function App() {
       setScreen(next)
     }
 
-    if (!window.location.hash) {
-      window.location.hash = screenToWebHash(WEB_DEFAULT_SCREEN)
-    } else {
-      syncFromHash()
-    }
+    syncFromLocation()
 
-    window.addEventListener('hashchange', syncFromHash)
+    window.addEventListener('popstate', syncFromLocation)
+    // Also listen for hash changes to support old links that still use #/...
+    window.addEventListener('hashchange', syncFromLocation)
     return () => {
-      window.removeEventListener('hashchange', syncFromHash)
+      window.removeEventListener('popstate', syncFromLocation)
+      window.removeEventListener('hashchange', syncFromLocation)
     }
   }, [])
 
@@ -1613,7 +2087,24 @@ export default function App() {
         return
       }
 
-      setAuthPendingToken(String(data.token ?? ''))
+      const token = String(data.token ?? '')
+      const stage = String(data.stage ?? '')
+
+      if (stage === 'full') {
+        if (token) {
+          setAuthToken(token)
+          await setString(AUTH_TOKEN_KEY, token)
+        }
+        setAuthPendingToken('')
+        setDebugSmsCode('')
+        setLoggedIn(true)
+        setHistory([])
+        setScreen(postLoginTarget ?? 'home')
+        setPostLoginTarget(null)
+        return
+      }
+
+      setAuthPendingToken(token)
       setDebugSmsCode('')
       goTo('phone')
     } finally {
@@ -1797,24 +2288,51 @@ export default function App() {
     }
   }
 
+  if (maintenanceMode) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ScreenContainer title="メンテナンス中">
+          <View style={styles.ipGate}>
+            <Text style={styles.ipGateTitle}>現在メンテナンス中です</Text>
+            <Text style={styles.ipGateText}>{maintenanceMessage || 'しばらくお待ちください。'}</Text>
+            <View style={{ height: 12 }} />
+            <SecondaryButton label="再読み込み" onPress={refreshMaintenance} />
+            {!maintenanceCheckedOnce ? <Text style={[styles.ipGateText, { marginTop: 10 }]}>状態を確認中…</Text> : null}
+          </View>
+        </ScreenContainer>
+      </SafeAreaView>
+    )
+  }
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      {screen === 'splash' ? (
-        <SplashScreen
-          videoUri="https://assets.oshidra.com/oshidora-splash.mp4"
-          maxDurationMs={3000}
-          onDone={() => {
-            goTo('welcome')
-          }}
-        />
-      ) : null}
+    <View style={styles.appRoot}>
+      <SafeAreaView style={styles.safeArea}>
+        {screen === 'splash' ? (
+          <WelcomeTopScreen
+            onLogin={() => goTo('login')}
+            onStart={() => {
+              setTermsReadOnly(false)
+              goTo('terms')
+            }}
+            onContinueAsGuest={() => {
+              setLoggedIn(false)
+              setHistory([])
+              setScreen('home')
+            }}
+          />
+        ) : null}
 
       {screen === 'welcome' ? (
         <WelcomeTopScreen
           onLogin={() => goTo('login')}
           onStart={() => {
-            setTutorialIndex(0)
-            goTo('tutorial')
+            setTermsReadOnly(false)
+            goTo('terms')
+          }}
+          onContinueAsGuest={() => {
+            setLoggedIn(false)
+            setHistory([])
+            setScreen('home')
           }}
         />
       ) : null}
@@ -1826,13 +2344,11 @@ export default function App() {
           onBack={goBack}
           onSkip={() => {
             void setBoolean(TUTORIAL_SEEN_KEY, true)
-            setTermsReadOnly(false)
-            goTo('terms')
+            goTo('welcome')
           }}
           onDone={() => {
             void setBoolean(TUTORIAL_SEEN_KEY, true)
-            setTermsReadOnly(false)
-            goTo('terms')
+            goTo('welcome')
           }}
         />
       ) : null}
@@ -1964,6 +2480,47 @@ export default function App() {
         />
       ) : null}
 
+      {screen === 'emailChangeStart' ? (
+        <EmailChangeStartScreen
+          initialEmail={(userProfile.email || loginEmail || registerEmail || '').trim()}
+          onBack={goBack}
+          onSendCode={async (email) => {
+            const dbg = await startEmailChange(email)
+            return dbg
+          }}
+          onSent={(email, initialCode) => {
+            setEmailChangeEmail(email)
+            if (typeof initialCode === 'string') setDebugEmailChangeCode(initialCode)
+            goTo('emailChangeVerify')
+          }}
+        />
+      ) : null}
+
+      {screen === 'emailChangeVerify' ? (
+        <EmailVerifyScreen
+          email={emailChangeEmail}
+          onBack={goBack}
+          initialCode={debugAuthAutofill ? debugEmailChangeCode : undefined}
+          onResend={async () => {
+            if (!emailChangeEmail) throw new Error('メールアドレスが不明です')
+            await resendEmailChange(emailChangeEmail)
+          }}
+          onVerify={async (code) => {
+            if (!emailChangeEmail) throw new Error('メールアドレスが不明です')
+            await verifyEmailChange(emailChangeEmail, code)
+            await refreshSubscriptionFromApi()
+            setEmailChangeEmail('')
+
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              pushWebUrl(screenToWebPath('profileEdit'))
+              return
+            }
+            setHistory([])
+            setScreen('profileEdit')
+          }}
+        />
+      ) : null}
+
       {screen === 'sms2fa' ? (
         <Sms2faScreen
           onBack={goBack}
@@ -2008,6 +2565,28 @@ export default function App() {
         />
       ) : null}
 
+      {screen === 'phoneChange' ? (
+        <Sms2faScreen
+          onBack={goBack}
+          initialCode={debugAuthAutofill ? debugPhoneChangeCode : undefined}
+          onSendCode={async (phone) => {
+            await startPhoneChange(phone)
+          }}
+          onVerifyCode={async (phone, code) => {
+            await verifyPhoneChange(phone, code)
+          }}
+          onComplete={async () => {
+            await refreshSubscriptionFromApi()
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              pushWebUrl(screenToWebPath('profileEdit'))
+              return
+            }
+            setHistory([])
+            setScreen('profileEdit')
+          }}
+        />
+      ) : null}
+
       {screen === 'profileRegister' ? (
         <UserProfileEditScreen
           apiBaseUrl={apiBaseUrl}
@@ -2016,11 +2595,22 @@ export default function App() {
           initialEmail={registerEmail}
           initialPhone={registerPhone}
           onSave={async (opts) => {
+            await saveUserProfileToApi({
+              displayName: opts.displayName,
+              fullName: opts.fullName,
+              fullNameKana: opts.fullNameKana,
+              birthDate: opts.birthDate,
+              favoriteGenres: opts.favoriteGenres,
+              avatarUrl: opts.avatarUrl,
+            })
             setUserProfile({
               displayName: opts.displayName,
+              fullName: opts.fullName,
+              fullNameKana: opts.fullNameKana,
               email: opts.email,
               phone: opts.phone,
               birthDate: opts.birthDate,
+              favoriteGenres: opts.favoriteGenres,
               avatarUrl: opts.avatarUrl,
             })
             goTo('registerComplete')
@@ -2125,6 +2715,7 @@ export default function App() {
           loggedIn={loggedIn}
           userEmail={loginEmail || registerEmail}
           userType={debugUserType}
+          subscribed={isSubscribed}
           onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           onNavigate={(screenKey) => {
             if (screenKey === 'coinPurchase') {
@@ -2135,6 +2726,133 @@ export default function App() {
               setTermsReadOnly(true)
             }
             goTo(screenKey as Screen)
+          }}
+        />
+      ) : null}
+
+      {screen === 'subscription' ? (
+        <SubscriptionScreen
+          subscribed={isSubscribed}
+          note={subscriptionNote}
+          onBack={() => {
+            setSubscriptionNote(null)
+            setSubscriptionResume(null)
+            goBack()
+          }}
+          onSubscribe={async () => {
+            if (!loggedIn) {
+              setSubscriptionNote('サブスク加入にはログインが必要です。')
+              requireLogin('subscription')
+              return
+            }
+
+            if (!authToken) {
+              setSubscriptionNote('認証情報が不足しています。ログインをやり直してください。')
+              requireLogin('subscription')
+              return
+            }
+
+            const res = await apiFetch(`${apiBaseUrl}/api/stripe/checkout/subscription`, {
+              method: 'POST',
+              headers: {
+                authorization: `Bearer ${authToken}`,
+              },
+            })
+            if (!res.ok) {
+              const msg = await res.text().catch(() => '')
+              throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+            }
+            const json = (await res.json().catch(() => ({}))) as any
+            const checkoutUrl = String(json?.checkoutUrl ?? '').trim()
+            if (!checkoutUrl) throw new Error('checkoutUrl is missing')
+
+            setSubscriptionNote('ブラウザで決済ページを開きました。完了後にこの画面へ戻り「加入状況を更新」を押してください。')
+
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              window.location.href = checkoutUrl
+              return
+            }
+            await Linking.openURL(checkoutUrl)
+          }}
+          onRefresh={async () => {
+            const subscribed = await refreshSubscriptionFromApi()
+
+            if (!subscribed) {
+              setSubscriptionNote('未加入のままです。決済が完了している場合は少し待ってから再度更新してください。')
+              return
+            }
+
+            const resume = subscriptionResume
+            setSubscriptionNote(null)
+            setSubscriptionResume(null)
+
+            if (resume?.workId) {
+              setSelectedWorkId(resume.workId)
+
+              if (resume.episodeId) {
+                const key = resolveWorkKeyById(resume.workId)
+                const base = mockWorksByKey[key] ?? mockWork
+                const episodeIds = base.episodes.map((x) => x.id)
+                const currentIndex = episodeIds.indexOf(resume.episodeId)
+
+                setPlayerEpisodeContext(
+                  currentIndex >= 0
+                    ? {
+                        workId: resume.workId,
+                        episodeIds,
+                        currentIndex,
+                      }
+                    : null
+                )
+
+                void hydratePlayerFromEpisodeId(resume.episodeId, { workId: resume.workId })
+
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                  pushWebUrl(videoPlayerToWebUrl({ workId: resume.workId, episodeId: resume.episodeId }))
+                } else {
+                  goTo('videoPlayer')
+                }
+                return
+              }
+
+              goTo('workDetail')
+            }
+          }}
+          onCancel={async () => {
+            if (!loggedIn) {
+              setSubscriptionNote('ログインが必要です。')
+              requireLogin('subscription')
+              return
+            }
+
+            if (!authToken) {
+              setSubscriptionNote('認証情報が不足しています。ログインをやり直してください。')
+              requireLogin('subscription')
+              return
+            }
+
+            const res = await apiFetch(`${apiBaseUrl}/api/stripe/portal`, {
+              method: 'POST',
+              headers: {
+                authorization: `Bearer ${authToken}`,
+              },
+            })
+            if (!res.ok) {
+              const msg = await res.text().catch(() => '')
+              throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+            }
+            const json = (await res.json().catch(() => ({}))) as any
+            const url = String(json?.url ?? '').trim()
+            if (!url) throw new Error('url is missing')
+
+            setSubscriptionNote('ブラウザでサブスク管理画面を開きました。変更後は「加入状況を更新」で反映してください。')
+
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              window.open(url, '_blank', 'noopener,noreferrer')
+              return
+            }
+            await Linking.openURL(url)
+
           }}
         />
       ) : null}
@@ -2205,6 +2923,7 @@ export default function App() {
       {screen === 'castProfileRegister' ? (
         <CastProfileRegisterScreen
           apiBaseUrl={apiBaseUrl}
+          authToken={authToken}
           onBack={goBack}
         />
       ) : null}
@@ -2213,17 +2932,39 @@ export default function App() {
         <UserProfileEditScreen
           apiBaseUrl={apiBaseUrl}
           onBack={goBack}
+          onRequestEmailChange={() => {
+            if (!requireLogin('emailChangeStart')) return
+            goTo('emailChangeStart')
+          }}
+          onRequestPhoneChange={() => {
+            if (!requireLogin('phoneChange')) return
+            goTo('phoneChange')
+          }}
           initialDisplayName={userProfile.displayName}
+          initialFullName={userProfile.fullName}
+          initialFullNameKana={userProfile.fullNameKana}
           initialEmail={userProfile.email || loginEmail || registerEmail}
           initialPhone={userProfile.phone}
           initialBirthDate={userProfile.birthDate}
+          initialFavoriteGenres={userProfile.favoriteGenres}
           initialAvatarUrl={userProfile.avatarUrl ?? ''}
           onSave={async (opts) => {
+            await saveUserProfileToApi({
+              displayName: opts.displayName,
+              fullName: opts.fullName,
+              fullNameKana: opts.fullNameKana,
+              birthDate: opts.birthDate,
+              favoriteGenres: opts.favoriteGenres,
+              avatarUrl: opts.avatarUrl,
+            })
             setUserProfile({
               displayName: opts.displayName,
+              fullName: opts.fullName,
+              fullNameKana: opts.fullNameKana,
               email: opts.email,
               phone: opts.phone,
               birthDate: opts.birthDate,
+              favoriteGenres: opts.favoriteGenres,
               avatarUrl: opts.avatarUrl,
             })
             console.log('Profile saved:', opts)
@@ -2308,6 +3049,8 @@ export default function App() {
       {screen === 'favoriteVideos' ? (
         <FavoriteVideosScreen
           apiBaseUrl={apiBaseUrl}
+          authToken={authToken}
+          loggedIn={loggedIn}
           onBack={goBack}
           onOpenVideo={(id) => {
             openWorkDetail(id)
@@ -2376,27 +3119,53 @@ export default function App() {
       ) : null}
 
       {screen === 'phone' ? (
-        <ScreenContainer title="SMS認証" onBack={goBack}>
+        <ScreenContainer
+          title="SMS認証"
+          onBack={goBack}
+          backgroundColor={THEME.bg}
+          background={
+            <>
+              <View style={styles.smsBgBase} />
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0.04)', 'rgba(255,255,255,0)']}
+                locations={[0, 0.45, 1]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 0.7 }}
+                style={styles.smsBgTopGlow}
+              />
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.80)']}
+                locations={[0, 0.6, 1]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={styles.smsBgVignette}
+              />
+            </>
+          }
+        >
+          <View style={styles.smsSendRoot}>
+            {phoneBannerError ? <Text style={styles.bannerError}>{phoneBannerError}</Text> : null}
 
-          {phoneBannerError ? <Text style={styles.bannerError}>{phoneBannerError}</Text> : null}
+            <View style={styles.smsField}>
+              <Text style={styles.smsLabel}>電話番号</Text>
+              <TextInput
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                placeholder="電話番号"
+                placeholderTextColor={THEME.textMuted}
+                keyboardType="phone-pad"
+                autoCapitalize="none"
+                style={[styles.smsInput, phoneFieldError ? styles.inputError : null]}
+              />
+              {phoneFieldError ? <Text style={styles.fieldError}>{phoneFieldError}</Text> : null}
+            </View>
 
-          <View style={styles.field}>
-            <TextInput
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              placeholder="電話番号"
-              keyboardType="phone-pad"
-              autoCapitalize="none"
-              style={[styles.input, phoneFieldError ? styles.inputError : null]}
-            />
-            {phoneFieldError ? <Text style={styles.fieldError}>{phoneFieldError}</Text> : null}
-          </View>
+            <Text style={styles.smsHint}>登録用の認証コードを、SMS（携帯電話番号宛）に送信します。</Text>
 
-          <View style={styles.buttons}>
-            <View style={styles.buttonRow}>
-              <SecondaryButton label="キャンセル" onPress={onCancel} disabled={authBusy} />
-              <View style={styles.spacer} />
-              <PrimaryButton label="次へ" onPress={onPhoneNext} disabled={!canPhoneNext} fullWidth={false} />
+            <View style={styles.smsButtonWrap}>
+              <PrimaryButton label="認証コードを送信" onPress={onPhoneNext} disabled={!canPhoneNext} />
             </View>
           </View>
         </ScreenContainer>
@@ -2529,43 +3298,117 @@ export default function App() {
           userType={debugUserType}
           onUserTypeToggle={toggleDebugUserType}
           mock={debugMock}
-          onMockToggle={() => setDebugMock((v) => !v)}
+          onMockToggle={() => setDebugMock(false)}
         />
       ) : null}
 
       {screen === 'profile' ? (
-        <ScreenContainer title="プロフィール" onBack={goBack} scroll>
+        <ScreenContainer title="キャストプロフィール" onBack={goBack} scroll>
 
-          <View style={styles.heroImage}>
-            <View style={styles.heroPlaceholder} />
+          <View style={styles.castCarouselWrap}>
+            <ScrollView
+              horizontal
+              decelerationRate="fast"
+              snapToInterval={CAST_PROFILE_CAROUSEL_CARD_WIDTH + CAST_PROFILE_CAROUSEL_GAP}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.castCarouselContent}
+              onMomentumScrollEnd={(e) => {
+                const x = e.nativeEvent.contentOffset.x
+                const step = CAST_PROFILE_CAROUSEL_CARD_WIDTH + CAST_PROFILE_CAROUSEL_GAP
+                const next = Math.round(x / step)
+                setCastProfileSlideIndex(Math.max(0, Math.min(next, 4)))
+              }}
+            >
+              {Array.from({ length: 5 }).map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.castCarouselCard,
+                    i === 4 ? null : { marginRight: CAST_PROFILE_CAROUSEL_GAP },
+                  ]}
+                >
+                  <View style={styles.castCarouselCardInner} />
+                </View>
+              ))}
+            </ScrollView>
+            <PaginationDots
+              count={5}
+              index={castProfileSlideIndex}
+              style={styles.castCarouselDots}
+              variant="plain"
+              dotSize={6}
+              activeColor={THEME.accent}
+              inactiveColor={THEME.outline}
+              onChange={(idx) => setCastProfileSlideIndex(idx)}
+            />
           </View>
 
-          <View style={styles.titleBlock}>
-            <Text style={styles.h1}>{selectedCast?.name ?? mockProfile.name}</Text>
-            <Text style={styles.h2}>{mockProfile.affiliation || '—'}</Text>
-          </View>
-
-          <View style={styles.chipsWrap}>
-            {mockProfile.genre.map((t) => (
-              <Chip key={t} label={t} />
-            ))}
-          </View>
-
-          <View style={styles.metaRow}>
-            <Text style={styles.metaTextBase}>
-              ★ {castReviewSummary ? castReviewSummary.ratingAvg.toFixed(1) : selectedCastReview ? selectedCastReview.rating.toFixed(1) : '—'}
+          <View style={styles.castTitleBlock}>
+            <Text style={styles.castNameMain}>{selectedCast?.name ?? mockProfile.name}</Text>
+            <Text style={styles.castNameSub}>
+              {String((mockProfile as any).nameKana ?? '—')} / {String((mockProfile as any).nameEn ?? '—')}
             </Text>
-            <Text style={styles.metaDot}>•</Text>
-            <Text style={styles.metaTextBase}>
-              {castReviewSummary ? `${castReviewSummary.reviewCount}件` : selectedCastReview ? '1件' : '0件'}
-            </Text>
+            <View style={styles.castRatingRow}>
+              <IconStarYellow width={14} height={14} />
+              <Text style={styles.castRatingText}>
+                {castReviewSummary
+                  ? castReviewSummary.ratingAvg.toFixed(1)
+                  : selectedCastReview
+                    ? selectedCastReview.rating.toFixed(1)
+                    : '4.7'}
+                {castReviewSummary ? ` (${castReviewSummary.reviewCount}件)` : ' (375件)'}
+              </Text>
+            </View>
           </View>
 
-          {castReviewError ? <Text style={styles.loadNote}>評価取得に失敗しました（モック表示）</Text> : null}
+          <PrimaryButton
+            label="推しポイント付与"
+            onPress={() => {
+              if (!requireLogin('coinGrant')) return
+              const castId = selectedCast?.id ?? mockProfile.id
+              const castName = selectedCast?.name ?? mockProfile.name
+              setCoinGrantTarget({ id: castId, name: castName, roleLabel: selectedCast?.roleLabel })
+              setCoinGrantPrimaryReturnTo('profile')
+              setCoinGrantPrimaryLabel('プロフィールへ戻る')
+              goTo('coinGrant')
+            }}
+          />
 
-          <View style={styles.actionsRow}>
-            <IconButton
-              label="↗"
+          <View style={styles.castActionRow}>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.castActionItem}
+              onPress={() => {
+                if (!requireLogin('castReview')) return
+                if (!selectedCast) {
+                  setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
+                }
+                goTo('castReview')
+              }}
+            >
+              <IconPen width={18} height={18} />
+              <Text style={styles.castActionLabel}>コメントする</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              style={styles.castActionItem}
+              onPress={() => {
+                if (!requireLogin('profile')) return
+                setCastFavorite((prev) => !prev)
+                setFavoriteToastText(!castFavorite ? 'お気に入りに登録しました' : 'お気に入りから削除しました')
+                setFavoriteToastVisible(true)
+                if (favoriteToastTimer.current) clearTimeout(favoriteToastTimer.current)
+                favoriteToastTimer.current = setTimeout(() => setFavoriteToastVisible(false), 2200)
+              }}
+            >
+              {castFavorite ? <IconFavoriteOn width={18} height={18} /> : <IconFavoriteOff width={18} height={18} />}
+              <Text style={styles.castActionLabel}>お気に入り</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              style={styles.castActionItem}
               onPress={async () => {
                 if (!requireLogin('profile')) return
                 const castId = selectedCast?.id ?? mockProfile.id
@@ -2595,67 +3438,203 @@ export default function App() {
                   await Share.share({ message, url })
                 }
               }}
-            />
-            <View style={styles.spacer} />
-            <IconButton
-              label="★"
-              onPress={() => {
-                if (!requireLogin('castReview')) return
-                if (!selectedCast) {
-                  setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
-                }
-                goTo('castReview')
-              }}
-            />
+            >
+              <IconShare width={18} height={18} />
+              <Text style={styles.castActionLabel}>共有する</Text>
+            </Pressable>
           </View>
 
-          <PrimaryButton
-            label="推しポイントを付与する"
-            onPress={() => {
-              if (!requireLogin('coinGrant')) return
-              const castId = selectedCast?.id ?? mockProfile.id
-              const castName = selectedCast?.name ?? mockProfile.name
-              setCoinGrantTarget({ id: castId, name: castName, roleLabel: selectedCast?.roleLabel })
-              setCoinGrantPrimaryReturnTo('profile')
-              setCoinGrantPrimaryLabel('プロフィールへ戻る')
-              goTo('coinGrant')
-            }}
-          />
+          <View style={styles.profileCard}>
+            <Text style={styles.sectionTitle}>プロフィール</Text>
+            {[
+              { label: 'ジャンル', value: (mockProfile.genre ?? []).join(' / ') || '—' },
+              { label: '所属', value: mockProfile.affiliation || '—' },
+              { label: '生年月日', value: '1998年11月29日' },
+              { label: '出身地', value: '神奈川県（最寄駅：未指定）' },
+              { label: '血液型', value: 'A型' },
+              { label: '趣味', value: '映画・アニメ鑑賞・カフェ巡り・ホカンス' },
+              { label: '特技', value: 'ダンス・歌・ラーメン作り・中華鍋' },
+              { label: '資格', value: '英検1級' },
+            ].map((it) => (
+              <View key={it.label} style={styles.infoRow}>
+                <Text style={styles.infoLabel}>{it.label}</Text>
+                <Text style={styles.infoValue}>{it.value}</Text>
+              </View>
+            ))}
+          </View>
 
-          <Section title="経歴">
-            <Text style={styles.bodyText}>{mockProfile.biography || '—'}</Text>
-          </Section>
+          <View style={styles.profileCard}>
+            <Text style={styles.sectionTitle}>カテゴリ</Text>
+            <View style={styles.castCategoryRow}>
+              {['Drama', 'Comedy', 'Action'].map((t) => (
+                <View key={t} style={styles.castCategoryChip}>
+                  <Text style={styles.castCategoryChipText}>{t}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
 
-          <Section title="代表作">
-            <Text style={styles.bodyText}>{mockProfile.worksText || '—'}</Text>
-          </Section>
-
-          <Section title="自己PR">
-            <Text style={styles.bodyText}>{mockProfile.selfPr || '—'}</Text>
-          </Section>
-
-          <Section title="SNS">
+          <View style={styles.profileCard}>
+            <Text style={styles.sectionTitle}>SNSリンク</Text>
             {mockProfile.snsLinks.length === 0 ? (
               <Text style={styles.bodyText}>—</Text>
             ) : (
-              <View style={{ gap: 10 }}>
-                {mockProfile.snsLinks.map((l) => (
+              <View style={{ gap: 0 }}>
+                {mockProfile.snsLinks.map((url, idx) => (
                   <Pressable
-                    key={l.label}
+                    key={url}
                     onPress={() => {
                       if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                        window.open(l.url, '_blank', 'noopener,noreferrer')
+                        window.open(url, '_blank', 'noopener,noreferrer')
                       }
                     }}
-                    style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: THEME.outline, backgroundColor: THEME.card }}
+                    style={[styles.castSnsRow, idx === mockProfile.snsLinks.length - 1 ? styles.castSnsRowLast : null]}
                   >
-                    <Text style={{ color: THEME.text, fontSize: 12, fontWeight: '800' }}>{l.label}</Text>
-                    <Text style={{ color: THEME.textMuted, fontSize: 12, fontWeight: '700', marginTop: 4 }}>{l.url}</Text>
+                    <View style={styles.castSnsIcon} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.castSnsLabel}>{detectSocialService(url).label}</Text>
+                      <Text style={styles.castSnsUrl} numberOfLines={1}>
+                        {url}
+                      </Text>
+                    </View>
                   </Pressable>
                 ))}
               </View>
             )}
-          </Section>
+          </View>
+
+          <View style={styles.profileCard}>
+            <Text style={styles.sectionTitle}>自己PR</Text>
+            <Text style={styles.bodyText}>{mockProfile.selfPr || '—'}</Text>
+          </View>
+
+          <View style={styles.profileCard}>
+            <Text style={styles.sectionTitle}>経歴・出演実績</Text>
+            <Text style={styles.bodyText}>
+              2014年、都内の養成所に入所し演技・ダンス・発声を学ぶ。{`\n`}
+              2016年、Webドラマで役をデビュー。{`\n`}
+              2018年、深夜ドラマでの繊細な演技が話題になり注目を集める。{`\n`}
+              2020年、映画初主演。{`\n`}
+              以降、ドラマ・映画・CMを中心に活動。
+            </Text>
+          </View>
+
+          <View style={styles.profileCard}>
+            <Text style={styles.sectionTitle}>作品</Text>
+            <Text style={styles.bodyText}>{mockProfile.worksText || '—'}</Text>
+          </View>
+
+          <View style={styles.commentsBox}>
+            <View style={styles.commentItem}>
+              <Text style={styles.sectionTitle}>
+                コメント（{castReviewSummary ? castReviewSummary.reviewCount : 375}件）
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                {Array.from({ length: 5 }).map((_, idx) => (
+                  <IconStarYellow key={idx} width={16} height={16} />
+                ))}
+                <Text style={[styles.metaTextBase, { color: '#E4A227', fontWeight: '900' }]}>
+                  {castReviewSummary
+                    ? castReviewSummary.ratingAvg.toFixed(1)
+                    : selectedCastReview
+                      ? selectedCastReview.rating.toFixed(1)
+                      : '4.7'}
+                </Text>
+              </View>
+            </View>
+
+            {(castCommentsExpanded
+              ? [...castLocalComments, ...mockApprovedComments]
+              : [...castLocalComments, ...mockApprovedComments].slice(0, 3)
+            ).map((c) => {
+              const stars = commentStarRating(c)
+              return (
+                <View key={c.id} style={styles.commentItem}>
+                  <Text style={styles.commentAuthor}>{c.author}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                    {Array.from({ length: 5 }).map((_, idx) => {
+                      const active = idx < stars
+                      return active ? <IconStarYellow key={idx} width={14} height={14} /> : <IconStarEmpty key={idx} width={14} height={14} />
+                    })}
+                  </View>
+                  <Text style={styles.commentBody}>{truncateCommentBody(c.body)}</Text>
+                </View>
+              )
+            })}
+
+            {!castCommentsExpanded && [...castLocalComments, ...mockApprovedComments].length > 3 ? (
+              <Pressable style={styles.moreRow} onPress={() => setCastCommentsExpanded(true)}>
+                <Text style={styles.moreLink}>さらに表示</Text>
+                <Text style={styles.moreLink}>›</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          <View style={styles.profileCard}>
+            <Text style={styles.sectionTitle}>コメント投稿</Text>
+            <View style={styles.commentCtaWrap}>
+              <View style={styles.commentRatingRow}>
+                {Array.from({ length: 5 }).map((_, idx) => {
+                  const active = idx < castCommentRating
+                  return (
+                    <Pressable key={`cast-rating-${idx}`} onPress={() => setCastCommentRating(idx + 1)}>
+                      {active ? <IconStarYellow width={18} height={18} /> : <IconStarEmpty width={18} height={18} />}
+                    </Pressable>
+                  )
+                })}
+              </View>
+
+              <TextInput
+                value={castCommentDraft}
+                onChangeText={setCastCommentDraft}
+                placeholder="コメントを記入する"
+                placeholderTextColor={THEME.textMuted}
+                multiline
+                style={styles.commentInput}
+              />
+
+              <PrimaryButton
+                label="コメントを投稿する"
+                onPress={async () => {
+                  if (!requireLogin('profile')) return
+                  const castId = selectedCast?.id ?? mockProfile.id
+                  const author = userProfile?.displayName?.trim() || 'あなた'
+                  const body = castCommentDraft.trim()
+                  if (!body) {
+                    Alert.alert('入力してください', 'コメントを入力してください')
+                    return
+                  }
+                  if (castCommentRating <= 0) {
+                    Alert.alert('評価を選択してください', '星を選んで評価してください')
+                    return
+                  }
+
+                  try {
+                    const res = await apiFetch(`${apiBaseUrl}/v1/reviews/cast`, {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ castId, rating: castCommentRating, comment: body }),
+                    })
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                    void fetchCastReviewSummary(castId)
+                  } catch {
+                    setCastReviews((prev) => ({
+                      ...prev,
+                      [castId]: { rating: castCommentRating, comment: body, updatedAt: Date.now() },
+                    }))
+                  }
+
+                  setCastLocalComments((prev) => [
+                    { id: `local-${Date.now()}`, author, body, createdAt: new Date().toISOString() },
+                    ...prev,
+                  ])
+                  setCastCommentDraft('')
+                  setCastCommentRating(0)
+                }}
+              />
+            </View>
+          </View>
+
         </ScreenContainer>
       ) : null}
 
@@ -2731,12 +3710,65 @@ export default function App() {
           maxWidth={768}
         >
 
+          {!workIdForDetail ? (
+            <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24 }}>
+              <Text style={styles.centerText}>作品が未指定です。{`\n`}一覧から作品を選択してください。</Text>
+              <View style={{ height: 12 }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
+                <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
+              </View>
+            </View>
+          ) : (
+
+            <>
+
+          {!loggedIn && !guestWorkAuthCtaDismissed ? (
+            <View style={styles.guestCta}>
+              <View style={styles.guestCtaHeaderRow}>
+                <Text style={styles.guestCtaTitle}>ログインするともっと楽しめます</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="閉じる"
+                  onPress={() => setGuestWorkAuthCtaDismissed(true)}
+                  hitSlop={10}
+                >
+                  <Text style={styles.guestCtaClose}>×</Text>
+                </Pressable>
+              </View>
+
+              <Text style={styles.guestCtaText}>会員限定エピソードの視聴・お気に入り・コメント投稿ができます。</Text>
+
+              <View style={styles.guestCtaButtonsRow}>
+                <View style={{ flex: 1 }}>
+                  <SecondaryButton
+                    label="ログイン"
+                    onPress={() => {
+                      setPostLoginTarget('workDetail')
+                      goTo('login')
+                    }}
+                  />
+                </View>
+                <View style={{ width: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <PrimaryButton
+                    label="会員登録"
+                    onPress={() => {
+                      setPostLoginTarget('workDetail')
+                      setTermsReadOnly(false)
+                      goTo('terms')
+                    }}
+                  />
+                </View>
+              </View>
+            </View>
+          ) : null}
+
           <View style={styles.heroImage}>
-            <Image
-              source={{ uri: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s` }}
-              style={styles.heroImageThumb}
-              resizeMode="cover"
-            />
+            {workDetailHeroThumbnailUrl ? (
+              <Image source={{ uri: workDetailHeroThumbnailUrl }} style={styles.heroImageThumb} resizeMode="cover" />
+            ) : (
+              <View style={styles.heroPlaceholder} />
+            )}
             <Pressable
               onPress={() => {
                 void upsertWatchHistory(watchHistoryUserKey, {
@@ -2745,23 +3777,28 @@ export default function App() {
                   title: workForDetail.title,
                   kind: '映画',
                   durationSeconds: 25 * 60,
-                  thumbnailUrl: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s`,
+                  thumbnailUrl: workDetailHeroThumbnailUrl,
                   lastPlayedAt: Date.now(),
                 })
-                setPlayerVideoIdNoSub(streamSampleVideoId)
-                setPlayerVideoIdWithSub(streamSampleVideoId)
+                const preferredEpisode = workForDetail.episodes[workDetailPreferredEpisodeIndex]
+                const chosenNoSub = String(preferredEpisode?.streamVideoId || '').trim()
+                setPlayerVideoIdNoSub(chosenNoSub)
+                setPlayerVideoIdWithSub(null)
                 if (workForDetail.episodes.length > 0) {
                   setPlayerEpisodeContext({
                     workId: workIdForDetail,
                     episodeIds: workForDetail.episodes.map((x) => x.id),
-                    currentIndex: 0,
+                    currentIndex: workDetailPreferredEpisodeIndex,
                   })
                 } else {
                   setPlayerEpisodeContext(null)
                 }
-                const firstEpisodeId = workForDetail.episodes[0]?.id
+                const firstEpisodeId = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
+                if (!chosenNoSub && firstEpisodeId) {
+                  void hydratePlayerFromEpisodeId(firstEpisodeId, { workId: workIdForDetail })
+                }
                 if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                  window.location.hash = videoPlayerToWebHash({ workId: workIdForDetail, episodeId: firstEpisodeId })
+                  pushWebUrl(videoPlayerToWebUrl({ workId: workIdForDetail, episodeId: firstEpisodeId }))
                 } else {
                   goTo('videoPlayer')
                 }
@@ -2805,23 +3842,28 @@ export default function App() {
                 title: workForDetail.title,
                 kind: '映画',
                 durationSeconds: 25 * 60,
-                thumbnailUrl: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s`,
+                thumbnailUrl: workDetailHeroThumbnailUrl,
                 lastPlayedAt: Date.now(),
               })
-              setPlayerVideoIdNoSub(streamSampleVideoId)
+              const preferredEpisode = workForDetail.episodes[workDetailPreferredEpisodeIndex]
+              const chosenNoSub = String(preferredEpisode?.streamVideoId || '').trim()
+              setPlayerVideoIdNoSub(chosenNoSub)
               setPlayerVideoIdWithSub(null)
               if (workForDetail.episodes.length > 0) {
                 setPlayerEpisodeContext({
                   workId: workIdForDetail,
                   episodeIds: workForDetail.episodes.map((x) => x.id),
-                  currentIndex: 0,
+                  currentIndex: workDetailPreferredEpisodeIndex,
                 })
               } else {
                 setPlayerEpisodeContext(null)
               }
-              const firstEpisodeId = workForDetail.episodes[0]?.id
+              const firstEpisodeId = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
+              if (!chosenNoSub && firstEpisodeId) {
+                void hydratePlayerFromEpisodeId(firstEpisodeId, { workId: workIdForDetail })
+              }
               if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                window.location.hash = videoPlayerToWebHash({ workId: workIdForDetail, episodeId: firstEpisodeId })
+                pushWebUrl(videoPlayerToWebUrl({ workId: workIdForDetail, episodeId: firstEpisodeId }))
               } else {
                 goTo('videoPlayer')
               }
@@ -2847,25 +3889,59 @@ export default function App() {
               style={styles.actionItem}
               onPress={() => {
                 if (!requireLogin('workDetail')) return
-                setIsWorkFavorite((prev) => {
-                  const next = !prev
-                  setFavoriteToastText(next ? 'お気に入りに登録しました' : 'お気に入りから削除しました')
-                  setFavoriteToastVisible(true)
-                  if (favoriteToastTimer.current) clearTimeout(favoriteToastTimer.current)
-                  favoriteToastTimer.current = setTimeout(() => {
-                    setFavoriteToastVisible(false)
-                  }, 1600)
-                  return next
+
+                const targetId = String(workIdForDetail || '').trim()
+                if (!targetId) return
+
+                const wasFavorite = isWorkFavorite
+                const next = !wasFavorite
+
+                setFavoriteWorkIds((prev) => {
+                  const s = new Set(prev)
+                  if (next) s.add(targetId)
+                  else s.delete(targetId)
+                  return Array.from(s)
                 })
+
+                setFavoriteToastText(next ? 'お気に入りに登録しました' : 'お気に入りから削除しました')
+                setFavoriteToastVisible(true)
+                if (favoriteToastTimer.current) clearTimeout(favoriteToastTimer.current)
+                favoriteToastTimer.current = setTimeout(() => {
+                  setFavoriteToastVisible(false)
+                }, 1600)
+
+                void (async () => {
+                  try {
+                    if (!authToken) throw new Error('auth_token_missing')
+                    const res = await apiFetch(`${apiBaseUrl}/api/favorites/videos`, {
+                      method: next ? 'POST' : 'DELETE',
+                      headers: {
+                        'content-type': 'application/json',
+                        authorization: `Bearer ${authToken}`,
+                      },
+                      body: JSON.stringify({ workIds: [targetId] }),
+                    })
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                  } catch {
+                    setFavoriteWorkIds((prev) => {
+                      const s = new Set(prev)
+                      if (wasFavorite) s.add(targetId)
+                      else s.delete(targetId)
+                      return Array.from(s)
+                    })
+                  }
+                })()
               }}
             >
-              <IconFavoriteOff width={18} height={18} />
+              {isWorkFavorite ? <IconFavoriteOn width={18} height={18} /> : <IconFavoriteOff width={18} height={18} />}
               <Text style={styles.actionLabel}>お気に入り</Text>
             </Pressable>
             <Pressable
               style={styles.actionItem}
               onPress={async () => {
-                const url = shareUrlForWork(workIdForDetail, playerVideoIdNoSub, workForDetail.title)
+                const shareEpisode = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
+                const shareThumb = workForDetail.thumbnailUrl ?? workForDetail.episodes[0]?.thumbnailUrl ?? null
+                const url = shareUrlForWork(workIdForDetail, shareEpisode, workForDetail.title, shareThumb)
                 const title = workForDetail.title
                 const message = `${title}\n${url}`
 
@@ -2938,22 +4014,39 @@ export default function App() {
                     const episodeIds = workForDetail.episodes.map((x) => x.id)
                     const currentIndex = episodeIds.indexOf(e.id)
                     const durationText = `${String(2 + (currentIndex % 3)).padStart(2, '0')}:${String(21 + (currentIndex % 4)).padStart(2, '0')}`
-                    const key = `episode:${e.id}`
                     const requiredCoins = typeof (e as any).priceCoin === 'number' ? (e as any).priceCoin : 0
-                    const purchased = purchasedTargets.has(key)
-                    const isPaid = requiredCoins > 0
-                    const action = isPaid && !purchased ? '購入' : '再生'
+                    const isMemberOnly = requiredCoins > 0
+
+                    const episodeNo = e.episodeNo == null ? null : e.episodeNo
+                    const fallbackNo = currentIndex >= 0 ? currentIndex + 1 : null
+                    const episodeLabel = episodeNo != null ? `第${String(episodeNo).padStart(2, '0')}話` : fallbackNo != null ? `第${String(fallbackNo).padStart(2, '0')}話` : null
+                    const displayTitle = (() => {
+                      const t = String(e.title || '').trim()
+                      if (!episodeLabel) return t || 'エピソード'
+                      // Avoid duplicating labels if API already includes them.
+                      if (t.includes('第') && t.includes('話')) return t
+                      return `${episodeLabel} ${t}`.trim()
+                    })()
+
+                    const episodeThumbUrl = (() => {
+                      const t = typeof e.thumbnailUrl === 'string' ? e.thumbnailUrl.trim() : ''
+                      return t || workDetailHeroThumbnailUrl
+                    })()
 
                     return (
                       <Pressable
                         key={e.id}
                         style={styles.episodeRow}
                         onPress={() => {
-                          if (isPaid && !purchased) {
-                            confirmEpisodePurchase({
+                          if (isMemberOnly) {
+                            setSubscriptionReturnTo('workDetail')
+                            setSubscriptionResume({ workId: workIdForDetail, episodeId: e.id })
+                            setSubscriptionPrompt({
+                              visible: true,
+                              workId: workIdForDetail,
                               episodeId: e.id,
-                              title: `${workForDetail.title} ${e.title}`,
-                              requiredCoins,
+                              workTitle: workForDetail.title,
+                              thumbnailUrl: episodeThumbUrl,
                             })
                             return
                           }
@@ -2963,11 +4056,15 @@ export default function App() {
                             title: `${workForDetail.title} ${e.title}`,
                             kind: 'エピソード',
                             durationSeconds: 10 * 60,
-                            thumbnailUrl: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s`,
+                            thumbnailUrl: episodeThumbUrl,
                             lastPlayedAt: Date.now(),
                           })
-                          setPlayerVideoIdNoSub(streamSampleVideoId)
-                          setPlayerVideoIdWithSub(streamSampleVideoId)
+                            const chosenNoSub = String((e as any).streamVideoId || '').trim()
+                          setPlayerVideoIdNoSub(chosenNoSub)
+                            setPlayerVideoIdWithSub(null)
+                          if (!chosenNoSub) {
+                            void hydratePlayerFromEpisodeId(e.id, { workId: workIdForDetail })
+                          }
                           if (currentIndex >= 0) {
                             setPlayerEpisodeContext({
                               workId: workIdForDetail,
@@ -2978,20 +4075,20 @@ export default function App() {
                             setPlayerEpisodeContext(null)
                           }
                           if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                            window.location.hash = videoPlayerToWebHash({ workId: workIdForDetail, episodeId: e.id })
+                            pushWebUrl(videoPlayerToWebUrl({ workId: workIdForDetail, episodeId: e.id }))
                           } else {
                             goTo('videoPlayer')
                           }
                         }}
                       >
                         <Image
-                          source={{ uri: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s` }}
+                          source={{ uri: episodeThumbUrl }}
                           style={styles.episodeThumb}
                           resizeMode="cover"
                         />
                         <View style={styles.episodeMeta}>
                           <Text style={styles.episodeTitle} numberOfLines={1}>
-                            #{e.id} {e.title}
+                            {displayTitle}
                           </Text>
                           <Text style={styles.episodeDuration}>{durationText}</Text>
                         </View>
@@ -3001,15 +4098,60 @@ export default function App() {
                 ))
               )}
 
+              <SubscriptionPromptModal
+                visible={subscriptionPrompt.visible}
+                workTitle={subscriptionPrompt.workTitle}
+                thumbnailUrl={subscriptionPrompt.thumbnailUrl}
+                onClose={() => setSubscriptionPrompt({ visible: false })}
+                onStartTrial={() => {
+                  setSubscriptionPrompt({ visible: false })
+
+                  if (!loggedIn) {
+                    setSubscriptionNote('このエピソードは会員限定です。ログイン後、サブスク会員に加入すると視聴できます。')
+                    setSubscriptionReturnTo('workDetail')
+                    if (subscriptionPrompt.workId && subscriptionPrompt.episodeId) {
+                      setSubscriptionResume({ workId: subscriptionPrompt.workId, episodeId: subscriptionPrompt.episodeId })
+                    }
+                    requireLogin('subscription')
+                    return
+                  }
+
+                  if (!isSubscribed) {
+                    setSubscriptionNote('このエピソードは会員限定です。サブスク会員に加入してください。')
+                    setSubscriptionReturnTo('workDetail')
+                    if (subscriptionPrompt.workId && subscriptionPrompt.episodeId) {
+                      setSubscriptionResume({ workId: subscriptionPrompt.workId, episodeId: subscriptionPrompt.episodeId })
+                    }
+                    goTo('subscription')
+                  }
+                }}
+              />
+
               <Text style={styles.subSectionTitle}>おすすめドラマ一覧</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recoList}>
                 {recommendedWorks.map((w) => (
                   <Pressable key={`reco-${w.id}`} style={styles.recoCard} onPress={() => openWorkDetail(w.id)}>
-                    <Image
-                      source={{ uri: `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s` }}
-                      style={styles.recoThumb}
-                      resizeMode="cover"
-                    />
+                    {(() => {
+                      const workThumb = typeof (w as any)?.thumbnailUrl === 'string' ? String((w as any).thumbnailUrl).trim() : ''
+                      if (workThumb) {
+                        return <Image source={{ uri: workThumb }} style={styles.recoThumb} resizeMode="cover" />
+                      }
+                      const epThumb = typeof (w as any)?.episodes?.[0]?.thumbnailUrl === 'string' ? String((w as any).episodes[0].thumbnailUrl).trim() : ''
+                      if (epThumb) {
+                        return <Image source={{ uri: epThumb }} style={styles.recoThumb} resizeMode="cover" />
+                      }
+                      const streamUid = String((w as any)?.episodes?.[0]?.streamVideoId || '').trim()
+                      if (/^[a-f0-9]{32}$/i.test(streamUid)) {
+                        return (
+                          <Image
+                            source={{ uri: `https://videodelivery.net/${encodeURIComponent(streamUid)}/thumbnails/thumbnail.jpg?time=1s` }}
+                            style={styles.recoThumb}
+                            resizeMode="cover"
+                          />
+                        )
+                      }
+                      return <View style={[styles.recoThumb, { backgroundColor: THEME.placeholder }]} />
+                    })()}
                   </Pressable>
                 ))}
               </ScrollView>
@@ -3191,6 +4333,9 @@ export default function App() {
               </View>
             </View>
           ) : null}
+
+            </>
+          )}
         </ScreenContainer>
       ) : null}
 
@@ -3267,43 +4412,6 @@ export default function App() {
             </View>
           </View>
         </ScreenContainer>
-      ) : null}
-
-      {screen === 'purchase' && purchaseTarget ? (
-        <PaidVideoPurchaseScreen
-          onBack={goBack}
-          targetType={purchaseTarget.targetType}
-          targetId={purchaseTarget.targetId}
-          title={purchaseTarget.title}
-          contentTypeLabel={purchaseTarget.contentTypeLabel}
-          requiredCoins={purchaseTarget.requiredCoins}
-          ownedCoins={ownedCoins}
-          purchased={purchasedTargets.has(`episode:${purchaseTarget.targetId}`)}
-          onBuyCoins={() => {
-            setCoinGrantPrimaryReturnTo('purchase')
-            setCoinGrantPrimaryLabel('動画を購入する')
-            goTo('coinPurchase')
-          }}
-          onPurchase={async ({ targetId, requiredCoins }) => {
-            const key = `episode:${targetId}`
-            if (purchasedTargets.has(key)) {
-              goBack()
-              return
-            }
-            if (ownedCoins < requiredCoins) {
-              throw new Error('コインが不足しています')
-            }
-            // NOTE: 実運用は購入APIを呼び、結果を正として反映する。
-            await new Promise((r) => setTimeout(r, 400))
-            setOwnedCoins((v) => v - requiredCoins)
-            setPurchasedTargets((prev) => {
-              const next = new Set(prev)
-              next.add(key)
-              return next
-            })
-            goTo('workDetail')
-          }}
-        />
       ) : null}
 
       {screen === 'coinPurchase' ? (
@@ -3402,8 +4510,28 @@ export default function App() {
       ) : null}
 
       {screen === 'videoPlayer' ? (
+        !String(playerVideoIdNoSub || '').trim() && !String(playerVideoIdWithSub || '').trim() ? (
+          <ScreenContainer title="再生" onBack={goBack}>
+            <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24 }}>
+              {playerHydrating ? (
+                <>
+                  <ActivityIndicator />
+                  <View style={{ height: 12 }} />
+                  <Text style={styles.centerText}>動画情報を取得中です…</Text>
+                </>
+              ) : (
+                <Text style={styles.centerText}>動画が未指定です。{`\n`}作品詳細から再生してください。</Text>
+              )}
+              <View style={{ height: 12 }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
+                <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
+              </View>
+            </View>
+          </ScreenContainer>
+        ) : (
         <VideoPlayerScreen
           apiBaseUrl={apiBaseUrl}
+          authToken={authToken}
           videoIdNoSub={playerVideoIdNoSub}
           videoIdWithSub={playerVideoIdWithSub}
           onBack={goBack}
@@ -3413,7 +4541,11 @@ export default function App() {
             const currentIndex = playerEpisodeContext.currentIndex
             if (currentIndex < 0 || currentIndex >= workForDetail.episodes.length) return null
             const ep = workForDetail.episodes[currentIndex]
-            return ep ? `${ep.id} ${ep.title}` : null
+            if (!ep) return null
+            const episodeNo = ep.episodeNo == null ? null : ep.episodeNo
+            const label = episodeNo != null ? `第${String(episodeNo).padStart(2, '0')}話` : `第${String(currentIndex + 1).padStart(2, '0')}話`
+            const t = String(ep.title || '').trim()
+            return t.includes('第') && t.includes('話') ? t : `${label} ${t}`.trim()
           })()}
           nextEpisodeTitle={(() => {
             if (!playerEpisodeContext) return null
@@ -3421,7 +4553,11 @@ export default function App() {
             const nextIndex = playerEpisodeContext.currentIndex + 1
             if (nextIndex < 0 || nextIndex >= workForDetail.episodes.length) return null
             const ep = workForDetail.episodes[nextIndex]
-            return ep ? `${ep.id} ${ep.title}` : null
+            if (!ep) return null
+            const episodeNo = ep.episodeNo == null ? null : ep.episodeNo
+            const label = episodeNo != null ? `第${String(episodeNo).padStart(2, '0')}話` : `第${String(nextIndex + 1).padStart(2, '0')}話`
+            const t = String(ep.title || '').trim()
+            return t.includes('第') && t.includes('話') ? t : `${label} ${t}`.trim()
           })()}
           nextEpisodeThumbnailUrl={(() => {
             if (!playerEpisodeContext) return null
@@ -3430,7 +4566,9 @@ export default function App() {
             if (nextIndex < 0) return null
             if (playerEpisodeContext.workId !== workIdForDetail) return null
             if (nextIndex >= workForDetail.episodes.length) return null
-            return `https://videodelivery.net/${encodeURIComponent(streamSampleVideoId)}/thumbnails/thumbnail.jpg?time=1s`
+            const ep = workForDetail.episodes[nextIndex]
+            const t = typeof ep?.thumbnailUrl === 'string' ? ep.thumbnailUrl.trim() : ''
+            return t || workDetailHeroThumbnailUrl
           })()}
           onPrevEpisode={
             playerEpisodeContext
@@ -3438,9 +4576,8 @@ export default function App() {
                   const nextIndex = playerEpisodeContext.currentIndex - 1
                   if (nextIndex < 0) return
                   setPlayerEpisodeContext((prev) => (prev ? { ...prev, currentIndex: nextIndex } : prev))
-                  // TODO: When real episode video ids exist, resolve per episode id.
-                  setPlayerVideoIdNoSub(streamSampleVideoId)
-                  setPlayerVideoIdWithSub(streamSampleVideoId)
+                  const nextEpisodeId = String(playerEpisodeContext.episodeIds?.[nextIndex] ?? '').trim()
+                  if (nextEpisodeId) void hydratePlayerFromEpisodeId(nextEpisodeId, { workId: playerEpisodeContext.workId })
                 }
               : undefined
           }
@@ -3450,9 +4587,8 @@ export default function App() {
                   const nextIndex = playerEpisodeContext.currentIndex + 1
                   if (nextIndex >= playerEpisodeContext.episodeIds.length) return
                   setPlayerEpisodeContext((prev) => (prev ? { ...prev, currentIndex: nextIndex } : prev))
-                  // TODO: When real episode video ids exist, resolve per episode id.
-                  setPlayerVideoIdNoSub(streamSampleVideoId)
-                  setPlayerVideoIdWithSub(streamSampleVideoId)
+                  const nextEpisodeId = String(playerEpisodeContext.episodeIds?.[nextIndex] ?? '').trim()
+                  if (nextEpisodeId) void hydratePlayerFromEpisodeId(nextEpisodeId, { workId: playerEpisodeContext.workId })
                 }
               : undefined
           }
@@ -3463,76 +4599,64 @@ export default function App() {
               : undefined
           }
         />
+        )
       ) : null}
-
-      <ConfirmDialog
-        visible={!!episodePurchaseDialog}
-        title={ownedCoins < (episodePurchaseDialog?.requiredCoins ?? 0) ? 'コインが不足しています' : '購入確認'}
-        message={(() => {
-          if (!episodePurchaseDialog) return ''
-          const required = episodePurchaseDialog.requiredCoins
-          const after = ownedCoins - required
-          if (ownedCoins < required) {
-            return `${episodePurchaseDialog.title}\n\n必要コイン：${required}\n所持コイン：${ownedCoins}`
-          }
-          return `${episodePurchaseDialog.title}\n\n必要コイン：${required}\n所持コイン：${ownedCoins}\n購入後：${after}`
-        })()}
-        error={episodePurchaseError}
-        onRequestClose={() => {
-          if (episodePurchaseBusy) return
-          setEpisodePurchaseError('')
-          setEpisodePurchaseDialog(null)
-        }}
-        secondary={{
-          label: 'キャンセル',
-          disabled: episodePurchaseBusy,
-          onPress: () => {
-            setEpisodePurchaseError('')
-            setEpisodePurchaseDialog(null)
-          },
-        }}
-        primary={{
-          label:
-            ownedCoins < (episodePurchaseDialog?.requiredCoins ?? 0)
-              ? 'コイン購入へ'
-              : '購入する',
-          disabled: episodePurchaseBusy,
-          onPress: () => {
-            if (!episodePurchaseDialog) return
-            const required = episodePurchaseDialog.requiredCoins
-            if (ownedCoins < required) {
-              setEpisodePurchaseError('')
-              setEpisodePurchaseDialog(null)
-              setCoinGrantPrimaryReturnTo('workDetail')
-              setCoinGrantPrimaryLabel('動画を購入する')
-              goTo('coinPurchase')
-              return
-            }
-
-            void (async () => {
-              setEpisodePurchaseBusy(true)
-              setEpisodePurchaseError('')
-              try {
-                await purchaseEpisode(episodePurchaseDialog.episodeId, required)
-                setEpisodePurchaseDialog(null)
-              } catch (e) {
-                setEpisodePurchaseError(e instanceof Error ? e.message : String(e))
-              } finally {
-                setEpisodePurchaseBusy(false)
-              }
-            })()
-          },
-        }}
-      />
 
       {null}
 
-      <StatusBar style="auto" />
-    </SafeAreaView>
+        <StatusBar style="auto" />
+      </SafeAreaView>
+
+      {screen === 'splash' ? (
+        <SplashScreen
+          maxDurationMs={2200}
+          onDone={() => {
+            void (async () => {
+              try {
+                const [token, tutorialSeen] = await Promise.all([
+                  getString(AUTH_TOKEN_KEY),
+                  getBoolean(TUTORIAL_SEEN_KEY),
+                ])
+
+                if (token) {
+                  setAuthToken(token)
+                  setLoggedIn(true)
+                  setHistory([])
+                  setScreen('home')
+                  return
+                }
+
+                // Web版は初回導線でもチュートリアルへ自動遷移しない（トップ表示の安定化）。
+                if (Platform.OS === 'web') {
+                  goTo('welcome')
+                  return
+                }
+
+                if (!tutorialSeen) {
+                  setTutorialIndex(0)
+                  goTo('tutorial')
+                  return
+                }
+
+                goTo('welcome')
+              } catch {
+                // Fallback: keep current behavior.
+                goTo('welcome')
+              }
+            })()
+          }}
+        />
+      ) : null}
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  appRoot: {
+    flex: 1,
+    backgroundColor: THEME.bg,
+    position: 'relative',
+  },
   safeArea: {
     flex: 1,
     backgroundColor: THEME.bg,
@@ -3726,6 +4850,52 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     width: '100%',
   },
+  smsSendRoot: {
+    width: '100%',
+    flex: 1,
+    paddingTop: 96,
+  },
+  smsBgBase: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: THEME.bg,
+  },
+  smsBgTopGlow: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  smsBgVignette: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  smsField: {
+    width: '100%',
+    marginBottom: 10,
+  },
+  smsLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.text,
+    marginBottom: 10,
+  },
+  smsInput: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.60)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 4,
+    color: THEME.text,
+    backgroundColor: 'transparent',
+  },
+  smsHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: THEME.textMuted,
+    marginTop: 8,
+    marginBottom: 18,
+  },
+  smsButtonWrap: {
+    width: '100%',
+    marginTop: 4,
+  },
   fieldError: {
     marginTop: 6,
     fontSize: 12,
@@ -3857,6 +5027,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  guestCta: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  guestCtaHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  guestCtaTitle: {
+    color: THEME.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  guestCtaClose: {
+    color: THEME.textMuted,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  guestCtaText: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  guestCtaButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   heroImage: {
     width: '100%',
     aspectRatio: 16 / 9,
@@ -3864,6 +5071,242 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: THEME.card,
+  },
+  castCarouselWrap: {
+    width: '100%',
+    marginBottom: 14,
+  },
+  castCarouselContent: {
+    paddingHorizontal: 16,
+  },
+  castCarouselCard: {
+    width: CAST_PROFILE_CAROUSEL_CARD_WIDTH,
+    height: 300,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    overflow: 'hidden',
+  },
+  castCarouselCardInner: {
+    flex: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  castCarouselDots: {
+    marginTop: 10,
+    marginBottom: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    paddingVertical: 6,
+  },
+  castTitleBlock: {
+    marginBottom: 14,
+    paddingHorizontal: 2,
+  },
+  castNameMain: {
+    color: '#E6E6E6',
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  castNameSub: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  castRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  castRatingText: {
+    color: '#E4A227',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  castActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    marginBottom: 12,
+  },
+  castActionItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  castActionLabel: {
+    color: THEME.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  profileCard: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  castCategoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 8,
+  },
+  castCategoryChip: {
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'transparent',
+  },
+  castCategoryChipText: {
+    color: '#E6E6E6',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  castSnsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.divider,
+  },
+  castSnsRowLast: {
+    borderBottomWidth: 0,
+  },
+  castSnsIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: THEME.placeholder,
+  },
+  castSnsLabel: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  castSnsUrl: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  profileHeaderCard: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    overflow: 'hidden',
+    marginBottom: 14,
+  },
+  profileHero: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: THEME.card,
+  },
+  profileHeroPlaceholder: {
+    flex: 1,
+    backgroundColor: THEME.placeholder,
+  },
+  profileHeaderInner: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
+  },
+  profileNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 6,
+  },
+  profileName: {
+    flex: 1,
+    color: '#E6E6E6',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  profileAffiliation: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  profileStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+    marginBottom: 10,
+  },
+  profileStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  profileStatText: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  profileStatDivider: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  profileStatSub: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  profileActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  profileYourReviewCard: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.card,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  profileYourReviewTitle: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  profileYourReviewStarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  profileYourReviewRating: {
+    marginLeft: 6,
+    color: '#E6E6E6',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  profileYourReviewBody: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   heroPlaceholder: {
     flex: 1,

@@ -1,13 +1,14 @@
 import { LinearGradient } from 'expo-linear-gradient'
 import { Image, ImageBackground, Pressable, StyleSheet, Text, View } from 'react-native'
-import { PrimaryButton, ScreenContainer } from '../components'
+import { PrimaryButton, ScreenContainer, THEME } from '../components'
 
 type WelcomeTopScreenProps = {
   onStart: () => void
   onLogin: () => void
+  onContinueAsGuest?: () => void
 }
 
-export function WelcomeTopScreen({ onStart, onLogin }: WelcomeTopScreenProps) {
+export function WelcomeTopScreen({ onStart, onLogin, onContinueAsGuest }: WelcomeTopScreenProps) {
   return (
     <ScreenContainer padding={0}>
       <View style={styles.root}>
@@ -17,15 +18,28 @@ export function WelcomeTopScreen({ onStart, onLogin }: WelcomeTopScreenProps) {
           resizeMode="cover"
           imageStyle={styles.bgImage}
         />
+        <View pointerEvents="none" style={styles.overlay} />
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(11, 11, 11, 0)', 'rgba(11, 11, 11, 0.25)', 'rgba(11, 11, 11, 0.9)', 'rgba(11, 11, 11, 1)']}
+          locations={[0, 0.45, 0.82, 1]}
+          style={styles.gradient}
+        />
         <View style={styles.content}>
           <Image source={require('../assets/oshidora-logo.png')} style={styles.heroLogo} resizeMode="contain" />
-          <Text style={styles.heroTitle}>ショートドラマを、もっと近くに。</Text>
-          <Text style={styles.heroSub}>推しドラは、好きな作品をいつでも楽しめるショートドラマサービスです。</Text>
-          <Text style={styles.heroSub}>気になる作品を見つけて、すぐに楽しめます。</Text>
+          <Text style={styles.heroTitle}>推しの夢 あなたの力で実現！</Text>
+          <Text style={styles.heroSub}>若手俳優や若手クリエイターの才能を応援し、新しい才能の誕生に立ち会う。</Text>
+          <Text style={styles.heroSub}>あなたの「推し」への想いが、次世代のエンターテインメントを創り出す新しいカタチをご紹介します。</Text>
 
           <View style={styles.cta}>
             <PrimaryButton label="はじめる" onPress={onStart} />
           </View>
+
+          {onContinueAsGuest ? (
+            <Pressable onPress={onContinueAsGuest} accessibilityRole="button" hitSlop={10}>
+              <Text style={styles.inlineGuest}>ログインせずに使用する</Text>
+            </Pressable>
+          ) : null}
 
           <Pressable onPress={onLogin} accessibilityRole="button" hitSlop={10}>
             <Text style={styles.inlineLogin}>すでにアカウントをお持ちですか？ ログイン</Text>
@@ -44,7 +58,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    backgroundColor: '#0B0B0B',
+    backgroundColor: THEME.bg,
   },
   bg: {
     position: 'absolute',
@@ -67,7 +81,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: '55%',
+    height: '80%',
   },
   content: {
     flex: 1,
@@ -111,5 +125,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     marginTop: 6,
+  },
+  inlineGuest: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 2,
   },
 })

@@ -5,6 +5,8 @@ import { apiFetch, isDebugMockEnabled } from '../utils/api'
 
 type Props = {
   apiBaseUrl: string
+  authToken: string | null
+  loggedIn: boolean
   onBack: () => void
   onOpenVideo: (id: string) => void
 }
@@ -15,14 +17,14 @@ type VideoItem = {
   thumbnailUrl?: string
 }
 
-type TopData = {
-  favorites: VideoItem[]
+type FavoritesResponse = {
+  items: VideoItem[]
 }
 
-export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props) {
-  const mockData = useMemo<TopData>(() => ({ favorites: [] }), [])
+export function FavoriteVideosScreen({ apiBaseUrl, authToken, loggedIn, onBack, onOpenVideo }: Props) {
+  const mockData = useMemo<FavoritesResponse>(() => ({ items: [] }), [])
 
-  const [favorites, setFavorites] = useState<VideoItem[]>(mockData.favorites)
+  const [favorites, setFavorites] = useState<VideoItem[]>(mockData.items)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [fallbackUsed, setFallbackUsed] = useState(false)
@@ -33,17 +35,30 @@ export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props)
       setLoading(true)
       setError('')
       setFallbackUsed(false)
+
+      if (!loggedIn || !authToken) {
+        if (!cancelled) {
+          setFavorites([])
+          setLoading(false)
+        }
+        return
+      }
+
       try {
-        const res = await apiFetch(`${apiBaseUrl}/v1/top`)
+        const res = await apiFetch(`${apiBaseUrl}/api/favorites/videos`, {
+          headers: {
+            authorization: `Bearer ${authToken}`,
+          },
+        })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const json = (await res.json()) as TopData
-        const list = Array.isArray(json?.favorites) ? json.favorites : []
+        const json = (await res.json().catch(() => ({}))) as FavoritesResponse
+        const list = Array.isArray(json?.items) ? json.items : []
         if (!cancelled) setFavorites(list)
       } catch (e) {
         if (!cancelled) {
           const mock = await isDebugMockEnabled()
           setFallbackUsed(mock)
-          setFavorites(mock ? mockData.favorites : [])
+          setFavorites(mock ? mockData.items : [])
           setError(e instanceof Error ? e.message : String(e))
         }
       } finally {
@@ -54,7 +69,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props)
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, mockData.favorites])
+  }, [apiBaseUrl, authToken, loggedIn, mockData.items])
 
   return (
     <ScreenContainer title="お気に入り（動画）" onBack={onBack}>
@@ -67,6 +82,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, onBack, onOpenVideo }: Props)
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>お気に入り動画がありません</Text>
             <Text style={styles.emptyDesc}>作品・動画の詳細からお気に入り登録してください</Text>
+            {!loggedIn ? <Text style={styles.emptyDesc}>ログインするとお気に入り動画を確認できます</Text> : null}
             {error ? <Text style={styles.error}>読み込み失敗{fallbackUsed ? '（モック表示）' : ''}：{error}</Text> : null}
           </View>
         ) : (

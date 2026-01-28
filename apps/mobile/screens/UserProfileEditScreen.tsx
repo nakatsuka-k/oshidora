@@ -1,44 +1,106 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Alert, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, Image, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Path, Svg } from 'react-native-svg'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import * as ImagePicker from 'expo-image-picker'
-import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
+import { Chip, PrimaryButton, ScreenContainer, SecondaryButton, Section, TextField, THEME } from '../components'
 import { isValidEmail } from '../utils/validators'
 
 type UserProfileEditScreenProps = {
   apiBaseUrl: string
   onBack: () => void
+  onRequestEmailChange?: () => void
+  onRequestPhoneChange?: () => void
   onSave: (opts: {
     displayName: string
+    fullName: string
+    fullNameKana: string
     email: string
     phone: string
     birthDate: string
+    favoriteGenres: string[]
     password?: string
     avatarUrl?: string
   }) => Promise<void>
   initialDisplayName?: string
+  initialFullName?: string
+  initialFullNameKana?: string
   initialEmail?: string
   initialPhone?: string
   initialBirthDate?: string
+  initialFavoriteGenres?: string[]
   initialAvatarUrl?: string
+  initialUserId?: string
   isNewRegistration?: boolean
 }
+
+const GENRE_GROUPS: Array<{ title: string; options: string[] }> = [
+  {
+    title: '🎬 定番・王道ジャンル',
+    options: ['アクション', 'アドベンチャー', 'SF', 'ファンタジー', 'ミステリー', 'サスペンス', 'スリラー', 'ホラー', 'パニック', 'クライム（犯罪）', 'スパイ・諜報もの'],
+  },
+  {
+    title: '❤️ 感情・人間ドラマ系',
+    options: ['恋愛（ラブストーリー）', 'ヒューマンドラマ', '家族ドラマ', '青春', '成長物語', '感動系', '切ない系', '泣ける作品', '心温まる系'],
+  },
+  {
+    title: '😂 コメディ・ライト系',
+    options: ['コメディ', 'ラブコメ', 'ブラックコメディ', 'ドタバタコメディ', '日常系', 'ゆる系', 'ほのぼの系'],
+  },
+  {
+    title: '🧠 知的・重厚系',
+    options: ['社会派', '政治ドラマ', '法廷ドラマ', '医療ドラマ', '経済・ビジネス', '実話・実録ベース', '歴史ドラマ', '時代劇'],
+  },
+  {
+    title: '🔮 特殊設定・尖り系',
+    options: ['タイムトラベル', 'パラレルワールド', 'デスゲーム', 'サバイバル', 'ディストピア', '終末世界', 'クローズドサークル', '一話完結型', '群像劇'],
+  },
+  {
+    title: '🧑‍🤝‍🧑 キャラクター・関係性重視',
+    options: ['バディもの', 'チームもの', '群像劇', 'ライバル関係', '師弟関係', '女性主人公', '男性主人公', '子供が活躍する作品'],
+  },
+  {
+    title: '🌍 世界観・舞台別',
+    options: ['日本作品', '海外作品', 'アジアドラマ', '韓国ドラマ', '中国ドラマ', 'ヨーロッパ作品', 'ハリウッド映画'],
+  },
+  {
+    title: '🎥 フォーマット・作風',
+    options: ['短編ドラマ', '長編映画', 'シリーズもの', 'シーズン制', '原作あり（漫画・小説）', 'オリジナル作品', '低予算インディーズ', 'アート系・実験的'],
+  },
+  {
+    title: '🔥 テーマ・刺激強め',
+    options: ['バイオレンス強め', 'ダークな世界観', '心理描写重視', '倫理観を問う', 'どんでん返し系', '考察したくなる作品'],
+  },
+  {
+    title: '👨‍👩‍👧‍👦 視聴シーン別（地味に便利）',
+    options: ['一人でじっくり観たい', '家族で観られる', '子供と一緒に観たい', '気軽に流し見', '一気見したい', '寝る前に観たい'],
+  },
+]
 
 export function UserProfileEditScreen({
   apiBaseUrl,
   onBack,
+  onRequestEmailChange,
+  onRequestPhoneChange,
   onSave,
   initialDisplayName = '',
+  initialFullName = '',
+  initialFullNameKana = '',
   initialEmail = '',
   initialPhone = '',
   initialBirthDate = '',
+  initialFavoriteGenres = [],
   initialAvatarUrl = '',
+  initialUserId = '',
   isNewRegistration = false,
 }: UserProfileEditScreenProps) {
   const [displayName, setDisplayName] = useState(initialDisplayName)
+  const [fullName, setFullName] = useState(initialFullName)
+  const [fullNameKana, setFullNameKana] = useState(initialFullNameKana)
   const [email, setEmail] = useState(initialEmail)
   const [phone, setPhone] = useState(initialPhone)
   const [birthDate, setBirthDate] = useState(initialBirthDate)
+  const [favoriteGenres, setFavoriteGenres] = useState<string[]>(initialFavoriteGenres)
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -47,6 +109,43 @@ export function UserProfileEditScreen({
   const [busy, setBusy] = useState(false)
   const [avatarUploading, setAvatarUploading] = useState(false)
   const [birthPickerOpen, setBirthPickerOpen] = useState(false)
+
+  const EyeIcon = ({ open }: { open: boolean }) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"
+        stroke={THEME.textMuted}
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+        stroke={THEME.textMuted}
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+      {open ? null : <Path d="M4 4l16 16" stroke={THEME.textMuted} strokeWidth={2} strokeLinecap="round" />}
+    </Svg>
+  )
+
+  const ChevronDownIcon = () => (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Path d="M6 9l6 6 6-6" stroke={THEME.textMuted} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+
+  const UserAvatarIcon = () => (
+    <Svg width={56} height={56} viewBox="0 0 64 64" fill="none">
+      <Path
+        d="M32 34c7.2 0 13-5.8 13-13S39.2 8 32 8 19 13.8 19 21s5.8 13 13 13Z"
+        fill={THEME.placeholder}
+      />
+      <Path
+        d="M12 56c0-11 9-20 20-20s20 9 20 20"
+        fill={THEME.placeholder}
+      />
+    </Svg>
+  )
 
   const birthDateValue = useMemo(() => {
     const v = birthDate.trim()
@@ -66,12 +165,32 @@ export function UserProfileEditScreen({
   const hasChanges = useMemo(() => {
     return (
       displayName !== initialDisplayName ||
+      fullName !== initialFullName ||
+      fullNameKana !== initialFullNameKana ||
       email !== initialEmail ||
       phone !== initialPhone ||
       birthDate !== initialBirthDate ||
-      avatarUrl !== initialAvatarUrl
+      avatarUrl !== initialAvatarUrl ||
+      JSON.stringify(favoriteGenres) !== JSON.stringify(initialFavoriteGenres)
     )
-  }, [displayName, email, phone, birthDate, avatarUrl, initialDisplayName, initialEmail, initialPhone, initialBirthDate, initialAvatarUrl])
+  }, [
+    displayName,
+    fullName,
+    fullNameKana,
+    email,
+    phone,
+    birthDate,
+    avatarUrl,
+    favoriteGenres,
+    initialDisplayName,
+    initialFullName,
+    initialFullNameKana,
+    initialEmail,
+    initialPhone,
+    initialBirthDate,
+    initialAvatarUrl,
+    initialFavoriteGenres,
+  ])
 
   const canSubmit = useMemo(() => {
     if (busy || avatarUploading) return false
@@ -82,15 +201,43 @@ export function UserProfileEditScreen({
         !!displayName.trim() &&
         isValidEmail(email) &&
         !!phone.trim() &&
+        password.trim().length >= 8 &&
+        password === passwordConfirm &&
         !!birthDateTrimmed &&
         /^\d{4}-\d{2}-\d{2}$/.test(birthDateTrimmed) &&
-        password.trim().length >= 8 &&
-        password === passwordConfirm
+        true
       )
     }
 
+    const changingPassword = password.trim().length > 0 || passwordConfirm.trim().length > 0
+    if (changingPassword) {
+      if (password.trim().length < 8) return false
+      if (password !== passwordConfirm) return false
+      return true
+    }
+
     return hasChanges
-  }, [busy, avatarUploading, isNewRegistration, displayName, email, phone, birthDate, password, passwordConfirm, hasChanges])
+  }, [busy, avatarUploading, isNewRegistration, displayName, fullName, fullNameKana, email, phone, birthDate, favoriteGenres, password, passwordConfirm, hasChanges])
+
+  const allGenreOptions = useMemo(() => {
+    const seen = new Set<string>()
+    return GENRE_GROUPS.map((g) => {
+      const filtered = g.options.filter((opt) => {
+        if (seen.has(opt)) return false
+        seen.add(opt)
+        return true
+      })
+      return { ...g, options: filtered }
+    }).filter((g) => g.options.length > 0)
+  }, [])
+
+  const toggleGenre = useCallback((label: string) => {
+    setFavoriteGenres((prev) => {
+      const exists = prev.includes(label)
+      if (exists) return prev.filter((v) => v !== label)
+      return [...prev, label]
+    })
+  }, [])
 
   const handleBack = useCallback(() => {
     if (hasChanges) {
@@ -239,10 +386,15 @@ export function UserProfileEditScreen({
             body: blob,
           })
 
-          const json = (await uploadResp.json().catch(() => ({}))) as any
+          const json = (await uploadResp.json().catch(() => null)) as any
           if (!uploadResp.ok) {
-            const errorMsg = json?.error || `Upload failed with status ${uploadResp.status}`
-            throw new Error(errorMsg)
+            const errorMsg =
+              json?.error ||
+              json?.message ||
+              `Upload failed with status ${uploadResp.status}`
+            const err = new Error(errorMsg)
+            ;(err as any).status = uploadResp.status
+            throw err
           }
 
           const url = json?.data?.url
@@ -255,8 +407,9 @@ export function UserProfileEditScreen({
             await uploadViaUploader()
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e)
+            const status = typeof (e as any)?.status === 'number' ? Number((e as any).status) : null
             // If uploader auth is misconfigured (401/403), fall back to API upload.
-            if (/unauthorized|token|authorization/i.test(msg)) {
+            if (status === 401 || status === 403 || /unauthorized|token|authorization/i.test(msg)) {
               await uploadViaApi()
             } else {
               throw e
@@ -287,15 +440,12 @@ export function UserProfileEditScreen({
       Alert.alert('エラー', '電話番号が不明です')
       return
     }
-    if (isNewRegistration && !password.trim()) {
-      Alert.alert('エラー', 'パスワードを設定してください')
-      return
-    }
-    if (isNewRegistration && password.length < 8) {
+    const changingPassword = isNewRegistration || password.trim().length > 0 || passwordConfirm.trim().length > 0
+    if (changingPassword && password.trim().length < 8) {
       Alert.alert('エラー', 'パスワードは8文字以上で設定してください')
       return
     }
-    if (isNewRegistration && password !== passwordConfirm) {
+    if (changingPassword && password !== passwordConfirm) {
       Alert.alert('エラー', 'パスワードが一致しません')
       return
     }
@@ -320,14 +470,22 @@ export function UserProfileEditScreen({
       }
     }
 
+    if (!isNewRegistration && favoriteGenres.length < 1) {
+      Alert.alert('エラー', '好きなドラマ・映画のジャンルを1つ以上選択してください')
+      return
+    }
+
     setBusy(true)
     try {
       await onSave({
         displayName: displayName.trim(),
+        fullName: fullName.trim(),
+        fullNameKana: fullNameKana.trim(),
         email: email.trim(),
         phone: phone.trim(),
         birthDate: birthDateTrimmed,
-        password: isNewRegistration && password ? password : undefined,
+        favoriteGenres,
+        password: changingPassword && password ? password : undefined,
         avatarUrl: avatarUrl || undefined,
       })
     } catch (e) {
@@ -335,7 +493,7 @@ export function UserProfileEditScreen({
     } finally {
       setBusy(false)
     }
-  }, [displayName, email, phone, birthDate, password, passwordConfirm, avatarUrl, isNewRegistration, onSave])
+  }, [displayName, fullName, fullNameKana, email, phone, birthDate, favoriteGenres, password, passwordConfirm, avatarUrl, isNewRegistration, onSave])
 
   const birthDatePicker = Platform.OS !== 'web' ? (
     <Modal transparent visible={birthPickerOpen} animationType="fade" onRequestClose={() => setBirthPickerOpen(false)}>
@@ -368,112 +526,229 @@ export function UserProfileEditScreen({
     <ScreenContainer title={isNewRegistration ? 'プロフィール登録' : 'ユーザープロフィール編集'} onBack={handleBack} scroll>
       <View style={styles.root}>
         {birthDatePicker}
-        {isNewRegistration && (
-          <View style={styles.infoBox}>
-            <Text style={styles.infoText}>あと少しで利用開始できます。プロフィールを登録してください。</Text>
+        {isNewRegistration ? <Text style={styles.leadText}>あと少しで利用開始できます。プロフィールを登録してください。</Text> : null}
+
+        <Section title="プロフィール画像">
+          <View style={styles.avatarBlock}>
+            <Pressable onPress={handlePickImage} disabled={busy || avatarUploading} style={styles.avatarCircle}>
+              {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatar} /> : <UserAvatarIcon />}
+            </Pressable>
+
+            <View style={styles.avatarButtonWrap}>
+              <PrimaryButton
+                label={avatarUrl ? '画像を変更' : '画像を選択'}
+                onPress={handlePickImage}
+                disabled={busy || avatarUploading}
+              />
+            </View>
+            {avatarUploading ? <Text style={styles.hintText}>アップロード中...</Text> : null}
           </View>
-        )}
+        </Section>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>プロフィール画像</Text>
-          <Pressable onPress={handlePickImage} disabled={busy || avatarUploading} style={styles.avatarBox}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-            ) : (
-              <Text style={styles.avatarPlaceholder}>画像を選択</Text>
-            )}
-            {!avatarUploading && <Text style={styles.avatarButtonLabel}>{avatarUrl ? '変更' : '選択'}</Text>}
-            {avatarUploading && <Text style={styles.avatarButtonLabel}>アップロード中...</Text>}
-          </Pressable>
-        </View>
+        <Section title="基本情報">
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>基本情報</Text>
+          {isNewRegistration ? (
+            <View style={styles.field}>
+              <Text style={styles.label}>ユーザーID</Text>
+              <Text style={styles.staticValue}>{initialUserId.trim() ? initialUserId.trim() : '--------'}</Text>
+            </View>
+          ) : null}
+
+          <TextField
+            label="表示名（ニックネーム）"
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholder="推しドラ太郎"
+            editable={!busy}
+            maxLength={20}
+            countText={`${displayName.length}/20`}
+            containerStyle={styles.field}
+          />
+
+          {!isNewRegistration ? (
+            <>
+              <TextField
+                label="名前（姓名）"
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="推しドラ 太郎"
+                editable={!busy}
+                maxLength={40}
+                countText={`${fullName.length}/40`}
+                containerStyle={styles.field}
+              />
+
+              <TextField
+                label="カナ（セイメイ）"
+                value={fullNameKana}
+                onChangeText={setFullNameKana}
+                placeholder="オシドラ タロウ"
+                editable={!busy}
+                maxLength={40}
+                countText={`${fullNameKana.length}/40`}
+                containerStyle={styles.field}
+              />
+            </>
+          ) : null}
 
           <View style={styles.field}>
-            <Text style={styles.label}>表示名（ニックネーム）</Text>
-            <TextInput
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="推しドラ太郎"
-              placeholderTextColor={THEME.textMuted}
-              editable={!busy}
-              maxLength={20}
-              style={styles.input}
-            />
-            <Text style={styles.count}>{displayName.length}/20</Text>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>メールアドレス</Text>
-            <TextInput
+            <TextField
+              label="メールアドレス"
               value={email}
               onChangeText={setEmail}
               placeholder="example@example.com"
-              placeholderTextColor={THEME.textMuted}
               keyboardType="email-address"
               autoCapitalize="none"
-              editable={!busy && !isNewRegistration}
-              style={[styles.input, busy || isNewRegistration ? styles.inputDisabled : null]}
+              editable={false}
+              containerStyle={styles.field}
+              right={
+                !isNewRegistration && onRequestEmailChange ? (
+                  <Pressable
+                    onPress={onRequestEmailChange}
+                    disabled={busy}
+                    style={[styles.changeButton, busy ? styles.inputDisabled : null]}
+                  >
+                    <Text style={styles.changeButtonText}>変更</Text>
+                  </Pressable>
+                ) : null
+              }
             />
-            {isNewRegistration && <Text style={styles.hintText}>※ 認証済みのメールアドレスです</Text>}
+            <Text style={styles.hintText}>※認証済みのメールアドレスです</Text>
           </View>
 
-          {isNewRegistration && (
+          {isNewRegistration ? (
             <>
-              <View style={styles.field}>
-                <Text style={styles.label}>パスワード</Text>
-                <View style={styles.passwordInput}>
-                  <TextInput
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="8文字以上"
-                    placeholderTextColor={THEME.textMuted}
-                    secureTextEntry={!showPassword}
-                    editable={!busy}
-                    style={styles.passwordField}
-                  />
-                  <Pressable onPress={() => setShowPassword(!showPassword)} disabled={busy}>
-                    <Text style={styles.passwordToggle}>{showPassword ? '非表示' : '表示'}</Text>
+              <TextField
+                label="パスワード"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="パスワード"
+                secureTextEntry={!showPassword}
+                controlHeight={48}
+                editable={!busy}
+                autoCapitalize="none"
+                helperText="※8文字以上"
+                containerStyle={styles.field}
+                right={
+                  <Pressable
+                    onPress={() => setShowPassword((v) => !v)}
+                    hitSlop={10}
+                    disabled={busy}
+                    style={styles.eyeButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'パスワードを非表示にする' : 'パスワードを表示する'}
+                  >
+                    <EyeIcon open={showPassword} />
                   </Pressable>
-                </View>
-              </View>
+                }
+              />
 
-              <View style={styles.field}>
-                <Text style={styles.label}>パスワード（確認）</Text>
-                <View style={styles.passwordInput}>
-                  <TextInput
-                    value={passwordConfirm}
-                    onChangeText={setPasswordConfirm}
-                    placeholder="パスワードを再度入力"
-                    placeholderTextColor={THEME.textMuted}
-                    secureTextEntry={!showPasswordConfirm}
-                    editable={!busy}
-                    style={styles.passwordField}
-                  />
-                  <Pressable onPress={() => setShowPasswordConfirm(!showPasswordConfirm)} disabled={busy}>
-                    <Text style={styles.passwordToggle}>{showPasswordConfirm ? '非表示' : '表示'}</Text>
+              <TextField
+                label="パスワード（確認）"
+                value={passwordConfirm}
+                onChangeText={setPasswordConfirm}
+                placeholder="パスワード（確認）"
+                secureTextEntry={!showPasswordConfirm}
+                controlHeight={48}
+                editable={!busy}
+                autoCapitalize="none"
+                helperText="※8文字以上"
+                errorText={password && passwordConfirm && password !== passwordConfirm ? 'パスワードが一致しません' : undefined}
+                containerStyle={styles.field}
+                right={
+                  <Pressable
+                    onPress={() => setShowPasswordConfirm((v) => !v)}
+                    hitSlop={10}
+                    disabled={busy}
+                    style={styles.eyeButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      showPasswordConfirm ? '確認用パスワードを非表示にする' : '確認用パスワードを表示する'
+                    }
+                  >
+                    <EyeIcon open={showPasswordConfirm} />
                   </Pressable>
-                </View>
-                {password && passwordConfirm && password !== passwordConfirm && (
-                  <Text style={styles.errorText}>パスワードが一致しません</Text>
-                )}
-              </View>
+                }
+              />
+            </>
+          ) : null}
+
+          {!isNewRegistration && (
+            <>
+              <TextField
+                label="パスワード（変更する場合のみ）"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="8文字以上"
+                secureTextEntry={!showPassword}
+                controlHeight={48}
+                editable={!busy}
+                autoCapitalize="none"
+                containerStyle={styles.field}
+                right={
+                  <Pressable
+                    onPress={() => setShowPassword((v) => !v)}
+                    hitSlop={10}
+                    disabled={busy}
+                    style={styles.eyeButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'パスワードを非表示にする' : 'パスワードを表示する'}
+                  >
+                    <EyeIcon open={showPassword} />
+                  </Pressable>
+                }
+              />
+
+              <TextField
+                label="パスワード（確認）"
+                value={passwordConfirm}
+                onChangeText={setPasswordConfirm}
+                placeholder="パスワードを再度入力"
+                secureTextEntry={!showPasswordConfirm}
+                controlHeight={48}
+                editable={!busy}
+                autoCapitalize="none"
+                errorText={password && passwordConfirm && password !== passwordConfirm ? 'パスワードが一致しません' : undefined}
+                containerStyle={styles.field}
+                right={
+                  <Pressable
+                    onPress={() => setShowPasswordConfirm((v) => !v)}
+                    hitSlop={10}
+                    disabled={busy}
+                    style={styles.eyeButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      showPasswordConfirm ? '確認用パスワードを非表示にする' : '確認用パスワードを表示する'
+                    }
+                  >
+                    <EyeIcon open={showPasswordConfirm} />
+                  </Pressable>
+                }
+              />
             </>
           )}
 
           <View style={styles.field}>
-            <Text style={styles.label}>電話番号</Text>
-            <TextInput
+            <TextField
+              label="電話番号"
               value={phone}
               onChangeText={setPhone}
               placeholder="09012345678"
-              placeholderTextColor={THEME.textMuted}
               keyboardType="phone-pad"
-              editable={!busy && !isNewRegistration}
-              style={[styles.input, !isNewRegistration && !busy ? null : styles.inputDisabled]}
+              editable={false}
+              containerStyle={styles.field}
+              right={
+                !isNewRegistration && onRequestPhoneChange ? (
+                  <Pressable
+                    onPress={onRequestPhoneChange}
+                    disabled={busy}
+                    style={[styles.changeButton, busy ? styles.inputDisabled : null]}
+                  >
+                    <Text style={styles.changeButtonText}>変更</Text>
+                  </Pressable>
+                ) : null
+              }
             />
-            {isNewRegistration && <Text style={styles.hintText}>※ SMS認証で確定した番号です</Text>}
           </View>
 
           <View style={styles.field}>
@@ -481,21 +756,50 @@ export function UserProfileEditScreen({
             <Pressable
               onPress={(e) => openBirthDatePicker(e)}
               disabled={busy}
-              style={[styles.input, busy ? styles.inputDisabled : null]}
+              style={[styles.selectRow, busy ? styles.inputDisabled : null]}
               accessibilityRole="button"
             >
-              <Text style={[styles.dateText, birthDate.trim() ? null : styles.datePlaceholder]}>
-                {birthDate.trim() || '選択してください'}
-              </Text>
+              <Text style={[styles.dateText, birthDate.trim() ? null : styles.datePlaceholder]}>{birthDate.trim() || '選択してください'}</Text>
+              <ChevronDownIcon />
             </Pressable>
           </View>
-        </View>
+        </Section>
 
-        <View style={styles.buttons}>
-          <SecondaryButton label={isNewRegistration ? 'キャンセル' : 'キャンセル'} onPress={handleBack} disabled={busy || avatarUploading} />
-          <View style={styles.spacer} />
-          <PrimaryButton label={isNewRegistration ? '登録' : '完了'} onPress={handleSave} disabled={!canSubmit} fullWidth={false} />
-        </View>
+        {!isNewRegistration ? (
+          <Section title="好きなドラマ・映画のジャンル（複数選択）">
+            {favoriteGenres.length > 0 ? (
+              <Text style={styles.hintText}>選択中：{favoriteGenres.join(' / ')}</Text>
+            ) : (
+              <Text style={styles.hintText}>1つ以上選択してください</Text>
+            )}
+
+            {allGenreOptions.map((group) => (
+              <View key={group.title} style={styles.genreGroup}>
+                <Text style={styles.genreGroupTitle}>{group.title}</Text>
+                <View style={styles.genreWrap}>
+                  {group.options.map((label) => {
+                    const selected = favoriteGenres.includes(label)
+                    return (
+                      <Chip key={label} label={label} selected={selected} onPress={busy ? undefined : () => toggleGenre(label)} />
+                    )
+                  })}
+                </View>
+              </View>
+            ))}
+          </Section>
+        ) : null}
+
+        {isNewRegistration ? (
+          <View style={styles.singleButton}>
+            <PrimaryButton label="登録" onPress={handleSave} disabled={!canSubmit} />
+          </View>
+        ) : (
+          <View style={styles.buttons}>
+            <SecondaryButton label="キャンセル" onPress={handleBack} disabled={busy || avatarUploading} />
+            <View style={styles.spacer} />
+            <PrimaryButton label="完了" onPress={handleSave} disabled={!canSubmit} fullWidth={false} />
+          </View>
+        )}
       </View>
     </ScreenContainer>
   )
@@ -505,75 +809,75 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  infoBox: {
-    backgroundColor: THEME.card,
-    borderRadius: 8,
+  leadText: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 18,
+  },
+  changeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: THEME.outline,
-    padding: 12,
-    marginBottom: 16,
+    backgroundColor: THEME.card,
   },
-  infoText: {
-    color: THEME.text,
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 18,
+  changeButtonText: {
+    color: THEME.accent,
+    fontSize: 12,
+    fontWeight: '700',
   },
-  section: {
-    marginBottom: 20,
+  avatarBlock: {
+    alignItems: 'center',
   },
-  sectionTitle: {
-    color: THEME.text,
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 12,
-  },
-  avatarBox: {
+  avatarCircle: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 2,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
     borderColor: THEME.outline,
-    backgroundColor: THEME.card,
     overflow: 'hidden',
+  },
+  avatarButtonWrap: {
+    width: '100%',
+    marginTop: 12,
   },
   avatar: {
     width: '100%',
     height: '100%',
-    borderRadius: 60,
-  },
-  avatarPlaceholder: {
-    color: THEME.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  avatarButtonLabel: {
-    position: 'absolute',
-    bottom: 8,
-    color: THEME.accent,
-    fontSize: 11,
-    fontWeight: '700',
   },
   field: {
     marginBottom: 14,
+  },
+  staticValue: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '600',
+    paddingVertical: 8,
+  },
+  genreGroup: {
+    marginTop: 10,
+  },
+  genreGroupTitle: {
+    color: THEME.text,
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  genreWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   label: {
     color: THEME.text,
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 6,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: THEME.text,
-    fontSize: 13,
   },
   dateText: {
     color: THEME.text,
@@ -586,26 +890,22 @@ const styles = StyleSheet.create({
   inputDisabled: {
     opacity: 0.6,
   },
-  passwordInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  selectRow: {
     borderWidth: 1,
     borderColor: THEME.outline,
     backgroundColor: THEME.card,
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  passwordField: {
-    flex: 1,
-    color: THEME.text,
-    fontSize: 13,
-  },
-  passwordToggle: {
-    color: THEME.accent,
-    fontSize: 11,
-    fontWeight: '600',
-    paddingLeft: 8,
+  eyeButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   count: {
     marginTop: 4,
@@ -618,11 +918,9 @@ const styles = StyleSheet.create({
     color: THEME.textMuted,
     fontSize: 11,
   },
-  errorText: {
-    marginTop: 4,
-    color: THEME.danger,
-    fontSize: 11,
-    fontWeight: '600',
+  singleButton: {
+    marginTop: 12,
+    paddingBottom: 20,
   },
   buttons: {
     flexDirection: 'row',

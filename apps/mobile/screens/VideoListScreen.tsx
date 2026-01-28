@@ -103,8 +103,11 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
   }, [apiBaseUrl])
 
   const fetchVideos = useCallback(async (mode: 'initial' | 'more') => {
-    if (mode === 'more' && (busyMore || busyInitial)) return
-    if (mode === 'more' && nextCursor === null && videos.length > 0) return
+    if (mode === 'more') {
+      if (busyMore || busyInitial) return
+      // No cursor means no next page; avoid endless requests when the list is empty.
+      if (!nextCursor) return
+    }
 
     mode === 'initial' ? setBusyInitial(true) : setBusyMore(true)
     if (mode === 'initial') {
@@ -132,7 +135,8 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
       } else {
         setVideos((prev) => [...prev, ...filteredByTag])
       }
-      setNextCursor(typeof json.nextCursor === 'string' ? json.nextCursor : null)
+      const next = typeof json.nextCursor === 'string' && json.nextCursor.trim().length > 0 ? json.nextCursor : null
+      setNextCursor(next)
     } catch (e) {
       if (mode === 'initial') {
         const mock = await isDebugMockEnabled()
@@ -144,7 +148,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
     } finally {
       mode === 'initial' ? setBusyInitial(false) : setBusyMore(false)
     }
-  }, [buildVideosUrl, busyInitial, busyMore, mockVideos, nextCursor, selectedCategoryId, videos.length])
+  }, [buildVideosUrl, busyInitial, busyMore, mockVideos, nextCursor, selectedCategoryId, tag])
 
   useEffect(() => {
     void fetchCategories()
@@ -155,11 +159,6 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
     void fetchVideos('initial')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategoryId, tag])
-
-  useEffect(() => {
-    if (videos.length === 0) void fetchVideos('initial')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const categoryItems = useMemo(() => {
     const base = [{ id: 'all', name: '全て' }, ...categories]
@@ -174,7 +173,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
   const renderVideo = useCallback((v: Video) => {
     const isPaid = typeof v.priceCoin === 'number' ? v.priceCoin > 0 : false
     const tags = Array.isArray(v.tags) ? v.tags : []
-    const badgeLabel = isPaid ? 'プレミア' : tags.includes('おすすめ') ? 'おすすめ' : tags.includes('新着') ? '新着' : ''
+    const badgeLabel = isPaid ? '会員限定' : tags.includes('おすすめ') ? 'おすすめ' : tags.includes('新着') ? '新着' : ''
     const description = tags.length > 0 ? tags.join('・') : '作品の説明は準備中です。'
     return (
       <Pressable style={styles.videoRow} onPress={() => onOpenVideo(v.id)}>
@@ -286,6 +285,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
             showsVerticalScrollIndicator={false}
             onEndReachedThreshold={0.6}
             onEndReached={() => {
+              if (!nextCursor) return
               void fetchVideos('more')
             }}
             ListHeaderComponent={

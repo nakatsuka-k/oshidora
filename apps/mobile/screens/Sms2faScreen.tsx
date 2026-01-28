@@ -1,3 +1,4 @@
+import { LinearGradient } from 'expo-linear-gradient'
 import { useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PinInput, PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
@@ -17,7 +18,7 @@ export function Sms2faScreen({ onBack, onSendCode, onVerifyCode, onComplete, ini
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [cooldown, setCooldown] = useState(30)
+  const [cooldown, setCooldown] = useState(18)
 
   useEffect(() => {
     if (phase !== 'code') return
@@ -33,195 +34,248 @@ export function Sms2faScreen({ onBack, onSendCode, onVerifyCode, onComplete, ini
   const canVerify = useMemo(() => digitsOnly(code).length === 4 && !busy, [busy, code])
 
   return (
-    <ScreenContainer title="二段階認証" onBack={onBack} scroll>
-      <View style={styles.root}>
-        <View style={styles.top}>
-          <Text style={styles.desc}>セキュリティ向上のため、SMSによる認証を行います</Text>
-          <Text style={styles.desc2}>登録した電話番号に4桁の認証コードを送信します</Text>
+    <View style={styles.full}>
+      <LinearGradient
+        colors={['#2A2A2A', '#0E0E0E', '#0A0A0A']}
+        locations={[0, 0.45, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <LinearGradient
+        colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.05)', 'rgba(0,0,0,0.80)']}
+        locations={[0, 0.45, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
 
-          {error ? <Text style={styles.bannerError}>{error}</Text> : null}
+      <ScreenContainer title="2段階認証" onBack={onBack} backgroundColor="transparent" padding={16}>
+        <View style={styles.page}>
+          <View style={styles.card}>
+            {phase === 'phone' ? (
+              <>
+                <Text style={styles.cardTitle}>電話番号</Text>
+                <Text style={styles.cardDesc}>SMS（携帯電話番号宛）に認証コードを送信します。</Text>
 
-          {phase === 'phone' ? (
-            <>
-              <Text style={styles.label}>電話番号</Text>
-              <TextInput
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="09012345678"
-                placeholderTextColor={THEME.textMuted}
-                keyboardType="phone-pad"
-                style={styles.input}
-              />
-              <Text style={styles.help}>SMSが受信できる番号を入力してください</Text>
-            </>
-          ) : (
-            <>
-              <Text style={styles.label}>認証コード</Text>
-              <Text style={styles.help2}>SMSで届いた4桁のコードを入力してください</Text>
-              <PinInput length={4} value={code} onChange={setCode} error={!!error} />
+                {error ? <Text style={styles.error}>{error}</Text> : null}
 
-              <View style={styles.resendRow}>
-                {cooldown > 0 ? (
-                  <Text style={styles.resendDisabled}>認証コードを再送する（{cooldown}秒）</Text>
-                ) : (
-                  <Pressable
-                    onPress={async () => {
-                      setError('')
-                      setBusy(true)
-                      try {
-                        await onSendCode(phoneDigits)
-                        setCooldown(30)
-                      } finally {
-                        setBusy(false)
-                      }
-                    }}
-                  >
-                    <Text style={styles.resend}>認証コードを再送する</Text>
-                  </Pressable>
-                )}
-              </View>
-            </>
-          )}
+                <TextInput
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder="09012345678"
+                  placeholderTextColor={'rgba(255,255,255,0.35)'}
+                  keyboardType="phone-pad"
+                  style={styles.phoneInput}
+                />
+
+                <View style={styles.cardSpacer} />
+                <PrimaryButton
+                  label="認証コードを送信"
+                  disabled={!canSend}
+                  onPress={async () => {
+                    setError('')
+                    if (phoneDigits.length < 10) {
+                      setError('電話番号を入力してください')
+                      return
+                    }
+                    setBusy(true)
+                    try {
+                      await onSendCode(phoneDigits)
+                      setPhase('code')
+                      setCooldown(18)
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e))
+                    } finally {
+                      setBusy(false)
+                    }
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                <Text style={styles.cardTitle}>SMS（携帯電話番号宛）に届いた</Text>
+                <Text style={styles.cardTitle}>4桁の認証コードを入力してください。</Text>
+
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+
+                <PinInput
+                  length={4}
+                  value={code}
+                  onChange={setCode}
+                  error={!!error}
+                  rowStyle={styles.pinRow}
+                  inputStyle={styles.pinBox}
+                />
+
+                <View style={styles.cardSpacer} />
+                <PrimaryButton
+                  label="認証する"
+                  disabled={!canVerify}
+                  onPress={async () => {
+                    setError('')
+                    const v = digitsOnly(code)
+                    if (v.length !== 4) {
+                      setError('認証コードを入力してください')
+                      return
+                    }
+                    setBusy(true)
+                    try {
+                      await onVerifyCode(phoneDigits, v)
+                      onComplete(phoneDigits)
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e))
+                    } finally {
+                      setBusy(false)
+                    }
+                  }}
+                />
+
+                <View style={styles.resendBlock}>
+                  <Text style={styles.resendHint}>
+                    確認SMSが届かない場合や誤って削除した場合は、{''}
+                    {'\n'}以下より再度送信してください。{cooldown > 0 ? `（${cooldown}秒）` : ''}
+                  </Text>
+                  {cooldown > 0 ? (
+                    <Text style={styles.resendDisabled}>再送信する</Text>
+                  ) : (
+                    <Pressable
+                      onPress={async () => {
+                        setError('')
+                        setBusy(true)
+                        try {
+                          await onSendCode(phoneDigits)
+                          setCooldown(18)
+                        } catch (e) {
+                          setError(e instanceof Error ? e.message : String(e))
+                        } finally {
+                          setBusy(false)
+                        }
+                      }}
+                      disabled={busy}
+                    >
+                      <Text style={styles.resend}>再送信する</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+
+          {phase === 'code' ? (
+            <Pressable
+              onPress={() => {
+                setError('')
+                setCode('')
+                setPhase('phone')
+              }}
+              style={styles.backToPhone}
+            >
+              <Text style={styles.backToPhoneText}>電話番号を変更する</Text>
+            </Pressable>
+          ) : null}
         </View>
-
-        <View style={styles.bottom}>
-          {phase === 'phone' ? (
-            <>
-              <PrimaryButton
-                label="認証コードを送信"
-                disabled={!canSend}
-                onPress={async () => {
-                  setError('')
-                  if (phoneDigits.length < 10) {
-                    setError('電話番号を入力してください')
-                    return
-                  }
-                  setBusy(true)
-                  try {
-                    await onSendCode(phoneDigits)
-                    setPhase('code')
-                    setCooldown(30)
-                  } finally {
-                    setBusy(false)
-                  }
-                }}
-              />
-              <View style={styles.spacer} />
-              <SecondaryButton label="戻る" onPress={onBack} />
-            </>
-          ) : (
-            <>
-              <PrimaryButton
-                label="認証する"
-                disabled={!canVerify}
-                onPress={async () => {
-                  setError('')
-                  const v = digitsOnly(code)
-                  if (v.length !== 4) {
-                    setError('認証コードを入力してください')
-                    return
-                  }
-                  setBusy(true)
-                  try {
-                    await onVerifyCode(phoneDigits, v)
-                    onComplete(phoneDigits)
-                  } finally {
-                    setBusy(false)
-                  }
-                }}
-              />
-              <View style={styles.spacer} />
-              <SecondaryButton
-                label="戻る"
-                onPress={() => {
-                  setError('')
-                  setCode('')
-                  setPhase('phone')
-                }}
-              />
-            </>
-          )}
-        </View>
-      </View>
-    </ScreenContainer>
+      </ScreenContainer>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  root: {
+  full: {
     flex: 1,
-    justifyContent: 'space-between',
   },
-  top: {
-    paddingTop: 0,
+  page: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingBottom: 20,
   },
-  desc: {
-    color: THEME.textMuted,
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  desc2: {
-    color: THEME.textMuted,
-    fontSize: 12,
-    marginBottom: 16,
-  },
-  label: {
-    color: THEME.text,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  input: {
+  card: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 420,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: THEME.outline,
-    paddingHorizontal: 12,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(0,0,0,0.30)',
+  },
+  cardTitle: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  cardDesc: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 14,
+  },
+  error: {
+    color: THEME.danger,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  phoneInput: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 16,
+    borderRadius: 14,
     color: THEME.text,
-    backgroundColor: THEME.card,
+    backgroundColor: 'rgba(0,0,0,0.20)',
+    marginTop: 12,
   },
-  help: {
-    color: THEME.textMuted,
-    fontSize: 12,
-    marginTop: 8,
-    marginBottom: 16,
+  pinRow: {
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 18,
   },
-  help2: {
-    color: THEME.textMuted,
-    fontSize: 12,
-    marginBottom: 8,
+  pinBox: {
+    flex: 0,
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'transparent',
+    fontSize: 20,
+    fontWeight: '800',
   },
-  bannerError: {
-    fontSize: 12,
-    marginBottom: 0,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: THEME.danger,
-    backgroundColor: THEME.card,
-    borderRadius: 16,
-    color: THEME.text,
+  cardSpacer: {
+    height: 18,
   },
-  resendRow: {
-    marginTop: 16,
-    marginBottom: 16,
+  resendBlock: {
+    marginTop: 14,
     alignItems: 'center',
+  },
+  resendHint: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 16,
   },
   resend: {
     color: THEME.accent,
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '900',
     textDecorationLine: 'underline',
+    marginTop: 10,
   },
   resendDisabled: {
-    color: THEME.textMuted,
+    color: 'rgba(244,176,27,0.45)',
+    fontSize: 16,
+    fontWeight: '900',
+    textDecorationLine: 'underline',
+    marginTop: 10,
+  },
+  backToPhone: {
+    alignSelf: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+  },
+  backToPhoneText: {
+    color: 'rgba(255,255,255,0.55)',
     fontSize: 12,
-  },
-  bottom: {
-    marginTop: 8,
-    paddingBottom: 8,
-  },
-  spacer: {
-    height: 12,
+    textDecorationLine: 'underline',
   },
 })

@@ -3,6 +3,8 @@ import { Hono } from 'hono'
 type Env = {
   Bindings: {
     DB: D1Database
+    // Optional R2 binding (preferred over S3 signed requests).
+    BUCKET?: R2Bucket
     AUTH_JWT_SECRET?: string
     AUTH_CODE_PEPPER?: string
     ALLOW_DEBUG_RETURN_CODES?: string
@@ -29,6 +31,14 @@ type Env = {
     CLOUDFLARE_STREAM_SIGNING_KEY_SECRET?: string
     CLOUDFLARE_STREAM_SIGNING_SECRET?: string
     CLOUDFLARE_ACCOUNT_ID_FOR_STREAM?: string
+
+    // Stripe (subscription)
+    STRIPE_SECRET_KEY?: string
+    STRIPE_WEBHOOK_SECRET?: string
+    STRIPE_SUBSCRIPTION_PRICE_ID?: string
+    STRIPE_CHECKOUT_SUCCESS_URL?: string
+    STRIPE_CHECKOUT_CANCEL_URL?: string
+    STRIPE_PORTAL_RETURN_URL?: string
   }
 }
 
@@ -358,9 +368,9 @@ const MOCK_CMS_FEATURED_SLOTS: Record<string, string[]> = {
 }
 
 app.use('*', async (c, next) => {
-  const origin = getAllowedOrigin(c.req.header('Origin'))
+  const origin = getAllowedOrigin(c.req.header('Origin') ?? null)
   if (c.req.method === 'OPTIONS') {
-    const res = c.text('', 204)
+    const res = new Response(null, { status: 204 })
     if (origin) {
       res.headers.set('Access-Control-Allow-Origin', origin)
       res.headers.set('Vary', 'Origin')
@@ -368,7 +378,7 @@ app.use('*', async (c, next) => {
       res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key, X-Mock')
       res.headers.set('Access-Control-Max-Age', '86400')
     }
-    return res
+    return res as any
   }
 
   await next()
@@ -495,7 +505,7 @@ app.post('/cms/auth/request-password-reset', async (c) => {
   const publicBase = (c.env.CMS_PUBLIC_BASE_URL ?? '').trim()
   const link = publicBase
     ? `${publicBase.replace(/\/$/, '')}/password-reset?token=${encodeURIComponent(tokenRaw)}`
-    : `#/password-reset?token=${encodeURIComponent(tokenRaw)}`
+    : `/password-reset?token=${encodeURIComponent(tokenRaw)}`
 
   const subject = '【推しドラ管理】パスワード再設定'
   const text = `パスワード再設定のリクエストを受け付けました。\n\n以下のリンクから再設定してください（有効期限: 1時間）。\n${link}\n\n心当たりがない場合は、このメールを破棄してください。`
@@ -936,12 +946,37 @@ app.get('/cms/rankings/:type', async (c) => {
   if (!allowed.has(type)) return c.json({ error: 'invalid_type' }, 400)
 
   if (isMockRequest(c) || !c.env.DB) {
+    const baseItems = [
+      { rank: 1, entityId: 'X1', label: `${type.toUpperCase()} 1`, value: 100 },
+      { rank: 2, entityId: 'X2', label: `${type.toUpperCase()} 2`, value: 80 },
+      { rank: 3, entityId: 'X3', label: `${type.toUpperCase()} 3`, value: 60 },
+    ]
     return c.json({
-      items: [
-        { rank: 1, entityId: 'X1', label: `${type.toUpperCase()} 1`, value: 100 },
-        { rank: 2, entityId: 'X2', label: `${type.toUpperCase()} 2`, value: 80 },
-        { rank: 3, entityId: 'X3', label: `${type.toUpperCase()} 3`, value: 60 },
-      ],
+      items: baseItems.map((r) => {
+        if (type === 'videos' || type === 'coins') {
+          return {
+            ...r,
+            video: {
+              id: r.entityId,
+              title: r.label,
+              description: '',
+              thumbnailUrl: '',
+            },
+          }
+        }
+        if (type === 'actors' || type === 'directors' || type === 'writers') {
+          return {
+            ...r,
+            cast: {
+              id: r.entityId,
+              name: r.label,
+              role: type,
+              thumbnailUrl: '',
+            },
+          }
+        }
+        return r
+      }),
       asOf: '2026-01-12T00:00:00.000Z',
     })
   }
@@ -955,13 +990,67 @@ app.get('/cms/rankings/:type', async (c) => {
       type,
       asOf,
     ])
+
+    const entityIds = Array.from(
+      new Set(
+        rows
+          .map((r: any) => String(r?.entity_id ?? '').trim())
+          .filter((id: string) => Boolean(id))
+      )
+    )
+
+    const videoById = new Map<string, { id: string; title: string; description: string; thumbnailUrl: string }>()
+    const castById = new Map<string, { id: string; name: string; role: string; thumbnailUrl: string }>()
+
+    if ((type === 'videos' || type === 'coins') && entityIds.length) {
+      const placeholders = entityIds.map(() => '?').join(',')
+      const videos = await d1All(
+        db,
+        `SELECT id, title, description, thumbnail_url FROM videos WHERE id IN (${placeholders})`,
+        entityIds
+      )
+      for (const v of videos as any[]) {
+        const id = String((v as any)?.id ?? '').trim()
+        if (!id) continue
+        videoById.set(id, {
+          id,
+          title: String((v as any)?.title ?? ''),
+          description: String((v as any)?.description ?? ''),
+          thumbnailUrl: String((v as any)?.thumbnail_url ?? ''),
+        })
+      }
+    }
+
+    if ((type === 'actors' || type === 'directors' || type === 'writers') && entityIds.length) {
+      const placeholders = entityIds.map(() => '?').join(',')
+      const casts = await d1All(db, `SELECT id, name, role, thumbnail_url FROM casts WHERE id IN (${placeholders})`, entityIds)
+      for (const v of casts as any[]) {
+        const id = String((v as any)?.id ?? '').trim()
+        if (!id) continue
+        castById.set(id, {
+          id,
+          name: String((v as any)?.name ?? ''),
+          role: String((v as any)?.role ?? ''),
+          thumbnailUrl: String((v as any)?.thumbnail_url ?? ''),
+        })
+      }
+    }
+
     return c.json({
-      items: rows.map((r: any) => ({
-        rank: Number(r.rank ?? 0),
-        entityId: String(r.entity_id ?? ''),
-        label: String(r.label ?? ''),
-        value: Number(r.value ?? 0),
-      })),
+      items: rows.map((r: any) => {
+        const entityId = String(r.entity_id ?? '')
+        const item: any = {
+          rank: Number(r.rank ?? 0),
+          entityId,
+          label: String(r.label ?? ''),
+          value: Number(r.value ?? 0),
+        }
+        const vid = videoById.get(entityId)
+        if (vid) item.video = vid
+        const cast = castById.get(entityId)
+        if (cast) item.cast = cast
+        return item
+      }),
       asOf,
     })
   } catch (err) {
@@ -1703,6 +1792,7 @@ app.get('/cms/users', async (c) => {
       db,
       `SELECT
          u.id, u.email, u.email_verified, u.phone, u.phone_verified, u.created_at, u.updated_at,
+         u.sms_auth_skip,
          CASE WHEN EXISTS (SELECT 1 FROM cast_profile_requests cpr WHERE cpr.user_id = u.id AND cpr.status = 'approved') THEN 1 ELSE 0 END AS is_cast
        FROM users u
        ${where}
@@ -1718,6 +1808,7 @@ app.get('/cms/users', async (c) => {
         emailVerified: Number(r.email_verified ?? 0) === 1,
         phone: r.phone === null || r.phone === undefined ? '' : String(r.phone ?? ''),
         phoneVerified: Number(r.phone_verified ?? 0) === 1,
+        smsAuthSkip: Number((r as any).sms_auth_skip ?? 0) === 1,
         kind: Number((r as any).is_cast ?? 0) === 1 ? 'cast' : 'user',
         createdAt: String(r.created_at ?? ''),
         updatedAt: String(r.updated_at ?? ''),
@@ -1736,13 +1827,168 @@ app.get('/cms/users/:id', async (c) => {
   if (!id) return c.json({ error: 'id is required' }, 400)
 
   if (isMockRequest(c) || !c.env.DB) {
-    return c.json({ item: { id, email: 'user@example.com', emailVerified: true, phone: '', phoneVerified: false, createdAt: '', updatedAt: '' } })
+    return c.json({
+      item: {
+        id,
+        email: 'user@example.com',
+        emailVerified: true,
+        phone: '',
+        phoneVerified: false,
+        smsAuthSkip: false,
+        createdAt: '',
+        updatedAt: '',
+        isSubscribed: false,
+        subscription: {
+          status: '',
+          startedAt: null,
+          endedAt: null,
+          stripeCustomerId: null,
+          stripeSubscriptionId: null,
+        },
+        profile: {
+          displayName: '',
+          avatarUrl: '',
+          fullName: '',
+          fullNameKana: '',
+          birthDate: '',
+          favoriteGenres: [],
+        },
+        coins: {
+          acquiredTotal: null,
+          balance: null,
+          spentTotal: 0,
+        },
+        favorites: {
+          casts: [],
+          videos: [],
+        },
+        watchHistory: [],
+        comments: {
+          inferredByAuthorMatch: true,
+          items: [],
+        },
+        castProfile: null,
+      },
+    })
   }
 
   const db = c.env.DB as D1Database
   try {
-    const row = await d1First(db, 'SELECT id, email, email_verified, phone, phone_verified, created_at, updated_at FROM users WHERE id = ? LIMIT 1', [id])
+    const row = await d1First(
+      db,
+      `SELECT
+         id,
+         email,
+         email_verified,
+         phone,
+         phone_verified,
+         sms_auth_skip,
+         created_at,
+         updated_at,
+         display_name,
+         avatar_url,
+         full_name,
+         full_name_kana,
+         birth_date,
+         favorite_genres_json,
+         is_subscribed,
+         subscription_started_at,
+         subscription_ended_at,
+         stripe_customer_id,
+         stripe_subscription_id,
+         subscription_status
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    )
     if (!row) return c.json({ error: 'not_found' }, 404)
+
+    const favoriteGenres = (() => {
+      const raw = String((row as any).favorite_genres_json ?? '').trim()
+      if (!raw) return []
+      try {
+        const parsed = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return []
+        return parsed.map((v) => String(v ?? '').trim()).filter(Boolean)
+      } catch {
+        return []
+      }
+    })()
+
+    const [favCastRows, favVideoRows, watchRows, coinsSpentRow, castProfileRow] = await Promise.all([
+      d1All(
+        db,
+        `SELECT fc.cast_id, fc.created_at, COALESCE(c.name, '') AS name, COALESCE(c.role, '') AS role, COALESCE(c.thumbnail_url, '') AS thumbnail_url
+         FROM favorite_casts fc
+         LEFT JOIN casts c ON c.id = fc.cast_id
+         WHERE fc.user_id = ?
+         ORDER BY fc.created_at DESC
+         LIMIT 200`,
+        [id]
+      ),
+      d1All(
+        db,
+        `SELECT fv.work_id, fv.created_at, COALESCE(w.title, '') AS work_title, COALESCE(w.thumbnail_url, '') AS thumbnail_url
+         FROM favorite_videos fv
+         LEFT JOIN works w ON w.id = fv.work_id
+         WHERE fv.user_id = ?
+         ORDER BY fv.created_at DESC
+         LIMIT 200`,
+        [id]
+      ),
+      d1All(
+        db,
+        `SELECT e.video_id, e.created_at, COALESCE(v.title, '') AS video_title, COALESCE(v.work_id, '') AS work_id, COALESCE(w.title, '') AS work_title
+         FROM video_play_events e
+         LEFT JOIN videos v ON v.id = e.video_id
+         LEFT JOIN works w ON w.id = v.work_id
+         WHERE e.user_id = ?
+         ORDER BY e.created_at DESC
+         LIMIT 200`,
+        [id]
+      ),
+      d1First(db, 'SELECT COALESCE(SUM(amount), 0) AS n FROM coin_spend_events WHERE user_id = ?', [id]),
+      d1First(
+        db,
+        `SELECT id, name, email, draft_json, submitted_at, decided_at, decided_by_admin_id
+         FROM cast_profile_requests
+         WHERE user_id = ? AND status = 'approved'
+         ORDER BY COALESCE(decided_at, submitted_at) DESC
+         LIMIT 1`,
+        [id]
+      ),
+    ])
+
+    const comments = await (async () => {
+      const candidatesRaw = [
+        String((row as any).display_name ?? '').trim(),
+        String((row as any).full_name ?? '').trim(),
+      ]
+      const candidates = Array.from(new Set(candidatesRaw)).filter((s) => s && s.length <= 50)
+      if (!candidates.length) return []
+      const placeholders = candidates.map(() => '?').join(',')
+      return await d1All(
+        db,
+        `SELECT c.id, c.content_id, c.episode_id, c.author, c.body, c.status, c.created_at, COALESCE(w.title, '') AS content_title
+         FROM comments c
+         LEFT JOIN works w ON w.id = c.content_id
+         WHERE c.author IN (${placeholders})
+         ORDER BY c.created_at DESC
+         LIMIT 200`,
+        candidates
+      )
+    })()
+
+    let castProfileDraft: unknown = null
+    if (castProfileRow) {
+      try {
+        castProfileDraft = (castProfileRow as any).draft_json ? JSON.parse(String((castProfileRow as any).draft_json)) : null
+      } catch {
+        castProfileDraft = null
+      }
+    }
+
     return c.json({
       item: {
         id: String((row as any).id ?? ''),
@@ -1750,8 +1996,77 @@ app.get('/cms/users/:id', async (c) => {
         emailVerified: Number((row as any).email_verified ?? 0) === 1,
         phone: (row as any).phone === null || (row as any).phone === undefined ? '' : String((row as any).phone ?? ''),
         phoneVerified: Number((row as any).phone_verified ?? 0) === 1,
+        smsAuthSkip: Number((row as any).sms_auth_skip ?? 0) === 1,
         createdAt: String((row as any).created_at ?? ''),
         updatedAt: String((row as any).updated_at ?? ''),
+        isSubscribed: Number((row as any).is_subscribed ?? 0) === 1,
+        subscription: {
+          status: String((row as any).subscription_status ?? ''),
+          startedAt: (row as any).subscription_started_at ? String((row as any).subscription_started_at) : null,
+          endedAt: (row as any).subscription_ended_at ? String((row as any).subscription_ended_at) : null,
+          stripeCustomerId: (row as any).stripe_customer_id ? String((row as any).stripe_customer_id) : null,
+          stripeSubscriptionId: (row as any).stripe_subscription_id ? String((row as any).stripe_subscription_id) : null,
+        },
+        profile: {
+          displayName: String((row as any).display_name ?? ''),
+          avatarUrl: String((row as any).avatar_url ?? ''),
+          fullName: String((row as any).full_name ?? ''),
+          fullNameKana: String((row as any).full_name_kana ?? ''),
+          birthDate: String((row as any).birth_date ?? ''),
+          favoriteGenres,
+        },
+        coins: {
+          acquiredTotal: null,
+          balance: null,
+          spentTotal: Number((coinsSpentRow as any)?.n ?? 0),
+        },
+        favorites: {
+          casts: (favCastRows ?? []).map((r: any) => ({
+            castId: String(r.cast_id ?? ''),
+            name: String(r.name ?? ''),
+            role: String(r.role ?? ''),
+            thumbnailUrl: String(r.thumbnail_url ?? ''),
+            favoritedAt: String(r.created_at ?? ''),
+          })),
+          videos: (favVideoRows ?? []).map((r: any) => ({
+            workId: String(r.work_id ?? ''),
+            title: String(r.work_title ?? ''),
+            thumbnailUrl: String(r.thumbnail_url ?? ''),
+            favoritedAt: String(r.created_at ?? ''),
+          })),
+        },
+        watchHistory: (watchRows ?? []).map((r: any) => ({
+          videoId: String(r.video_id ?? ''),
+          videoTitle: String(r.video_title ?? ''),
+          workId: String(r.work_id ?? ''),
+          workTitle: String(r.work_title ?? ''),
+          watchedAt: String(r.created_at ?? ''),
+        })),
+        comments: {
+          inferredByAuthorMatch: true,
+          items: (comments ?? []).map((r: any) => ({
+            id: String(r.id ?? ''),
+            contentId: String(r.content_id ?? ''),
+            contentTitle: String(r.content_title ?? ''),
+            episodeId: r.episode_id === null || r.episode_id === undefined ? '' : String(r.episode_id ?? ''),
+            author: String(r.author ?? ''),
+            body: String(r.body ?? ''),
+            status: String(r.status ?? ''),
+            createdAt: String(r.created_at ?? ''),
+          })),
+        },
+        castProfile:
+          castProfileRow
+            ? {
+                requestId: String((castProfileRow as any).id ?? ''),
+                name: String((castProfileRow as any).name ?? ''),
+                email: String((castProfileRow as any).email ?? ''),
+                submittedAt: String((castProfileRow as any).submitted_at ?? ''),
+                decidedAt: (castProfileRow as any).decided_at ? String((castProfileRow as any).decided_at) : null,
+                decidedByAdminId: (castProfileRow as any).decided_by_admin_id ? String((castProfileRow as any).decided_by_admin_id) : null,
+                draft: castProfileDraft,
+              }
+            : null,
       },
     })
   } catch (err) {
@@ -1767,12 +2082,21 @@ app.post('/cms/users', async (c) => {
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
   const db = c.env.DB as D1Database
 
-  type Body = { email?: unknown; password?: unknown; phone?: unknown }
+  type Body = { email?: unknown; password?: unknown; phone?: unknown; emailVerified?: unknown; smsAuthSkip?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const email = normalizeEmail(String(body.email ?? ''))
   const password = String(body.password ?? '')
   const phoneRaw = String(body.phone ?? '').trim()
   const phone = phoneRaw ? clampText(phoneRaw, 30) : null
+  const emailVerified = (() => {
+    const v = (body as any).emailVerified
+    if (v === true) return true
+    if (v === 1) return true
+    if (v === '1') return true
+    if (v === 'true') return true
+    return false
+  })()
+  const smsAuthSkip = parseBool01((body as any).smsAuthSkip) === 1
   if (!email) return c.json({ error: 'email is required' }, 400)
   if (!password || password.length < 8) return c.json({ error: 'password_too_short' }, 400)
 
@@ -1782,13 +2106,121 @@ app.post('/cms/users', async (c) => {
 
   try {
     await db
-      .prepare('INSERT INTO users (id, email, email_verified, phone, phone_verified, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, 0, ?, 0, ?, ?, ?, ?)')
-      .bind(id, email, phone, hashB64, saltB64, now, now)
+      .prepare(
+        'INSERT INTO users (id, email, email_verified, phone, phone_verified, password_hash, password_salt, sms_auth_skip, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)'
+      )
+      .bind(id, email, emailVerified ? 1 : 0, phone, hashB64, saltB64, smsAuthSkip ? 1 : 0, now, now)
       .run()
     return c.json({ ok: true, id })
   } catch (err: any) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     // best-effort unique conflict
+    const msg = String(err?.message ?? '')
+    if (msg.includes('UNIQUE') || msg.toLowerCase().includes('unique')) return c.json({ error: 'email_already_exists' }, 409)
+    throw err
+  }
+})
+
+// Update end-user account (CMS)
+app.put('/cms/users/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  type Body = {
+    email?: unknown
+    emailVerified?: unknown
+    phone?: unknown
+    phoneVerified?: unknown
+    smsAuthSkip?: unknown
+    profile?: unknown
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+
+  const sets: string[] = []
+  const binds: any[] = []
+
+  if (Object.prototype.hasOwnProperty.call(body, 'email')) {
+    const email = normalizeEmail(String((body as any).email ?? ''))
+    if (!email) return c.json({ error: 'email is required' }, 400)
+    sets.push('email = ?')
+    binds.push(email)
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'emailVerified')) {
+    sets.push('email_verified = ?')
+    binds.push(parseBool01((body as any).emailVerified))
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'phone')) {
+    const phoneRaw = String((body as any).phone ?? '').trim()
+    const phone = phoneRaw ? clampText(phoneRaw, 30) : null
+    sets.push('phone = ?')
+    binds.push(phone)
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'phoneVerified')) {
+    sets.push('phone_verified = ?')
+    binds.push(parseBool01((body as any).phoneVerified))
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'smsAuthSkip')) {
+    sets.push('sms_auth_skip = ?')
+    binds.push(parseBool01((body as any).smsAuthSkip))
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'profile')) {
+    const p = (body as any).profile && typeof (body as any).profile === 'object' ? (body as any).profile : {}
+
+    if (Object.prototype.hasOwnProperty.call(p, 'displayName')) {
+      sets.push('display_name = ?')
+      binds.push(clampText(p.displayName, 80) ?? '')
+    }
+    if (Object.prototype.hasOwnProperty.call(p, 'avatarUrl')) {
+      sets.push('avatar_url = ?')
+      binds.push(clampText(p.avatarUrl, 500) ?? '')
+    }
+    if (Object.prototype.hasOwnProperty.call(p, 'fullName')) {
+      sets.push('full_name = ?')
+      binds.push(clampText(p.fullName, 120) ?? '')
+    }
+    if (Object.prototype.hasOwnProperty.call(p, 'fullNameKana')) {
+      sets.push('full_name_kana = ?')
+      binds.push(clampText(p.fullNameKana, 120) ?? '')
+    }
+    if (Object.prototype.hasOwnProperty.call(p, 'birthDate')) {
+      sets.push('birth_date = ?')
+      binds.push(clampText(p.birthDate, 30) ?? '')
+    }
+    if (Object.prototype.hasOwnProperty.call(p, 'favoriteGenres')) {
+      const fav = (p as any).favoriteGenres
+      const arr = Array.isArray(fav) ? fav : []
+      const normalized = arr
+        .map((v: any) => String(v ?? '').trim())
+        .filter(Boolean)
+        .slice(0, 50)
+      const json = normalized.length ? JSON.stringify(normalized) : ''
+      sets.push('favorite_genres_json = ?')
+      binds.push(json)
+    }
+  }
+
+  if (sets.length === 0) return c.json({ error: 'no_fields' }, 400)
+
+  const now = nowIso()
+  sets.push('updated_at = ?')
+  binds.push(now)
+  binds.push(id)
+
+  try {
+    await db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run()
+    return c.json({ ok: true })
+  } catch (err: any) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     const msg = String(err?.message ?? '')
     if (msg.includes('UNIQUE') || msg.toLowerCase().includes('unique')) return c.json({ error: 'email_already_exists' }, 409)
     throw err
@@ -2457,6 +2889,782 @@ app.put('/cms/casts/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// ---- CMS: Cast/staff registration (creates a login account + public cast record) ----
+
+type CmsCastStaffItem = {
+  castId: string
+  userId: string | null
+  displayName: string
+  nameKana: string
+  nameEn: string
+  role: string
+  profileImageUrl: string
+  profileImages: string[]
+  faceImageUrl: string
+  email: string
+  phone: string
+  birthDate: string
+  // Private fields (not public)
+  realName: string
+  privateBirthDate: string
+  bloodType: string
+  birthplace: string
+  residence: string
+  education: string
+  heightCm: string
+  weightKg: string
+  bustCm: string
+  waistCm: string
+  hipCm: string
+  shoeCm: string
+  qualifications: string
+  skillsHobbies: string
+  hobbies: string
+  specialSkills: string
+  sns: Array<{ label: string; url: string }>
+  bio: string
+  career: string
+  privatePdfUrl: string
+  contactEmail: string
+  contactPhone: string
+  appearances: string
+  castCategoryId: string
+  videoContentUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+function safeJsonStringify(v: any, fallback: string, maxLen: number): string {
+  try {
+    const s = JSON.stringify(v ?? JSON.parse(fallback))
+    if (!s || s.length > maxLen) return fallback
+    return s
+  } catch {
+    return fallback
+  }
+}
+
+function safeJsonParseArray<T>(s: string, map: (v: any) => T, max: number): T[] {
+  try {
+    const parsed = JSON.parse(String(s ?? ''))
+    if (!Array.isArray(parsed)) return []
+    const out: T[] = []
+    for (const item of parsed) {
+      out.push(map(item))
+      if (out.length >= max) break
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+function safeIsoDate(v: unknown): string {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  // Accept YYYY-MM-DD only (UI uses <input type="date">).
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return ''
+  return s
+}
+
+async function upsertApprovedCastProfileRequest(params: {
+  db: D1Database
+  adminId: string
+  userId: string
+  email: string
+  name: string
+  draft: any
+}) {
+  const { db, adminId, userId, email, name, draft } = params
+  const now = nowIso()
+  const draftJson = (() => {
+    try {
+      return JSON.stringify(draft ?? {})
+    } catch {
+      return '{}'
+    }
+  })()
+
+  // Ensure the user is treated as a cast account by CMS and internal logic.
+  await db
+    .prepare(
+      `INSERT INTO cast_profile_requests
+        (id, user_id, email, name, draft_json, status, submitted_at, decided_at, decided_by_admin_id, rejection_reason)
+       VALUES (?, ?, ?, ?, ?, 'approved', ?, ?, ?, '')`
+    )
+    .bind(uuidOrFallback('cpr'), userId, email, name, draftJson, now, now, adminId)
+    .run()
+}
+
+app.get('/cms/cast-staff/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const db = c.env.DB as D1Database
+  const castId = String(c.req.param('id') ?? '').trim()
+  if (!castId) return c.json({ error: 'id is required' }, 400)
+
+  try {
+    const castRow = await d1First(
+      db,
+      'SELECT id, name, role, thumbnail_url, category_id, created_at, updated_at FROM casts WHERE id = ? LIMIT 1',
+      [castId]
+    )
+    if (!castRow) return c.json({ error: 'not_found' }, 404)
+
+    const profileRow = await d1First(
+      db,
+      `SELECT cast_id, user_id, appearances, video_url,
+              name_kana, name_en,
+              profile_images_json, sns_json,
+              face_image_url, private_pdf_url,
+              hobbies, special_skills, bio, career,
+              real_name, private_birth_date, blood_type, birthplace, residence, education,
+              height_cm, weight_kg, bust_cm, waist_cm, hip_cm, shoe_cm,
+              qualifications, skills_hobbies,
+              contact_email, contact_phone,
+              created_at, updated_at
+         FROM cast_staff_profiles
+        WHERE cast_id = ?
+        LIMIT 1`,
+      [castId]
+    )
+
+    const userId = profileRow ? String((profileRow as any).user_id ?? '') : ''
+    const userRow = userId
+      ? await d1First(
+          db,
+          'SELECT id, email, phone, display_name, avatar_url, birth_date, created_at, updated_at FROM users WHERE id = ? LIMIT 1',
+          [userId]
+        )
+      : null
+
+    const item: CmsCastStaffItem = {
+      castId: String((castRow as any).id ?? ''),
+      userId: userRow ? String((userRow as any).id ?? '') : null,
+      displayName: String((castRow as any).name ?? ''),
+      nameKana: profileRow ? String((profileRow as any).name_kana ?? '') : '',
+      nameEn: profileRow ? String((profileRow as any).name_en ?? '') : '',
+      role: String((castRow as any).role ?? ''),
+      profileImageUrl: String((castRow as any).thumbnail_url ?? ''),
+      profileImages: profileRow
+        ? safeJsonParseArray<string>(String((profileRow as any).profile_images_json ?? '[]'), (v) => String(v ?? '').trim(), 10).filter(Boolean)
+        : [],
+      faceImageUrl: profileRow ? String((profileRow as any).face_image_url ?? '') : '',
+      email: userRow ? String((userRow as any).email ?? '') : '',
+      phone:
+        userRow && (userRow as any).phone !== null && (userRow as any).phone !== undefined ? String((userRow as any).phone ?? '') : '',
+      birthDate: userRow ? String((userRow as any).birth_date ?? '') : '',
+      realName: profileRow ? String((profileRow as any).real_name ?? '') : '',
+      privateBirthDate: profileRow ? String((profileRow as any).private_birth_date ?? '') : '',
+      bloodType: profileRow ? String((profileRow as any).blood_type ?? '') : '',
+      birthplace: profileRow ? String((profileRow as any).birthplace ?? '') : '',
+      residence: profileRow ? String((profileRow as any).residence ?? '') : '',
+      education: profileRow ? String((profileRow as any).education ?? '') : '',
+      heightCm: profileRow ? String((profileRow as any).height_cm ?? '') : '',
+      weightKg: profileRow ? String((profileRow as any).weight_kg ?? '') : '',
+      bustCm: profileRow ? String((profileRow as any).bust_cm ?? '') : '',
+      waistCm: profileRow ? String((profileRow as any).waist_cm ?? '') : '',
+      hipCm: profileRow ? String((profileRow as any).hip_cm ?? '') : '',
+      shoeCm: profileRow ? String((profileRow as any).shoe_cm ?? '') : '',
+      qualifications: profileRow ? String((profileRow as any).qualifications ?? '') : '',
+      skillsHobbies: profileRow ? String((profileRow as any).skills_hobbies ?? '') : '',
+      hobbies: profileRow ? String((profileRow as any).hobbies ?? '') : '',
+      specialSkills: profileRow ? String((profileRow as any).special_skills ?? '') : '',
+      sns: profileRow
+        ? safeJsonParseArray<{ label: string; url: string }>(
+            String((profileRow as any).sns_json ?? '[]'),
+            (v) => ({ label: String(v?.label ?? '').trim(), url: String(v?.url ?? '').trim() }),
+            20
+          ).filter((v) => v.label || v.url)
+        : [],
+      bio: profileRow ? String((profileRow as any).bio ?? '') : '',
+      career: profileRow ? String((profileRow as any).career ?? '') : '',
+      privatePdfUrl: profileRow ? String((profileRow as any).private_pdf_url ?? '') : '',
+      contactEmail: profileRow ? String((profileRow as any).contact_email ?? '') : '',
+      contactPhone: profileRow ? String((profileRow as any).contact_phone ?? '') : '',
+      appearances: profileRow ? String((profileRow as any).appearances ?? '') : '',
+      castCategoryId:
+        (castRow as any).category_id === null || (castRow as any).category_id === undefined ? '' : String((castRow as any).category_id ?? ''),
+      videoContentUrl: profileRow ? String((profileRow as any).video_url ?? '') : '',
+      createdAt: String((castRow as any).created_at ?? ''),
+      updatedAt: String((castRow as any).updated_at ?? ''),
+    }
+
+    return c.json({ item })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/cms/cast-staff', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = {
+    displayName?: unknown
+    nameKana?: unknown
+    nameEn?: unknown
+    role?: unknown
+    profileImageUrl?: unknown
+    profileImages?: unknown
+    faceImageUrl?: unknown
+    hobbies?: unknown
+    specialSkills?: unknown
+    sns?: unknown
+    bio?: unknown
+    career?: unknown
+    privatePdfUrl?: unknown
+    email?: unknown
+    password?: unknown
+    phone?: unknown
+    birthDate?: unknown
+    realName?: unknown
+    privateBirthDate?: unknown
+    bloodType?: unknown
+    birthplace?: unknown
+    residence?: unknown
+    education?: unknown
+    heightCm?: unknown
+    weightKg?: unknown
+    bustCm?: unknown
+    waistCm?: unknown
+    hipCm?: unknown
+    shoeCm?: unknown
+    qualifications?: unknown
+    skillsHobbies?: unknown
+    contactEmail?: unknown
+    contactPhone?: unknown
+    appearances?: unknown
+    castCategoryId?: unknown
+    videoContentUrl?: unknown
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+
+  const displayName = clampText(body.displayName, 120)
+  const nameKana = clampText(body.nameKana, 120)
+  const nameEn = clampText(body.nameEn, 120)
+  const role = clampText(body.role, 80)
+  const profileImageUrl = clampText(body.profileImageUrl, 500)
+
+  const profileImagesJson = safeJsonStringify(
+    Array.isArray(body.profileImages)
+      ? (body.profileImages as any[])
+          .map((v) => clampText(String(v ?? '').trim(), 500))
+          .filter(Boolean)
+          .slice(0, 10)
+      : [],
+    '[]',
+    20000
+  )
+
+  const faceImageUrl = clampText(body.faceImageUrl, 500)
+  const hobbies = clampText(body.hobbies, 200)
+  const specialSkills = clampText(body.specialSkills, 200)
+  const snsJson = safeJsonStringify(
+    Array.isArray(body.sns)
+      ? (body.sns as any[])
+          .map((v) => ({
+            label: clampText(String(v?.label ?? '').trim(), 40),
+            url: clampText(String(v?.url ?? '').trim(), 500),
+          }))
+          .filter((v) => v.label || v.url)
+          .slice(0, 20)
+      : [],
+    '[]',
+    20000
+  )
+
+  const bio = clampText(body.bio, 10000)
+  const career = clampText(body.career, 10000)
+  const privatePdfUrl = clampText(body.privatePdfUrl, 500)
+  const email = normalizeEmail(String(body.email ?? ''))
+  const password = String(body.password ?? '')
+  const phoneRaw = String(body.phone ?? '').trim()
+  const phone = phoneRaw ? clampText(phoneRaw, 30) : null
+  const birthDate = safeIsoDate(body.birthDate)
+
+  const realName = clampText(body.realName, 120)
+  const privateBirthDate = safeIsoDate(body.privateBirthDate)
+  const bloodType = clampText(body.bloodType, 10)
+  const birthplace = clampText(body.birthplace, 120)
+  const residence = clampText(body.residence, 120)
+  const education = clampText(body.education, 200)
+
+  const heightCm = clampText(body.heightCm, 20)
+  const weightKg = clampText(body.weightKg, 20)
+  const bustCm = clampText(body.bustCm, 20)
+  const waistCm = clampText(body.waistCm, 20)
+  const hipCm = clampText(body.hipCm, 20)
+  const shoeCm = clampText(body.shoeCm, 20)
+
+  const qualifications = clampText(body.qualifications, 5000)
+  const skillsHobbies = clampText(body.skillsHobbies, 5000)
+
+  const contactEmail = normalizeEmail(String(body.contactEmail ?? ''))
+  const contactPhoneRaw = String(body.contactPhone ?? '').trim()
+  const contactPhone = contactPhoneRaw ? clampText(contactPhoneRaw, 30) : ''
+  const appearances = clampText(body.appearances, 5000)
+  const castCategoryId = clampText(body.castCategoryId, 80)
+  const videoContentUrl = clampText(body.videoContentUrl, 500)
+
+  if (!displayName) return c.json({ error: 'displayName is required' }, 400)
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (!password || password.length < 8) return c.json({ error: 'password_too_short' }, 400)
+
+  const now = nowIso()
+  const userId = uuidOrFallback('usr')
+  const castId = uuidOrFallback('cast')
+
+  const { saltB64, hashB64 } = await hashPasswordForStorage(password)
+
+  try {
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, email_verified, phone, phone_verified, password_hash, password_salt, display_name, avatar_url, birth_date, created_at, updated_at) VALUES (?, ?, 1, ?, 0, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .bind(userId, email, phone, hashB64, saltB64, displayName, profileImageUrl, birthDate, now, now)
+      .run()
+
+    await db
+      .prepare('INSERT INTO casts (id, name, role, thumbnail_url, category_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(castId, displayName, role, profileImageUrl, castCategoryId || null, now, now)
+      .run()
+
+    await db
+      .prepare(
+        `INSERT INTO cast_staff_profiles (
+           cast_id, user_id, appearances, video_url,
+           name_kana, name_en,
+           profile_images_json, sns_json,
+           face_image_url, private_pdf_url,
+           hobbies, special_skills, bio, career,
+           real_name, private_birth_date, blood_type, birthplace, residence, education,
+           height_cm, weight_kg, bust_cm, waist_cm, hip_cm, shoe_cm,
+           qualifications, skills_hobbies,
+           contact_email, contact_phone,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        castId,
+        userId,
+        appearances,
+        videoContentUrl,
+        nameKana,
+        nameEn,
+        profileImagesJson,
+        snsJson,
+        faceImageUrl,
+        privatePdfUrl,
+        hobbies,
+        specialSkills,
+        bio,
+        career,
+        realName,
+        privateBirthDate,
+        bloodType,
+        birthplace,
+        residence,
+        education,
+        heightCm,
+        weightKg,
+        bustCm,
+        waistCm,
+        hipCm,
+        shoeCm,
+        qualifications,
+        skillsHobbies,
+        contactEmail,
+        contactPhone,
+        now,
+        now
+      )
+      .run()
+
+    await upsertApprovedCastProfileRequest({
+      db,
+      adminId: String((admin as any).adminId ?? ''),
+      userId,
+      email,
+      name: displayName,
+      draft: {
+        displayName,
+        role,
+        profileImageUrl,
+        birthDate,
+        phone: phone ?? '',
+        appearances,
+        castCategoryId,
+        videoContentUrl,
+        createdBy: 'cms',
+      },
+    })
+
+    return c.json({ ok: true, castId, userId })
+  } catch (err: any) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    const msg = String(err?.message ?? '')
+    if (msg.includes('UNIQUE') || msg.toLowerCase().includes('unique')) return c.json({ error: 'email_already_exists' }, 409)
+    throw err
+  }
+})
+
+app.put('/cms/cast-staff/:id', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  const castId = String(c.req.param('id') ?? '').trim()
+  if (!castId) return c.json({ error: 'id is required' }, 400)
+
+  type Body = {
+    displayName?: unknown
+    nameKana?: unknown
+    nameEn?: unknown
+    role?: unknown
+    profileImageUrl?: unknown
+    profileImages?: unknown
+    faceImageUrl?: unknown
+    hobbies?: unknown
+    specialSkills?: unknown
+    sns?: unknown
+    bio?: unknown
+    career?: unknown
+    privatePdfUrl?: unknown
+    email?: unknown
+    password?: unknown
+    phone?: unknown
+    birthDate?: unknown
+    realName?: unknown
+    privateBirthDate?: unknown
+    bloodType?: unknown
+    birthplace?: unknown
+    residence?: unknown
+    education?: unknown
+    heightCm?: unknown
+    weightKg?: unknown
+    bustCm?: unknown
+    waistCm?: unknown
+    hipCm?: unknown
+    shoeCm?: unknown
+    qualifications?: unknown
+    skillsHobbies?: unknown
+    contactEmail?: unknown
+    contactPhone?: unknown
+    appearances?: unknown
+    castCategoryId?: unknown
+    videoContentUrl?: unknown
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+
+  const displayName = body.displayName === undefined ? null : clampText(body.displayName, 120)
+  const nameKana = body.nameKana === undefined ? null : clampText(body.nameKana, 120)
+  const nameEn = body.nameEn === undefined ? null : clampText(body.nameEn, 120)
+  const role = body.role === undefined ? null : clampText(body.role, 80)
+  const profileImageUrl = body.profileImageUrl === undefined ? null : clampText(body.profileImageUrl, 500)
+
+  const profileImagesJson =
+    body.profileImages === undefined
+      ? null
+      : safeJsonStringify(
+          Array.isArray(body.profileImages)
+            ? (body.profileImages as any[])
+                .map((v) => clampText(String(v ?? '').trim(), 500))
+                .filter(Boolean)
+                .slice(0, 10)
+            : [],
+          '[]',
+          20000
+        )
+
+  const faceImageUrl = body.faceImageUrl === undefined ? null : clampText(body.faceImageUrl, 500)
+  const hobbies = body.hobbies === undefined ? null : clampText(body.hobbies, 200)
+  const specialSkills = body.specialSkills === undefined ? null : clampText(body.specialSkills, 200)
+  const snsJson =
+    body.sns === undefined
+      ? null
+      : safeJsonStringify(
+          Array.isArray(body.sns)
+            ? (body.sns as any[])
+                .map((v) => ({
+                  label: clampText(String(v?.label ?? '').trim(), 40),
+                  url: clampText(String(v?.url ?? '').trim(), 500),
+                }))
+                .filter((v) => v.label || v.url)
+                .slice(0, 20)
+            : [],
+          '[]',
+          20000
+        )
+
+  const bio = body.bio === undefined ? null : clampText(body.bio, 10000)
+  const career = body.career === undefined ? null : clampText(body.career, 10000)
+  const privatePdfUrl = body.privatePdfUrl === undefined ? null : clampText(body.privatePdfUrl, 500)
+  const email = body.email === undefined ? null : normalizeEmail(String(body.email ?? ''))
+  const password = body.password === undefined ? null : String(body.password ?? '')
+  const phoneRaw = body.phone === undefined ? null : String(body.phone ?? '').trim()
+  const phone = phoneRaw === null ? null : phoneRaw ? clampText(phoneRaw, 30) : ''
+  const birthDate = body.birthDate === undefined ? null : safeIsoDate(body.birthDate)
+
+  const realName = body.realName === undefined ? null : clampText(body.realName, 120)
+  const privateBirthDate = body.privateBirthDate === undefined ? null : safeIsoDate(body.privateBirthDate)
+  const bloodType = body.bloodType === undefined ? null : clampText(body.bloodType, 10)
+  const birthplace = body.birthplace === undefined ? null : clampText(body.birthplace, 120)
+  const residence = body.residence === undefined ? null : clampText(body.residence, 120)
+  const education = body.education === undefined ? null : clampText(body.education, 200)
+
+  const heightCm = body.heightCm === undefined ? null : clampText(body.heightCm, 20)
+  const weightKg = body.weightKg === undefined ? null : clampText(body.weightKg, 20)
+  const bustCm = body.bustCm === undefined ? null : clampText(body.bustCm, 20)
+  const waistCm = body.waistCm === undefined ? null : clampText(body.waistCm, 20)
+  const hipCm = body.hipCm === undefined ? null : clampText(body.hipCm, 20)
+  const shoeCm = body.shoeCm === undefined ? null : clampText(body.shoeCm, 20)
+
+  const qualifications = body.qualifications === undefined ? null : clampText(body.qualifications, 5000)
+  const skillsHobbies = body.skillsHobbies === undefined ? null : clampText(body.skillsHobbies, 5000)
+
+  const contactEmail = body.contactEmail === undefined ? null : normalizeEmail(String(body.contactEmail ?? ''))
+  const contactPhoneRaw = body.contactPhone === undefined ? null : String(body.contactPhone ?? '').trim()
+  const contactPhone = contactPhoneRaw === null ? null : contactPhoneRaw ? clampText(contactPhoneRaw, 30) : ''
+  const appearances = body.appearances === undefined ? null : clampText(body.appearances, 5000)
+  const castCategoryId = body.castCategoryId === undefined ? null : clampText(body.castCategoryId, 80)
+  const videoContentUrl = body.videoContentUrl === undefined ? null : clampText(body.videoContentUrl, 500)
+
+  if (email !== null && !email) return c.json({ error: 'email is required' }, 400)
+  if (password !== null && password && password.length < 8) return c.json({ error: 'password_too_short' }, 400)
+
+  const now = nowIso()
+
+  try {
+    const castRow = await d1First(db, 'SELECT id FROM casts WHERE id = ? LIMIT 1', [castId])
+    if (!castRow) return c.json({ error: 'not_found' }, 404)
+
+    const profileRow = await d1First(db, 'SELECT cast_id, user_id FROM cast_staff_profiles WHERE cast_id = ? LIMIT 1', [castId])
+    const existingUserId = profileRow ? String((profileRow as any).user_id ?? '') : ''
+
+    let userId = existingUserId
+
+    // If no user is linked yet and admin provided email+password, create a new user and link.
+    if (!userId && email && password) {
+      const newUserId = uuidOrFallback('usr')
+      const { saltB64, hashB64 } = await hashPasswordForStorage(password)
+
+      await db
+        .prepare(
+          'INSERT INTO users (id, email, email_verified, phone, phone_verified, password_hash, password_salt, display_name, avatar_url, birth_date, created_at, updated_at) VALUES (?, ?, 1, ?, 0, ?, ?, ?, ?, ?, ?, ?)'
+        )
+        .bind(
+          newUserId,
+          email,
+          phone === null ? null : phone,
+          hashB64,
+          saltB64,
+          (displayName ?? '').trim(),
+          (profileImageUrl ?? '').trim(),
+          birthDate ?? '',
+          now,
+          now
+        )
+        .run()
+
+      userId = newUserId
+
+      await db
+        .prepare(
+          'INSERT INTO cast_staff_profiles (cast_id, user_id, appearances, video_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(cast_id) DO UPDATE SET user_id = excluded.user_id, updated_at = excluded.updated_at'
+        )
+        .bind(castId, userId, appearances ?? '', videoContentUrl ?? '', now, now)
+        .run()
+
+      await upsertApprovedCastProfileRequest({
+        db,
+        adminId: String((admin as any).adminId ?? ''),
+        userId,
+        email,
+        name: (displayName ?? '').trim() || castId,
+        draft: {
+          displayName: (displayName ?? '').trim(),
+          role: (role ?? '').trim(),
+          profileImageUrl: (profileImageUrl ?? '').trim(),
+          birthDate: birthDate ?? '',
+          phone: phone ?? '',
+          appearances: (appearances ?? '').trim(),
+          castCategoryId: (castCategoryId ?? '').trim(),
+          videoContentUrl: (videoContentUrl ?? '').trim(),
+          createdBy: 'cms',
+        },
+      })
+    }
+
+    // Update cast public info
+    await db
+      .prepare(
+        'UPDATE casts SET name = COALESCE(?, name), role = COALESCE(?, role), thumbnail_url = COALESCE(?, thumbnail_url), category_id = COALESCE(?, category_id), updated_at = ? WHERE id = ?'
+      )
+      .bind(displayName, role, profileImageUrl, castCategoryId === null ? null : castCategoryId || null, now, castId)
+      .run()
+
+    // Upsert profile row (store long text + URL). Keep user_id if already linked.
+    await db
+      .prepare(
+        `INSERT INTO cast_staff_profiles (
+           cast_id, user_id, appearances, video_url,
+           name_kana, name_en,
+           profile_images_json, sns_json,
+           face_image_url, private_pdf_url,
+           hobbies, special_skills, bio, career,
+           real_name, private_birth_date, blood_type, birthplace, residence, education,
+           height_cm, weight_kg, bust_cm, waist_cm, hip_cm, shoe_cm,
+           qualifications, skills_hobbies,
+           contact_email, contact_phone,
+           created_at, updated_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(cast_id) DO UPDATE SET
+           user_id = COALESCE(excluded.user_id, cast_staff_profiles.user_id),
+           appearances = COALESCE(?, cast_staff_profiles.appearances),
+           video_url = COALESCE(?, cast_staff_profiles.video_url),
+           name_kana = COALESCE(?, cast_staff_profiles.name_kana),
+           name_en = COALESCE(?, cast_staff_profiles.name_en),
+           profile_images_json = COALESCE(?, cast_staff_profiles.profile_images_json),
+           sns_json = COALESCE(?, cast_staff_profiles.sns_json),
+           face_image_url = COALESCE(?, cast_staff_profiles.face_image_url),
+           private_pdf_url = COALESCE(?, cast_staff_profiles.private_pdf_url),
+           hobbies = COALESCE(?, cast_staff_profiles.hobbies),
+           special_skills = COALESCE(?, cast_staff_profiles.special_skills),
+           bio = COALESCE(?, cast_staff_profiles.bio),
+           career = COALESCE(?, cast_staff_profiles.career),
+           real_name = COALESCE(?, cast_staff_profiles.real_name),
+           private_birth_date = COALESCE(?, cast_staff_profiles.private_birth_date),
+           blood_type = COALESCE(?, cast_staff_profiles.blood_type),
+           birthplace = COALESCE(?, cast_staff_profiles.birthplace),
+           residence = COALESCE(?, cast_staff_profiles.residence),
+           education = COALESCE(?, cast_staff_profiles.education),
+           height_cm = COALESCE(?, cast_staff_profiles.height_cm),
+           weight_kg = COALESCE(?, cast_staff_profiles.weight_kg),
+           bust_cm = COALESCE(?, cast_staff_profiles.bust_cm),
+           waist_cm = COALESCE(?, cast_staff_profiles.waist_cm),
+           hip_cm = COALESCE(?, cast_staff_profiles.hip_cm),
+           shoe_cm = COALESCE(?, cast_staff_profiles.shoe_cm),
+           qualifications = COALESCE(?, cast_staff_profiles.qualifications),
+           skills_hobbies = COALESCE(?, cast_staff_profiles.skills_hobbies),
+           contact_email = COALESCE(?, cast_staff_profiles.contact_email),
+           contact_phone = COALESCE(?, cast_staff_profiles.contact_phone),
+           updated_at = ?`
+      )
+      .bind(
+        castId,
+        userId || null,
+        appearances ?? '',
+        videoContentUrl ?? '',
+        (nameKana ?? '') as any,
+        (nameEn ?? '') as any,
+        (profileImagesJson ?? '[]') as any,
+        (snsJson ?? '[]') as any,
+        (faceImageUrl ?? '') as any,
+        (privatePdfUrl ?? '') as any,
+        (hobbies ?? '') as any,
+        (specialSkills ?? '') as any,
+        (bio ?? '') as any,
+        (career ?? '') as any,
+        realName ?? '',
+        privateBirthDate ?? '',
+        bloodType ?? '',
+        birthplace ?? '',
+        residence ?? '',
+        education ?? '',
+        heightCm ?? '',
+        weightKg ?? '',
+        bustCm ?? '',
+        waistCm ?? '',
+        hipCm ?? '',
+        shoeCm ?? '',
+        qualifications ?? '',
+        skillsHobbies ?? '',
+        contactEmail ?? '',
+        contactPhone ?? '',
+        now,
+        now,
+        appearances,
+        videoContentUrl,
+        nameKana,
+        nameEn,
+        profileImagesJson,
+        snsJson,
+        faceImageUrl,
+        privatePdfUrl,
+        hobbies,
+        specialSkills,
+        bio,
+        career,
+        realName,
+        privateBirthDate,
+        bloodType,
+        birthplace,
+        residence,
+        education,
+        heightCm,
+        weightKg,
+        bustCm,
+        waistCm,
+        hipCm,
+        shoeCm,
+        qualifications,
+        skillsHobbies,
+        contactEmail,
+        contactPhone,
+        now
+      )
+      .run()
+
+    // Update linked user if present
+    if (userId) {
+      if (password !== null && password) {
+        const { saltB64, hashB64 } = await hashPasswordForStorage(password)
+        await db
+          .prepare('UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?')
+          .bind(hashB64, saltB64, now, userId)
+          .run()
+      }
+
+      await db
+        .prepare(
+          `UPDATE users SET
+             email = COALESCE(?, email),
+             phone = COALESCE(?, phone),
+             display_name = COALESCE(?, display_name),
+             avatar_url = COALESCE(?, avatar_url),
+             birth_date = COALESCE(?, birth_date),
+             updated_at = ?
+           WHERE id = ?`
+        )
+        .bind(
+          email,
+          phone === null ? null : phone,
+          displayName,
+          profileImageUrl,
+          birthDate,
+          now,
+          userId
+        )
+        .run()
+    }
+
+    return c.json({ ok: true, castId, userId: userId || null })
+  } catch (err: any) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    const msg = String(err?.message ?? '')
+    if (msg.includes('UNIQUE') || msg.toLowerCase().includes('unique')) return c.json({ error: 'email_already_exists' }, 409)
+    throw err
+  }
+})
+
 // Cast categories (CMS)
 app.get('/cms/cast-categories', async (c) => {
   const admin = await requireCmsAdmin(c)
@@ -2881,6 +4089,34 @@ app.get('/cms/videos/:id', async (c) => {
   const id = String(c.req.param('id') ?? '').trim()
   if (!id) return c.json({ error: 'id is required' }, 400)
 
+  // Guard against route shadowing: depending on router ordering, `/cms/videos/unapproved`
+  // can be interpreted as this `:id` route. In that case, return the unapproved list.
+  if (id === 'unapproved') {
+    let rows: any[] = []
+    try {
+      rows = await d1All(
+        db,
+        "SELECT v.id, v.title, v.scheduled_at, v.approval_status, v.approval_requested_at, v.submitted_by_user_id, u.email AS submitter_email FROM videos v LEFT JOIN users u ON u.id = v.submitted_by_user_id WHERE v.approval_status = 'pending' ORDER BY COALESCE(v.approval_requested_at, v.created_at) DESC"
+      )
+    } catch (err) {
+      if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+      throw err
+    }
+
+    const items = rows.map((r) => ({
+      id: String(r.id ?? ''),
+      title: String(r.title ?? ''),
+      approvalRequestedAt:
+        r.approval_requested_at === null || r.approval_requested_at === undefined ? null : String(r.approval_requested_at ?? ''),
+      scheduledAt: r.scheduled_at === null || r.scheduled_at === undefined ? null : String(r.scheduled_at ?? ''),
+      submitterUserId: String(r.submitted_by_user_id ?? ''),
+      submitterEmail: String(r.submitter_email ?? ''),
+      status: 'pending' as const,
+    }))
+
+    return c.json({ items })
+  }
+
   let row: any = null
   try {
     row = await d1First(
@@ -3002,6 +4238,11 @@ app.post('/cms/videos', async (c) => {
     await replaceLinks(db, { table: 'video_tags', leftKey: 'video_id', leftId: id, rightKey: 'tag_id', rightIds: tagIds })
     await replaceCastLinks(db, { table: 'video_casts', leftKey: 'video_id', leftId: id, castIds })
     await replaceLinks(db, { table: 'video_genres', leftKey: 'video_id', leftId: id, rightKey: 'genre_id', rightIds: genreIds })
+
+    // Keep work publish state consistent: if a video is published, its work should be visible to the app.
+    if (published === 1) {
+      await db.prepare('UPDATE works SET published = 1, updated_at = ? WHERE id = ?').bind(createdAt, workId).run()
+    }
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -3092,6 +4333,18 @@ app.put('/cms/videos/:id', async (c) => {
 
   try {
     await db.prepare(`UPDATE videos SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run()
+
+    // If this update publishes the video, also publish its work.
+    if (body.published !== undefined && parseBool01(body.published) === 1) {
+      let targetWorkId = body.workId !== undefined ? String(body.workId ?? '').trim() : ''
+      if (!targetWorkId) {
+        const row = await d1First(db, 'SELECT work_id FROM videos WHERE id = ? LIMIT 1', [id])
+        targetWorkId = String((row as any)?.work_id ?? '').trim()
+      }
+      if (targetWorkId) {
+        await db.prepare('UPDATE works SET published = 1, updated_at = ? WHERE id = ?').bind(updatedAt, targetWorkId).run()
+      }
+    }
 
     if (body.categoryIds !== undefined) {
       const categoryIds = parseIdList(body.categoryIds)
@@ -3750,6 +5003,77 @@ async function hmacSha256(key: ArrayBuffer | Uint8Array, message: string) {
   return new Uint8Array(sig)
 }
 
+function timingSafeEqualHex(a: string, b: string) {
+  if (a.length !== b.length) return false
+  let out = 0
+  for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return out === 0
+}
+
+function getStripeSecretKey(env: Env['Bindings']) {
+  const key = String(env.STRIPE_SECRET_KEY ?? '').trim()
+  return key || null
+}
+
+function getStripePriceId(env: Env['Bindings']) {
+  const id = String(env.STRIPE_SUBSCRIPTION_PRICE_ID ?? '').trim()
+  return id || null
+}
+
+function getStripeWebhookSecret(env: Env['Bindings']) {
+  const s = String(env.STRIPE_WEBHOOK_SECRET ?? '').trim()
+  return s || null
+}
+
+function getStripeCheckoutUrls(env: Env['Bindings']) {
+  const successUrl = String(env.STRIPE_CHECKOUT_SUCCESS_URL ?? '').trim()
+  const cancelUrl = String(env.STRIPE_CHECKOUT_CANCEL_URL ?? '').trim()
+  return {
+    successUrl: successUrl || null,
+    cancelUrl: cancelUrl || null,
+  }
+}
+
+function getStripePortalReturnUrl(env: Env['Bindings']) {
+  const u = String(env.STRIPE_PORTAL_RETURN_URL ?? '').trim()
+  return u || null
+}
+
+async function stripePostForm<T>(secretKey: string, path: string, params: URLSearchParams, opts?: { idempotencyKey?: string }) {
+  const url = `https://api.stripe.com/v1${path}`
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${secretKey}`,
+    'Content-Type': 'application/x-www-form-urlencoded',
+  }
+  if (opts?.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey
+  const res = await fetch(url, { method: 'POST', headers, body: params.toString() })
+  const json = (await res.json().catch(() => null)) as any
+  if (!res.ok) {
+    const msg = String(json?.error?.message ?? '').slice(0, 300)
+    throw new Error(msg ? `stripe_error: ${msg}` : `stripe_error_http_${res.status}`)
+  }
+  return json as T
+}
+
+async function stripeVerifyWebhookSignature(params: { rawBody: string; signatureHeader: string; secret: string }) {
+  const header = String(params.signatureHeader ?? '').trim()
+  if (!header) return false
+  const parts = header.split(',').map((p) => p.trim()).filter(Boolean)
+  const tPart = parts.find((p) => p.startsWith('t='))
+  const v1Parts = parts.filter((p) => p.startsWith('v1='))
+  const t = tPart ? tPart.slice(2) : ''
+  if (!t || !v1Parts.length) return false
+
+  const signedPayload = `${t}.${params.rawBody}`
+  const sigBytes = await hmacSha256(new TextEncoder().encode(params.secret), signedPayload)
+  const expected = toHex(sigBytes.buffer)
+  for (const v1 of v1Parts) {
+    const provided = v1.slice(3)
+    if (provided && timingSafeEqualHex(expected, provided)) return true
+  }
+  return false
+}
+
 function base64Encode(bytes: Uint8Array) {
   let binary = ''
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
@@ -4349,6 +5673,304 @@ app.get('/share/cast/:castId', (c) => {
   return c.html(html)
 })
 
+// CMS: Cloudflare Stream captions (WebVTT)
+// Upload/list captions for previewing subtitles in the admin.
+app.get('/cms/stream/captions/:videoId', async (c) => {
+  const auth = await requireCmsAdmin(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+
+  const videoId = c.req.param('videoId')?.trim()
+  if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+
+  const accountId = (c.env.CLOUDFLARE_ACCOUNT_ID_FOR_STREAM || c.env.CLOUDFLARE_ACCOUNT_ID || '').trim()
+  const token = (c.env.CLOUDFLARE_STREAM_API_TOKEN || '').trim()
+  if (!accountId || !token) {
+    return c.json(
+      {
+        error: 'Cloudflare Stream is not configured',
+        required: ['CLOUDFLARE_ACCOUNT_ID(_FOR_STREAM)', 'CLOUDFLARE_STREAM_API_TOKEN'],
+      },
+      500
+    )
+  }
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}/captions`
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch (err) {
+    return c.json(
+      {
+        error: 'Failed to list Stream captions',
+        details: String((err as any)?.message ?? err).slice(0, 500),
+      },
+      502
+    )
+  }
+
+  const data = (await resp.json().catch(() => null)) as
+    | {
+        success: boolean
+        result?: any
+        errors?: any[]
+      }
+    | null
+
+  if (!resp.ok || !data?.success) {
+    const status = (resp.status >= 400 && resp.status <= 599 ? resp.status : 502) as any
+    return c.json(
+      {
+        error: 'Failed to list Stream captions',
+        status: resp.status,
+        errors: data?.errors ?? [],
+      },
+      status
+    )
+  }
+
+  return c.json({ videoId, items: data?.result ?? [] })
+})
+
+app.post('/cms/stream/captions/:videoId', async (c) => {
+  const auth = await requireCmsAdmin(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+
+  const videoId = c.req.param('videoId')?.trim()
+  if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+
+  const accountId = (c.env.CLOUDFLARE_ACCOUNT_ID_FOR_STREAM || c.env.CLOUDFLARE_ACCOUNT_ID || '').trim()
+  const token = (c.env.CLOUDFLARE_STREAM_API_TOKEN || '').trim()
+  if (!accountId || !token) {
+    return c.json(
+      {
+        error: 'Cloudflare Stream is not configured',
+        required: ['CLOUDFLARE_ACCOUNT_ID(_FOR_STREAM)', 'CLOUDFLARE_STREAM_API_TOKEN'],
+      },
+      500
+    )
+  }
+
+  let form: FormData
+  try {
+    form = await c.req.raw.formData()
+  } catch {
+    return c.json({ error: 'multipart/form-data is required' }, 400)
+  }
+
+  const file = (form.get('file') || form.get('vtt')) as unknown
+  if (!(file instanceof File)) {
+    return c.json({ error: 'file is required' }, 400)
+  }
+
+  const languageRaw = String(form.get('language') ?? form.get('lang') ?? 'ja').trim()
+  const labelRaw = String(form.get('label') ?? '日本語').trim()
+  const isDefaultRaw = String(form.get('default') ?? '').trim().toLowerCase()
+  const isDefault = isDefaultRaw === '1' || isDefaultRaw === 'true' || isDefaultRaw === 'yes' || isDefaultRaw === 'on'
+
+  const language = clampText(languageRaw || 'ja', 32)
+  const label = clampText(labelRaw || language, 64)
+
+  // Best-effort: require .vtt extension (Cloudflare expects WebVTT).
+  const name = String(file.name || 'captions.vtt')
+  if (!name.toLowerCase().endsWith('.vtt')) {
+    return c.json({ error: 'WebVTT (.vtt) file is required' }, 400)
+  }
+
+  // Cloudflare Stream captions API expects a URL to a WebVTT file.
+  // Upload the VTT to R2 first, then register the caption in Stream.
+
+  const bodyBytes = await file.arrayBuffer()
+  if (bodyBytes.byteLength > 10 * 1024 * 1024) return c.json({ error: 'file too large (max 10MB)' }, 413)
+
+  const keyRaw = `captions/${videoId}/${crypto.randomUUID()}.vtt`
+  const contentType = 'text/vtt'
+
+  // Stream captions API requires a URL. We serve the uploaded VTT via this API with
+  // an HMAC-signed, time-limited URL so we don't depend on public R2 bucket access.
+  const secret = getAuthJwtSecret(c.env)
+  if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
+  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 // 24h
+  const unsigned = `captions:${keyRaw}:${exp}`
+  const sig = await hs256Sign(secret, unsigned)
+  const origin = new URL(c.req.url).origin
+  const publicUrl = `${origin}/v1/public/captions?key=${encodeURIComponent(keyRaw)}&exp=${exp}&sig=${encodeURIComponent(sig)}`
+
+  // Prefer R2 binding if available (more reliable; no access keys required).
+  if (c.env.BUCKET) {
+    try {
+      await c.env.BUCKET.put(keyRaw, bodyBytes, {
+        httpMetadata: {
+          contentType,
+        },
+      })
+    } catch (err) {
+      return c.json(
+        {
+          error: 'Failed to upload captions file to R2',
+          details: String((err as any)?.message ?? err).slice(0, 1000),
+        },
+        502
+      )
+    }
+  } else {
+    // Fallback: server-side signed PUT to the R2 S3 API.
+    const r2AccountId = (c.env.CLOUDFLARE_ACCOUNT_ID || '').trim()
+    const accessKeyId = (c.env.R2_ACCESS_KEY_ID || '').trim()
+    const secretAccessKey = (c.env.R2_SECRET_ACCESS_KEY || '').trim()
+    const bucket = (c.env.R2_BUCKET || 'assets').trim() || 'assets'
+
+    if (!r2AccountId) return c.json({ error: 'CLOUDFLARE_ACCOUNT_ID is required for R2 upload' }, 500)
+    if (!accessKeyId || !secretAccessKey) {
+      return c.json({ error: 'R2 credentials are not configured (and BUCKET binding is missing)' }, 501)
+    }
+
+    const key = awsEncodePathPreserveSlash(keyRaw)
+    const host = `${r2AccountId}.r2.cloudflarestorage.com`
+    const canonicalUri = `/${bucket}/${key}`
+    const targetUrl = `https://${host}${canonicalUri}`
+
+    const amzDate = amzDateNow()
+    const dateStamp = amzDate.slice(0, 8)
+    const payloadHash = await sha256HexBytes(bodyBytes)
+
+    const { authorization } = await awsV4Signature({
+      method: 'PUT',
+      canonicalUri,
+      host,
+      contentType,
+      amzDate,
+      dateStamp,
+      accessKeyId,
+      secretAccessKey,
+      region: 'auto',
+      service: 's3',
+      payloadHash,
+    })
+
+    let r2Resp: Response
+    try {
+      r2Resp = await fetch(targetUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': contentType,
+          'x-amz-date': amzDate,
+          'x-amz-content-sha256': payloadHash,
+          Authorization: authorization,
+        },
+        body: bodyBytes,
+      })
+    } catch (err) {
+      return c.json(
+        {
+          error: 'Failed to upload captions file to R2',
+          details: String((err as any)?.message ?? err).slice(0, 1000),
+        },
+        502
+      )
+    }
+
+    if (!r2Resp.ok) {
+      const text = await r2Resp.text().catch(() => '')
+      const status = (r2Resp.status >= 400 && r2Resp.status <= 599 ? r2Resp.status : 502) as any
+      return c.json(
+        {
+          error: 'Failed to upload captions file to R2',
+          status: r2Resp.status,
+          details: text.slice(0, 1000),
+        },
+        status
+      )
+    }
+  }
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}/captions`
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: publicUrl,
+        language,
+        label,
+        default: isDefault,
+      }),
+    })
+  } catch (err) {
+    return c.json(
+      {
+        error: 'Failed to upload Stream captions',
+        details: String((err as any)?.message ?? err).slice(0, 500),
+      },
+      502
+    )
+  }
+
+  const data = (await resp.json().catch(() => null)) as
+    | {
+        success: boolean
+        result?: any
+        errors?: any[]
+      }
+    | null
+
+  if (!resp.ok || !data?.success) {
+    const status = (resp.status >= 400 && resp.status <= 599 ? resp.status : 502) as any
+    return c.json(
+      {
+        error: 'Failed to upload Stream captions',
+        status: resp.status,
+        errors: data?.errors ?? [],
+        hint: 'If errors mention fetching the VTT URL, confirm this API is publicly reachable and not blocked by IP allowlists.',
+      },
+      status
+    )
+  }
+
+  return c.json({ videoId, result: data?.result ?? null })
+})
+
+// Public (signed) WebVTT fetch for Cloudflare Stream captions ingest.
+app.get('/v1/public/captions', async (c) => {
+  const key = String(c.req.query('key') ?? '').trim()
+  const expRaw = String(c.req.query('exp') ?? '').trim()
+  const sig = String(c.req.query('sig') ?? '').trim()
+
+  if (!key || !expRaw || !sig) return c.json({ error: 'key, exp, sig are required' }, 400)
+  if (!key.startsWith('captions/')) return c.json({ error: 'invalid key' }, 400)
+
+  const exp = Number(expRaw)
+  if (!Number.isFinite(exp) || exp <= 0) return c.json({ error: 'invalid exp' }, 400)
+  const now = Math.floor(Date.now() / 1000)
+  if (now > exp) return c.json({ error: 'expired' }, 410)
+
+  const secret = getAuthJwtSecret(c.env)
+  if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
+
+  const unsigned = `captions:${key}:${exp}`
+  const expected = await hs256Sign(secret, unsigned)
+  if (expected !== sig) return c.json({ error: 'forbidden' }, 403)
+
+  if (!c.env.BUCKET) return c.json({ error: 'BUCKET is not configured' }, 500)
+  const obj = await c.env.BUCKET.get(key)
+  if (!obj) return c.json({ error: 'not_found' }, 404)
+
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': obj.httpMetadata?.contentType || 'text/vtt',
+      'Cache-Control': 'public, max-age=600',
+    },
+  })
+})
+
 app.get('/v1/stream/playback/:videoId', async (c) => {
   const videoId = c.req.param('videoId')?.trim()
   if (!videoId) return c.json({ error: 'videoId is required' }, 400)
@@ -4768,7 +6390,9 @@ app.get('/v1/top', async (c) => {
 
   const db = c.env.DB as D1Database
 
-  const toVideoItem = (r: any) => ({
+  // IMPORTANT: The mobile/web app expects these items to be *works* (content).
+  // The home screen opens work detail with the returned `id`.
+  const toWorkItem = (r: any) => ({
     id: String(r.id ?? ''),
     title: String(r.title ?? ''),
     thumbnailUrl: String(r.thumbnail_url ?? ''),
@@ -4784,11 +6408,18 @@ app.get('/v1/top', async (c) => {
     const pickupRows = await d1All(
       db,
       `
-      SELECT v.id, v.title, v.thumbnail_url
+      SELECT
+        w.id,
+        w.title,
+        MAX(CASE WHEN w.thumbnail_url != '' THEN w.thumbnail_url ELSE v.thumbnail_url END) AS thumbnail_url,
+        MIN(fv.sort_order) AS sort_order,
+        MIN(fv.created_at) AS created_at
       FROM cms_featured_videos fv
       JOIN videos v ON v.id = fv.video_id
+      JOIN works w ON w.id = v.work_id
       WHERE fv.slot = ? AND v.published = 1
-      ORDER BY fv.sort_order ASC, fv.created_at ASC
+      GROUP BY w.id, w.title
+      ORDER BY sort_order ASC, created_at ASC
       LIMIT 6
     `,
       ['pickup']
@@ -4797,11 +6428,18 @@ app.get('/v1/top', async (c) => {
     const recommendRows = await d1All(
       db,
       `
-      SELECT v.id, v.title, v.thumbnail_url
+      SELECT
+        w.id,
+        w.title,
+        MAX(CASE WHEN w.thumbnail_url != '' THEN w.thumbnail_url ELSE v.thumbnail_url END) AS thumbnail_url,
+        MIN(fv.sort_order) AS sort_order,
+        MIN(fv.created_at) AS created_at
       FROM cms_featured_videos fv
       JOIN videos v ON v.id = fv.video_id
+      JOIN works w ON w.id = v.work_id
       WHERE fv.slot = ? AND v.published = 1
-      ORDER BY fv.sort_order ASC, fv.created_at ASC
+      GROUP BY w.id, w.title
+      ORDER BY sort_order ASC, created_at ASC
       LIMIT 6
     `,
       ['recommend']
@@ -4811,16 +6449,17 @@ app.get('/v1/top', async (c) => {
       db,
       `
       SELECT id, title, thumbnail_url
-      FROM videos
+      FROM works
       WHERE published = 1
+        OR EXISTS (SELECT 1 FROM videos v WHERE v.work_id = works.id AND v.published = 1)
       ORDER BY created_at DESC
-      LIMIT 5
+      LIMIT 6
     `
     )
 
-    const pickup = pickupRows.length ? pickupRows.map(toVideoItem) : latestRows.slice(0, 6).map(toVideoItem)
-    const recommended = recommendRows.length ? recommendRows.map(toVideoItem) : latestRows.slice(0, 6).map(toVideoItem)
-    const rankings = latestRows.map(toVideoItem)
+    const pickup = pickupRows.length ? pickupRows.map(toWorkItem) : latestRows.slice(0, 6).map(toWorkItem)
+    const recommended = recommendRows.length ? recommendRows.map(toWorkItem) : latestRows.slice(0, 6).map(toWorkItem)
+    const rankings = latestRows.slice(0, 5).map(toWorkItem)
 
     const popularCastRows = await d1All(
       db,
@@ -4857,6 +6496,28 @@ app.get('/v1/top', async (c) => {
         overall: rankings,
       },
       popularCasts,
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// App settings (public)
+// Used by mobile/web app to show maintenance screen.
+app.get('/v1/settings', async (c) => {
+  if (isClientMockRequest(c) || !c.env.DB) {
+    return c.json({ maintenanceMode: false, maintenanceMessage: '' })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(db, 'SELECT key, value FROM app_settings WHERE key IN (?, ?)', ['maintenance_mode', 'maintenance_message'])
+    const map = new Map<string, string>()
+    for (const r of rows) map.set(String((r as any).key ?? ''), String((r as any).value ?? ''))
+    return c.json({
+      maintenanceMode: map.get('maintenance_mode') === '1',
+      maintenanceMessage: map.get('maintenance_message') ?? '',
     })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
@@ -4906,11 +6567,17 @@ app.get('/v1/notices', async (c) => {
     const rows = await d1All(
       db,
       `
-      SELECT id, subject, body, sent_at, status, created_at, tags
+      SELECT id, subject, body, sent_at, status, created_at, tags,
+             COALESCE(NULLIF(sent_at, ''), created_at) AS published_at
       FROM notices
-      WHERE (sent_at IS NOT NULL AND sent_at != '')
-        AND (status IS NULL OR status != 'draft')
-      ORDER BY sent_at DESC, created_at DESC
+      WHERE (
+        -- "sent" は sent_at 未設定でも公開扱い（created_at を表示/並び順に利用）
+        (status IS NULL OR status = 'sent')
+        OR
+        -- "scheduled" は sent_at 必須
+        (status = 'scheduled' AND sent_at IS NOT NULL AND sent_at != '')
+      )
+      ORDER BY published_at DESC, created_at DESC
       LIMIT 100
     `
     )
@@ -4922,7 +6589,7 @@ app.get('/v1/notices', async (c) => {
         return {
           id: String(r.id ?? ''),
           title: String(r.subject ?? ''),
-          publishedAt: String(r.sent_at ?? r.created_at ?? ''),
+          publishedAt: String((r as any).published_at ?? r.sent_at ?? r.created_at ?? ''),
           excerpt,
           tags: String(r.tags ?? '')
             .split(',')
@@ -4959,11 +6626,15 @@ app.get('/v1/notices/:id', async (c) => {
 
     if (!row) return c.json({ item: null })
 
+    const sentAt = String((row as any).sent_at ?? '')
+    const createdAt = String((row as any).created_at ?? '')
+    const publishedAt = sentAt.trim() ? sentAt : createdAt
+
     return c.json({
       item: {
         id: String(row.id ?? ''),
         title: String(row.subject ?? ''),
-        publishedAt: String(row.sent_at ?? row.created_at ?? ''),
+        publishedAt,
         bodyHtml: String(row.body ?? ''),
         tags: String(row.tags ?? '')
           .split(',')
@@ -5277,6 +6948,117 @@ function normalizeQuery(value: string) {
   return value.trim().toLowerCase()
 }
 
+// ---- V1: Cast profile requests (end-user self registration) ----
+app.get('/v1/cast-profiles/me', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({ item: null })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const row = await d1First(
+      db,
+      `SELECT id, status, submitted_at, decided_at, rejection_reason, draft_json
+       FROM cast_profile_requests
+       WHERE user_id = ?
+       ORDER BY submitted_at DESC
+       LIMIT 1`,
+      [auth.userId]
+    )
+
+    if (!row) return c.json({ item: null })
+
+    const draft = (() => {
+      const raw = String((row as any).draft_json ?? '').trim()
+      if (!raw) return null
+      try {
+        return JSON.parse(raw)
+      } catch {
+        return null
+      }
+    })()
+
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        status: String((row as any).status ?? ''),
+        submittedAt: String((row as any).submitted_at ?? ''),
+        decidedAt: (row as any).decided_at ? String((row as any).decided_at) : null,
+        rejectionReason: String((row as any).rejection_reason ?? ''),
+        draft,
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.post('/v1/cast-profiles/me', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { draft?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const draft = (body as any)?.draft
+  if (!draft || typeof draft !== 'object') return c.json({ error: 'draft is required' }, 400)
+
+  const name = clampText(String((draft as any)?.name ?? ''), 50)
+  if (!name.trim()) return c.json({ error: 'name is required' }, 400)
+
+  const now = nowIso()
+
+  try {
+    const userRow = await d1First(db, 'SELECT email FROM users WHERE id = ? LIMIT 1', [auth.userId])
+    const email = clampText(String((userRow as any)?.email ?? ''), 120)
+
+    const pendingRow = await d1First(
+      db,
+      `SELECT id
+       FROM cast_profile_requests
+       WHERE user_id = ? AND status = 'pending'
+       ORDER BY submitted_at DESC
+       LIMIT 1`,
+      [auth.userId]
+    )
+
+    const draftJson = JSON.stringify(draft)
+
+    if (pendingRow && (pendingRow as any).id) {
+      const id = String((pendingRow as any).id)
+      await db
+        .prepare(
+          `UPDATE cast_profile_requests
+           SET email = ?, name = ?, draft_json = ?, submitted_at = ?, rejection_reason = '', decided_at = NULL, decided_by_admin_id = NULL
+           WHERE id = ?`
+        )
+        .bind(email, name, draftJson, now, id)
+        .run()
+      return c.json({ ok: true, id, status: 'pending', submittedAt: now })
+    }
+
+    const id = uuidOrFallback('cpr')
+    await db
+      .prepare(
+        `INSERT INTO cast_profile_requests
+         (id, user_id, email, name, draft_json, status, submitted_at, decided_at, decided_by_admin_id, rejection_reason)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, '')`
+      )
+      .bind(id, auth.userId, email, name, draftJson, now)
+      .run()
+
+    return c.json({ ok: true, id, status: 'pending', submittedAt: now })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
 app.get('/v1/cast', async (c) => {
   const qRaw = c.req.query('q') ?? ''
   const q = normalizeQuery(qRaw)
@@ -5558,12 +7340,137 @@ async function handleDeleteFavoriteCasts(c: any) {
   return c.json({ deleted: castIds.length })
 }
 
+async function handleGetFavoriteVideos(c: any) {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const db = c.env.DB as D1Database
+
+  let rows: Array<{ work_id?: unknown; created_at?: unknown; title?: unknown; thumbnail_url?: unknown }> = []
+  try {
+    rows = await d1All(
+      db,
+      `SELECT fv.work_id, fv.created_at,
+              COALESCE(w.title, '') AS title,
+              COALESCE(w.thumbnail_url, '') AS thumbnail_url
+       FROM favorite_videos fv
+       LEFT JOIN works w ON w.id = fv.work_id
+       WHERE fv.user_id = ?
+       ORDER BY fv.created_at DESC
+       LIMIT 200`,
+      [auth.userId]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows
+    .map((r) => ({
+      id: String(r.work_id ?? '').trim(),
+      title: String(r.title ?? '').trim(),
+      thumbnailUrl: String(r.thumbnail_url ?? '').trim(),
+      favoritedAt: String(r.created_at ?? '').trim(),
+    }))
+    .filter((x) => x.id)
+
+  return c.json({ items })
+}
+
+async function handlePostFavoriteVideos(c: any) {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { workId?: unknown; workIds?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+
+  const rawIds = Array.isArray(body.workIds)
+    ? body.workIds
+    : body.workId === undefined
+        ? []
+        : [body.workId]
+
+  if (!Array.isArray(rawIds)) return c.json({ error: 'workIds must be an array' }, 400)
+
+  const workIds = Array.from(
+    new Set(
+      rawIds
+        .map((v) => String(v ?? '').trim())
+        .filter((v) => v)
+    )
+  )
+
+  if (workIds.length === 0) return c.json({ error: 'workIds is required' }, 400)
+  if (workIds.length > 100) return c.json({ error: 'workIds is too large (max 100)' }, 400)
+
+  const db = c.env.DB as D1Database
+  const now = nowIso()
+
+  try {
+    await db.batch(
+      workIds.map((id) =>
+        db
+          .prepare('INSERT OR IGNORE INTO favorite_videos (user_id, work_id, created_at) VALUES (?, ?, ?)')
+          .bind(auth.userId, id, now)
+      )
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ inserted: workIds.length })
+}
+
+async function handleDeleteFavoriteVideos(c: any) {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { workIds?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const raw = body.workIds
+  if (!Array.isArray(raw)) return c.json({ error: 'workIds must be an array' }, 400)
+
+  const workIds = Array.from(
+    new Set(
+      raw
+        .map((v) => String(v ?? '').trim())
+        .filter((v) => v)
+    )
+  )
+
+  if (workIds.length === 0) return c.json({ error: 'workIds is required' }, 400)
+  if (workIds.length > 100) return c.json({ error: 'workIds is too large (max 100)' }, 400)
+
+  const placeholders = workIds.map(() => '?').join(',')
+  try {
+    await c.env.DB.prepare(`DELETE FROM favorite_videos WHERE user_id = ? AND work_id IN (${placeholders})`)
+      .bind(auth.userId, ...workIds)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ deleted: workIds.length })
+}
+
 app.get('/v1/favorites/casts', handleGetFavoriteCasts)
 app.delete('/v1/favorites/casts', handleDeleteFavoriteCasts)
+
+app.get('/v1/favorites/videos', handleGetFavoriteVideos)
+app.post('/v1/favorites/videos', handlePostFavoriteVideos)
+app.delete('/v1/favorites/videos', handleDeleteFavoriteVideos)
 
 // Design-doc compatibility (docs/アプリ/* use /api/...)
 app.get('/api/favorites/casts', handleGetFavoriteCasts)
 app.delete('/api/favorites/casts', handleDeleteFavoriteCasts)
+app.get('/api/favorites/videos', handleGetFavoriteVideos)
+app.post('/api/favorites/videos', handlePostFavoriteVideos)
+app.delete('/api/favorites/videos', handleDeleteFavoriteVideos)
 app.get('/v1/videos', async (c) => {
   const categoryId = String(c.req.query('category_id') ?? '').trim()
   const tag = normalizeQuery(String(c.req.query('tag') ?? ''))
@@ -5626,6 +7533,72 @@ app.get('/v1/videos', async (c) => {
       tags: typeof r.tags === 'string' ? r.tags.split(',').map((t: string) => t.trim()).filter((t: string) => t) : [],
     })),
   })
+})
+
+app.get('/v1/videos/:id', async (c) => {
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  if (isClientMockRequest(c) || !c.env.DB) {
+    const v = MOCK_VIDEOS.find((x) => x.id === id)
+    if (!v) return c.json({ error: 'not_found' }, 404)
+
+    const workTitle = workTitleFromVideoTitle(v.title)
+    const workId = WORK_ID_BY_TITLE[workTitle] ?? workTitle
+    const episodeNo = (() => {
+      const m = String(v.title ?? '').match(/第\s*0*(\d+)\s*話/)
+      if (!m) return null
+      const n = Number(m[1])
+      return Number.isFinite(n) ? n : null
+    })()
+
+    return c.json({
+      item: {
+        id: v.id,
+        workId,
+        workTitle,
+        title: v.title,
+        episodeNo,
+        thumbnailUrl: v.thumbnailUrl ?? '',
+        published: true,
+        scheduledAt: null,
+        streamVideoId: '',
+        streamVideoIdClean: '',
+        streamVideoIdSubtitled: '',
+      },
+    })
+  }
+
+  const db = c.env.DB as D1Database
+
+  try {
+    const row = await d1First(
+      db,
+      "SELECT v.id, v.work_id, COALESCE(w.title, '') AS work_title, v.title, v.thumbnail_url, v.published, v.scheduled_at, v.episode_no, v.stream_video_id, COALESCE(v.stream_video_id_clean, '') AS stream_video_id_clean, COALESCE(v.stream_video_id_subtitled, '') AS stream_video_id_subtitled FROM videos v LEFT JOIN works w ON w.id = v.work_id WHERE v.id = ? AND v.deleted = 0 LIMIT 1",
+      [id]
+    )
+
+    if (!row) return c.json({ error: 'not_found' }, 404)
+
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        workId: String((row as any).work_id ?? ''),
+        workTitle: String((row as any).work_title ?? ''),
+        title: String((row as any).title ?? ''),
+        episodeNo: (row as any).episode_no == null ? null : Number((row as any).episode_no),
+        thumbnailUrl: String((row as any).thumbnail_url ?? ''),
+        published: Boolean((row as any).published),
+        scheduledAt: (row as any).scheduled_at == null ? null : String((row as any).scheduled_at),
+        streamVideoId: String((row as any).stream_video_id ?? ''),
+        streamVideoIdClean: String((row as any).stream_video_id_clean ?? ''),
+        streamVideoIdSubtitled: String((row as any).stream_video_id_subtitled ?? ''),
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    return c.json({ error: 'failed_to_query_video' }, 500)
+  }
 })
 
 app.get('/v1/comments', async (c) => {
@@ -5850,7 +7823,9 @@ app.get('/v1/works', async (c) => {
 
   const db = c.env.DB as D1Database
 
-  const where: string[] = ['w.published = 1']
+  const where: string[] = [
+    '(w.published = 1 OR EXISTS (SELECT 1 FROM videos vpub WHERE vpub.work_id = w.id AND vpub.published = 1))',
+  ]
   const binds: any[] = []
 
   if (q) {
@@ -5918,6 +7893,112 @@ app.get('/v1/works', async (c) => {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
   }
+})
+
+app.get('/v1/works/:id', async (c) => {
+  const id = String(c.req.param('id') ?? '').trim()
+  if (!id) return c.json({ error: 'id is required' }, 400)
+
+  // Debug/mock support (client-side toggle) or local dev without DB.
+  if (isClientMockRequest(c) || !c.env.DB) {
+    const found = MOCK_WORKS.find((w) => w.id === id)
+    if (!found) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: found.id,
+        title: found.title,
+        description: '',
+        thumbnailUrl: found.thumbnailUrl,
+        published: true,
+        tags: found.tags,
+      },
+      episodes: [],
+    })
+  }
+
+  const db = c.env.DB as D1Database
+
+  let work: any = null
+  try {
+    work = await d1First(
+      db,
+      'SELECT id, title, description, thumbnail_url, published, created_at, updated_at FROM works WHERE id = ? LIMIT 1',
+      [id]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  if (!work) return c.json({ error: 'not_found' }, 404)
+
+  let tagRows: any[] = []
+  try {
+    tagRows = await d1All(
+      db,
+      `
+        SELECT t.name
+        FROM work_tags wt
+        JOIN tags t ON t.id = wt.tag_id
+        WHERE wt.work_id = ?
+        ORDER BY lower(t.name) ASC
+      `,
+      [id]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  let videoRows: any[] = []
+  try {
+    videoRows = await d1All(
+      db,
+      `
+        SELECT id, title, thumbnail_url, published, scheduled_at, episode_no, created_at,
+               stream_video_id, COALESCE(stream_video_id_clean, '') AS stream_video_id_clean, COALESCE(stream_video_id_subtitled, '') AS stream_video_id_subtitled
+        FROM videos
+        WHERE work_id = ?
+        ORDER BY COALESCE(episode_no, 999999) ASC, created_at ASC
+      `,
+      [id]
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const tags = (tagRows ?? [])
+    .map((r: any) => String(r?.name ?? '').trim())
+    .filter(Boolean)
+
+  const hasPublishedEpisode = (videoRows ?? []).some((r: any) => Number(r?.published ?? 0) === 1)
+
+  return c.json({
+    item: {
+      id: String(work.id ?? ''),
+      title: String(work.title ?? ''),
+      description: String(work.description ?? ''),
+      thumbnailUrl: String(work.thumbnail_url ?? ''),
+      published: Number(work.published ?? 0) === 1 || hasPublishedEpisode,
+      tags,
+      createdAt: String(work.created_at ?? ''),
+      updatedAt: String(work.updated_at ?? ''),
+    },
+    episodes: (videoRows ?? []).map((r: any) => ({
+      id: String(r.id ?? ''),
+      title: String(r.title ?? ''),
+      thumbnailUrl: String(r.thumbnail_url ?? ''),
+      episodeNo: r.episode_no == null ? null : Number(r.episode_no),
+      published: Number(r.published ?? 0) === 1,
+      scheduledAt: r.scheduled_at == null ? null : String(r.scheduled_at),
+      streamVideoId: String(r.stream_video_id ?? ''),
+      streamVideoIdClean: String(r.stream_video_id_clean ?? ''),
+      streamVideoIdSubtitled: String(r.stream_video_id_subtitled ?? ''),
+      // Pricing is not part of the public schema yet; the client can treat it as free.
+      priceCoin: 0,
+    })),
+  })
 })
 
 app.get('/v1/search', async (c) => {
@@ -6036,6 +8117,617 @@ app.post('/v1/oshi', async (c) => {
     .run()
 
   return c.json({ id, name, created_at: createdAt }, 201)
+})
+
+// -----------------------------
+// Me (login + subscription)
+// -----------------------------
+
+app.get('/v1/me', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  try {
+    const row = await c.env.DB
+      .prepare(
+        `SELECT
+          id,
+          email,
+          phone,
+          display_name,
+          avatar_url,
+          full_name,
+          full_name_kana,
+          birth_date,
+          favorite_genres_json,
+          is_subscribed,
+          subscription_started_at,
+          subscription_ended_at,
+          subscription_status
+        FROM users
+        WHERE id = ?
+        LIMIT 1`
+      )
+      .bind(auth.userId)
+      .first<any>()
+
+    if (!row) return c.json({ error: 'not_found' }, 404)
+
+    const favoriteGenres = (() => {
+      const raw = String(row.favorite_genres_json ?? '').trim()
+      if (!raw) return []
+      try {
+        const parsed = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return []
+        return parsed.map((v) => String(v ?? '').trim()).filter(Boolean)
+      } catch {
+        return []
+      }
+    })()
+
+    return c.json({
+      id: String(row.id),
+      email: String(row.email ?? ''),
+      phone: String(row.phone ?? ''),
+      isSubscribed: Number(row.is_subscribed ?? 0) === 1,
+      subscription: {
+        status: String(row.subscription_status ?? ''),
+        startedAt: row.subscription_started_at ? String(row.subscription_started_at) : null,
+        endedAt: row.subscription_ended_at ? String(row.subscription_ended_at) : null,
+      },
+      profile: {
+        displayName: String(row.display_name ?? ''),
+        avatarUrl: String(row.avatar_url ?? ''),
+        fullName: String(row.full_name ?? ''),
+        fullNameKana: String(row.full_name_kana ?? ''),
+        birthDate: String(row.birth_date ?? ''),
+        favoriteGenres,
+      },
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.put('/v1/me/profile', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = {
+    displayName?: unknown
+    avatarUrl?: unknown
+    fullName?: unknown
+    fullNameKana?: unknown
+    birthDate?: unknown
+    favoriteGenres?: unknown
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+
+  const displayName = body.displayName === undefined ? null : clampText(body.displayName, 40)
+  const avatarUrl = body.avatarUrl === undefined ? null : clampText(body.avatarUrl, 500)
+  const fullName = body.fullName === undefined ? null : clampText(body.fullName, 80)
+  const fullNameKana = body.fullNameKana === undefined ? null : clampText(body.fullNameKana, 80)
+  const birthDateRaw = body.birthDate === undefined ? null : String(body.birthDate ?? '').trim()
+  const birthDate = birthDateRaw === null ? null : clampText(birthDateRaw, 10)
+
+  const favoriteGenres = (() => {
+    if (body.favoriteGenres === undefined) return null
+
+    const fromUnknown = (value: unknown): string[] => {
+      const raw = Array.isArray(value) ? value : String(value ?? '')
+      const list = Array.isArray(raw)
+        ? raw.map((v) => String(v ?? '').trim()).filter(Boolean)
+        : String(raw)
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+
+      const uniq: string[] = []
+      const seen = new Set<string>()
+      for (const v of list) {
+        const clipped = clampText(v, 60)
+        if (!clipped) continue
+        if (seen.has(clipped)) continue
+        seen.add(clipped)
+        uniq.push(clipped)
+        if (uniq.length >= 50) break
+      }
+      return uniq
+    }
+
+    return fromUnknown(body.favoriteGenres)
+  })()
+
+  if (birthDate !== null && birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) {
+    return c.json({ error: 'invalid_birthDate' }, 400)
+  }
+
+  const sets: string[] = []
+  const binds: any[] = []
+  if (displayName !== null) {
+    if (!displayName) return c.json({ error: 'displayName is required' }, 400)
+    sets.push('display_name = ?')
+    binds.push(displayName)
+  }
+  if (avatarUrl !== null) {
+    sets.push('avatar_url = ?')
+    binds.push(avatarUrl || '')
+  }
+  if (fullName !== null) {
+    if (!fullName) return c.json({ error: 'fullName is required' }, 400)
+    sets.push('full_name = ?')
+    binds.push(fullName)
+  }
+  if (fullNameKana !== null) {
+    if (!fullNameKana) return c.json({ error: 'fullNameKana is required' }, 400)
+    sets.push('full_name_kana = ?')
+    binds.push(fullNameKana)
+  }
+  if (birthDate !== null) {
+    if (!birthDate) return c.json({ error: 'birthDate is required' }, 400)
+    sets.push('birth_date = ?')
+    binds.push(birthDate)
+  }
+  if (favoriteGenres !== null) {
+    // For registration, require at least 1; for later edits, client can still clear by sending [].
+    sets.push('favorite_genres_json = ?')
+    binds.push(JSON.stringify(favoriteGenres))
+  }
+
+  if (sets.length === 0) return c.json({ ok: true })
+
+  const now = nowIso()
+  sets.push('updated_at = ?')
+  binds.push(now)
+  binds.push(auth.userId)
+
+  try {
+    await c.env.DB
+      .prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`)
+      .bind(...binds)
+      .run()
+    return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// -----------------------------
+// Me: change email / phone (requires re-verification)
+// -----------------------------
+
+app.post('/v1/me/email/change/start', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { email?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = normalizeEmail(String(body.email ?? ''))
+  if (!email) return c.json({ error: 'email is required' }, 400)
+
+  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? LIMIT 1').bind(email).first<any>()
+  if (existing && String(existing.id ?? '') !== auth.userId) {
+    return c.json({ error: 'email_in_use' }, 409)
+  }
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const code = makeRandomDigits(6)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const now = nowIso()
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+
+  try {
+    await c.env.DB
+      .prepare(
+        'INSERT INTO verification_codes (id, user_id, kind, target, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      .bind(crypto.randomUUID(), auth.userId, 'email_change', email, codeHash, expiresAt, now)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const mailRes = await sendEmailViaMailChannels(
+    c.env,
+    email,
+    '【推しドラ】メールアドレス変更 認証コード',
+    `認証コード: ${code}\n\n有効期限: 10分\n`
+  )
+
+  const debugCode = shouldReturnDebugCodes(c.env) ? code : undefined
+  if (!mailRes.ok) {
+    if (debugCode) return c.json({ ok: true, email, debugCode, warning: mailRes.error })
+    return c.json({ error: mailRes.error, debugCode }, (mailRes.status ?? 502) as any)
+  }
+  return c.json({ ok: true, email, debugCode })
+})
+
+app.post('/v1/me/email/change/resend', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { email?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = normalizeEmail(String(body.email ?? ''))
+  if (!email) return c.json({ error: 'email is required' }, 400)
+
+  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? LIMIT 1').bind(email).first<any>()
+  if (existing && String(existing.id ?? '') !== auth.userId) {
+    return c.json({ error: 'email_in_use' }, 409)
+  }
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const code = makeRandomDigits(6)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const now = nowIso()
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+
+  try {
+    await c.env.DB
+      .prepare(
+        'INSERT INTO verification_codes (id, user_id, kind, target, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      .bind(crypto.randomUUID(), auth.userId, 'email_change', email, codeHash, expiresAt, now)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const mailRes = await sendEmailViaMailChannels(
+    c.env,
+    email,
+    '【推しドラ】メールアドレス変更 認証コード（再送）',
+    `認証コード: ${code}\n\n有効期限: 10分\n`
+  )
+
+  const debugCode = shouldReturnDebugCodes(c.env) ? code : undefined
+  if (!mailRes.ok) {
+    if (debugCode) return c.json({ ok: true, email, debugCode, warning: mailRes.error })
+    return c.json({ error: mailRes.error, debugCode }, (mailRes.status ?? 502) as any)
+  }
+  return c.json({ ok: true, email, debugCode })
+})
+
+app.post('/v1/me/email/change/verify', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { email?: unknown; code?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const email = normalizeEmail(String(body.email ?? ''))
+  const code = digitsOnly(String(body.code ?? ''))
+  if (!email) return c.json({ error: 'email is required' }, 400)
+  if (code.length !== 6) return c.json({ error: 'code must be 6 digits' }, 400)
+
+  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? LIMIT 1').bind(email).first<any>()
+  if (existing && String(existing.id ?? '') !== auth.userId) {
+    return c.json({ error: 'email_in_use' }, 409)
+  }
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const nowIsoStr = nowIso()
+
+  const row = await c.env.DB
+    .prepare(
+      "SELECT id, expires_at, consumed_at FROM verification_codes WHERE kind = 'email_change' AND target = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1"
+    )
+    .bind(email, auth.userId)
+    .first<any>()
+
+  if (!row) return c.json({ error: 'code_not_found' }, 400)
+  if (row.consumed_at) return c.json({ error: 'code_already_used' }, 400)
+  if (String(row.expires_at) < nowIsoStr) return c.json({ error: 'code_expired' }, 400)
+
+  const ok = await c.env.DB
+    .prepare('SELECT id FROM verification_codes WHERE id = ? AND code_hash = ?')
+    .bind(String(row.id), codeHash)
+    .first<any>()
+  if (!ok) {
+    await c.env.DB.prepare('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?').bind(String(row.id)).run()
+    return c.json({ error: 'invalid_code' }, 400)
+  }
+
+  await c.env.DB.prepare('UPDATE verification_codes SET consumed_at = ? WHERE id = ?').bind(nowIsoStr, String(row.id)).run()
+
+  try {
+    await c.env.DB
+      .prepare('UPDATE users SET email = ?, email_verified = 1, updated_at = ? WHERE id = ?')
+      .bind(email, nowIsoStr, auth.userId)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true, email })
+})
+
+app.post('/v1/me/phone/change/start', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { phone?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const phoneDigits = normalizePhoneDigitsForJP(String(body.phone ?? ''))
+  if (phoneDigits.length < 10 || phoneDigits.length > 20) return c.json({ error: 'invalid_phone' }, 400)
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const code = makeRandomDigits(4)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const now = nowIso()
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+
+  try {
+    await c.env.DB
+      .prepare(
+        'INSERT INTO verification_codes (id, user_id, kind, target, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      .bind(crypto.randomUUID(), auth.userId, 'sms_change', phoneDigits, codeHash, expiresAt, now)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const smsRes = await sendSmsViaTwilio(c.env, `+${phoneDigits}`, `【推しドラ】認証コード: ${code}`)
+  const debugCode = shouldReturnDebugCodes(c.env) ? code : undefined
+  if (!smsRes.ok) {
+    if (debugCode) return c.json({ ok: true, debugCode, warning: smsRes.error })
+    return c.json({ error: smsRes.error, debugCode }, (smsRes.status ?? 502) as any)
+  }
+  return c.json({ ok: true, debugCode })
+})
+
+app.post('/v1/me/phone/change/verify', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  type Body = { phone?: unknown; code?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  const phoneDigits = normalizePhoneDigitsForJP(String(body.phone ?? ''))
+  const code = digitsOnly(String(body.code ?? ''))
+  if (phoneDigits.length < 10 || phoneDigits.length > 20) return c.json({ error: 'invalid_phone' }, 400)
+  if (code.length !== 4) return c.json({ error: 'code must be 4 digits' }, 400)
+
+  const pepper = (c.env.AUTH_CODE_PEPPER ?? '').trim()
+  if (!pepper) return c.json({ error: 'AUTH_CODE_PEPPER is not configured' }, 500)
+  const codeHash = await hashVerificationCode(code, pepper)
+  const nowIsoStr = nowIso()
+
+  let row: any
+  try {
+    row = await c.env.DB
+      .prepare(
+        "SELECT id, expires_at, consumed_at FROM verification_codes WHERE kind = 'sms_change' AND target = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1"
+      )
+      .bind(phoneDigits, auth.userId)
+      .first<any>()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  if (!row) return c.json({ error: 'code_not_found' }, 400)
+  if (row.consumed_at) return c.json({ error: 'code_already_used' }, 400)
+  if (String(row.expires_at) < nowIsoStr) return c.json({ error: 'code_expired' }, 400)
+
+  const ok = await c.env.DB
+    .prepare('SELECT id FROM verification_codes WHERE id = ? AND code_hash = ?')
+    .bind(String(row.id), codeHash)
+    .first<any>()
+  if (!ok) {
+    await c.env.DB.prepare('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?').bind(String(row.id)).run()
+    return c.json({ error: 'invalid_code' }, 400)
+  }
+
+  try {
+    await c.env.DB.prepare('UPDATE verification_codes SET consumed_at = ? WHERE id = ?').bind(nowIsoStr, String(row.id)).run()
+    await c.env.DB
+      .prepare('UPDATE users SET phone = ?, phone_verified = 1, updated_at = ? WHERE id = ?')
+      .bind(phoneDigits, nowIsoStr, auth.userId)
+      .run()
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true, phone: phoneDigits })
+})
+
+// -----------------------------
+// Stripe (subscription)
+// -----------------------------
+
+app.post('/api/stripe/checkout/subscription', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const secretKey = getStripeSecretKey(c.env)
+  if (!secretKey) return c.json({ error: 'STRIPE_SECRET_KEY is not configured' }, 500)
+  const priceId = getStripePriceId(c.env)
+  if (!priceId) return c.json({ error: 'STRIPE_SUBSCRIPTION_PRICE_ID is not configured' }, 500)
+  const { successUrl, cancelUrl } = getStripeCheckoutUrls(c.env)
+  if (!successUrl || !cancelUrl) return c.json({ error: 'STRIPE_CHECKOUT_SUCCESS_URL / STRIPE_CHECKOUT_CANCEL_URL is not configured' }, 500)
+
+  const user = await c.env.DB
+    .prepare('SELECT id, email, stripe_customer_id FROM users WHERE id = ? LIMIT 1')
+    .bind(auth.userId)
+    .first<any>()
+  if (!user) return c.json({ error: 'not_found' }, 404)
+
+  let customerId = String(user.stripe_customer_id ?? '').trim()
+  if (!customerId) {
+    const p = new URLSearchParams()
+    p.set('metadata[userId]', auth.userId)
+    const email = String(user.email ?? '').trim()
+    if (email) p.set('email', email)
+    const created = await stripePostForm<{ id: string }>(secretKey, '/customers', p)
+    customerId = String(created.id ?? '').trim()
+    if (!customerId) return c.json({ error: 'stripe_customer_create_failed' }, 502)
+    const now = nowIso()
+    await c.env.DB
+      .prepare('UPDATE users SET stripe_customer_id = ?, updated_at = ? WHERE id = ?')
+      .bind(customerId, now, auth.userId)
+      .run()
+  }
+
+  const params = new URLSearchParams()
+  params.set('mode', 'subscription')
+  params.set('customer', customerId)
+  params.set('client_reference_id', auth.userId)
+  params.set('success_url', successUrl)
+  params.set('cancel_url', cancelUrl)
+  params.set('line_items[0][price]', priceId)
+  params.set('line_items[0][quantity]', '1')
+  params.set('metadata[userId]', auth.userId)
+  params.set('subscription_data[metadata][userId]', auth.userId)
+
+  const idempotencyKey = `sub_checkout_${auth.userId}_${new Date().toISOString().slice(0, 10)}`
+  const session = await stripePostForm<{ id: string; url?: string }>(secretKey, '/checkout/sessions', params, { idempotencyKey })
+
+  const url = String(session.url ?? '').trim()
+  if (!url) return c.json({ error: 'stripe_checkout_url_missing' }, 502)
+  return c.json({ checkoutUrl: url })
+})
+
+app.post('/api/stripe/portal', async (c) => {
+  const auth = await requireAuth(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const secretKey = getStripeSecretKey(c.env)
+  if (!secretKey) return c.json({ error: 'STRIPE_SECRET_KEY is not configured' }, 500)
+  const returnUrl = getStripePortalReturnUrl(c.env)
+  if (!returnUrl) return c.json({ error: 'STRIPE_PORTAL_RETURN_URL is not configured' }, 500)
+
+  const user = await c.env.DB
+    .prepare('SELECT stripe_customer_id FROM users WHERE id = ? LIMIT 1')
+    .bind(auth.userId)
+    .first<any>()
+  const customerId = String(user?.stripe_customer_id ?? '').trim()
+  if (!customerId) return c.json({ error: 'stripe_customer_missing' }, 409)
+
+  const params = new URLSearchParams()
+  params.set('customer', customerId)
+  params.set('return_url', returnUrl)
+  const session = await stripePostForm<{ url?: string }>(secretKey, '/billing_portal/sessions', params)
+  const url = String(session.url ?? '').trim()
+  if (!url) return c.json({ error: 'stripe_portal_url_missing' }, 502)
+  return c.json({ url })
+})
+
+app.post('/api/stripe/webhook', async (c) => {
+  const secret = getStripeWebhookSecret(c.env)
+  if (!secret) return c.json({ error: 'STRIPE_WEBHOOK_SECRET is not configured' }, 500)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+
+  const rawBody = await c.req.text()
+  const sigHeader = c.req.header('stripe-signature') ?? ''
+  const ok = await stripeVerifyWebhookSignature({ rawBody, signatureHeader: sigHeader, secret })
+  if (!ok) return c.json({ error: 'invalid_signature' }, 400)
+
+  const event = JSON.parse(rawBody) as any
+  const type = String(event?.type ?? '')
+  const obj = event?.data?.object ?? {}
+  const now = nowIso()
+
+  const setSubscribedByUserId = async (userId: string, subscribed: boolean, extra?: { customerId?: string; subscriptionId?: string; status?: string }) => {
+    const u = String(userId ?? '').trim()
+    if (!u) return
+    const status = String(extra?.status ?? '').trim()
+    const customerId = String(extra?.customerId ?? '').trim()
+    const subscriptionId = String(extra?.subscriptionId ?? '').trim()
+    await c.env.DB
+      .prepare(
+        `UPDATE users
+         SET is_subscribed = ?,
+             subscription_started_at = CASE WHEN ? = 1 THEN COALESCE(subscription_started_at, ?) ELSE subscription_started_at END,
+             subscription_ended_at = CASE WHEN ? = 1 THEN NULL ELSE ? END,
+             subscription_status = COALESCE(NULLIF(?, ''), subscription_status),
+             stripe_customer_id = COALESCE(NULLIF(?, ''), stripe_customer_id),
+             stripe_subscription_id = COALESCE(NULLIF(?, ''), stripe_subscription_id),
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(subscribed ? 1 : 0, subscribed ? 1 : 0, now, subscribed ? 1 : 0, now, status, customerId, subscriptionId, now, u)
+      .run()
+  }
+
+  const setSubscribedByCustomerOrMetadata = async (opts: { customerId?: string; subscriptionId?: string; userId?: string; status?: string }) => {
+    const customerId = String(opts.customerId ?? '').trim()
+    const subscriptionId = String(opts.subscriptionId ?? '').trim()
+    const userId = String(opts.userId ?? '').trim()
+    const status = String(opts.status ?? '').trim()
+
+    const isActive = status === 'active' || status === 'trialing'
+
+    if (userId) {
+      await setSubscribedByUserId(userId, isActive, { customerId, subscriptionId, status })
+      return
+    }
+
+    if (subscriptionId) {
+      const row = await c.env.DB
+        .prepare('SELECT id FROM users WHERE stripe_subscription_id = ? LIMIT 1')
+        .bind(subscriptionId)
+        .first<any>()
+      const uid = String(row?.id ?? '').trim()
+      if (uid) {
+        await setSubscribedByUserId(uid, isActive, { customerId, subscriptionId, status })
+        return
+      }
+    }
+
+    if (customerId) {
+      const row = await c.env.DB
+        .prepare('SELECT id FROM users WHERE stripe_customer_id = ? LIMIT 1')
+        .bind(customerId)
+        .first<any>()
+      const uid = String(row?.id ?? '').trim()
+      if (uid) {
+        await setSubscribedByUserId(uid, isActive, { customerId, subscriptionId, status })
+      }
+    }
+  }
+
+  if (type === 'checkout.session.completed') {
+    const mode = String(obj?.mode ?? '')
+    if (mode === 'subscription') {
+      const userId = String(obj?.client_reference_id ?? obj?.metadata?.userId ?? '').trim()
+      const customerId = String(obj?.customer ?? '').trim()
+      const subscriptionId = String(obj?.subscription ?? '').trim()
+      await setSubscribedByUserId(userId, true, { customerId, subscriptionId, status: 'active' })
+    }
+    return c.json({ ok: true })
+  }
+
+  if (type === 'customer.subscription.created' || type === 'customer.subscription.updated' || type === 'customer.subscription.deleted') {
+    const customerId = String(obj?.customer ?? '').trim()
+    const subscriptionId = String(obj?.id ?? '').trim()
+    const status = String(obj?.status ?? (type === 'customer.subscription.deleted' ? 'canceled' : '')).trim()
+    const userId = String(obj?.metadata?.userId ?? '').trim()
+    await setSubscribedByCustomerOrMetadata({ customerId, subscriptionId, userId, status })
+    return c.json({ ok: true })
+  }
+
+  return c.json({ ok: true })
 })
 
 // Dev endpoints: mock login state for testing
@@ -6257,7 +8949,7 @@ app.post('/v1/auth/login/start', async (c) => {
   let user: any = null
   try {
     user = await c.env.DB.prepare(
-      'SELECT id, email_verified, phone, phone_verified, password_hash, password_salt FROM users WHERE email = ?'
+      'SELECT id, email_verified, phone, phone_verified, sms_auth_skip, password_hash, password_salt FROM users WHERE email = ?'
     )
       .bind(email)
       .first<any>()
@@ -6283,7 +8975,8 @@ app.post('/v1/auth/login/start', async (c) => {
   const secret = getAuthJwtSecret(c.env)
   if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
   const hasVerifiedPhone = Number(user.phone_verified ?? 0) === 1 && String(user.phone ?? '').trim().length > 0
-  const stage = hasVerifiedPhone ? 'full' : 'needs_sms'
+  const smsAuthSkip = Number(user.sms_auth_skip ?? 0) === 1
+  const stage = smsAuthSkip || hasVerifiedPhone ? 'full' : 'needs_sms'
 
   let token = ''
   try {
@@ -6293,7 +8986,7 @@ app.post('/v1/auth/login/start', async (c) => {
     return c.json({ error: 'internal_sign_jwt', message: String((err as any)?.message ?? err).slice(0, 180) }, 500)
   }
   const phoneMasked = user.phone ? String(user.phone).replace(/.(?=.{4})/g, '*') : null
-  return c.json({ ok: true, token, stage, phoneMasked, phoneRequired: !hasVerifiedPhone })
+  return c.json({ ok: true, token, stage, phoneMasked, phoneRequired: !(smsAuthSkip || hasVerifiedPhone) })
 })
 
 app.post('/v1/auth/sms/send', async (c) => {

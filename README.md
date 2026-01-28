@@ -79,6 +79,26 @@ npx wrangler secret put R2_SECRET_ACCESS_KEY
 
 ローカル開発では `.dev.vars.example` を `.dev.vars` にコピーして使えます（`.dev.vars` は gitignore 済み）。
 
+#### Stripe（サブスク）
+
+サブスク加入/解約は Stripe Checkout / Customer Portal を使います。
+
+- Checkout開始: `POST /api/stripe/checkout/subscription`（要Bearer認証）
+- 管理/解約: `POST /api/stripe/portal`（要Bearer認証）
+- Webhook: `POST /api/stripe/webhook`（Stripeからの署名必須）
+- 状態取得: `GET /v1/me`（`isSubscribed` を返す）
+
+必要な設定（ローカルは `apps/api/.dev.vars.example` を参照）:
+
+- Secrets
+	- `STRIPE_SECRET_KEY`
+	- `STRIPE_WEBHOOK_SECRET`
+- Non-secrets
+	- `STRIPE_SUBSCRIPTION_PRICE_ID`
+	- `STRIPE_CHECKOUT_SUCCESS_URL`
+	- `STRIPE_CHECKOUT_CANCEL_URL`
+	- `STRIPE_PORTAL_RETURN_URL`
+
 ### Mobile (Expo)
 
 ```bash
@@ -90,7 +110,7 @@ npm run dev:mobile
 
 APIのURLは `EXPO_PUBLIC_API_BASE_URL` で上書きできます。
 
-Cloudflare Stream のサンプル動画IDは `EXPO_PUBLIC_CLOUDFLARE_STREAM_SAMPLE_VIDEO_ID` で指定します（例は [apps/mobile/.env.example](apps/mobile/.env.example)）。
+Cloudflare Stream の再生/サムネは API から取得した実データに基づき表示します。
 
 作品詳細画面の再生は API の `GET /v1/stream/signed-playback/:videoId` が返す署名付き HLS を使います（非公開配信 / Signed URL）。
 

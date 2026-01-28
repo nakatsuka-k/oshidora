@@ -20,7 +20,12 @@ type ResponseBody =
 const MAX_IMAGE_SIZE_MB = 32
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
 
+const MAX_FILE_SIZE_MB = 32
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
 const ALLOWED_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+
+const ALLOWED_FILE_CONTENT_TYPES = new Set(['application/pdf'])
 
 function jsonError(message: string, status = 500): { status: number; body: ResponseBody } {
   return { status, body: { error: message, data: null } }
@@ -41,6 +46,22 @@ function splitXForwardedFor(xff: string | null): string[] {
 }
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
+
+app.onError((err, c) => {
+  const status = typeof (err as any)?.status === 'number' ? Number((err as any).status) : 500
+  if (status === 401) {
+    const { status: s, body } = jsonError('Unauthorized', 401)
+    return c.json(body, s as any)
+  }
+  if (status === 403) {
+    const { status: s, body } = jsonError('Forbidden', 403)
+    return c.json(body, s as any)
+  }
+
+  const message = err instanceof Error ? err.message : 'Unknown error'
+  const { status: s, body } = jsonError(message, status)
+  return c.json(body, s as any)
+})
 
 // CORS
 app.use('*', async (c, next) => {
@@ -85,11 +106,32 @@ app.use('*', async (c, next) => {
   }
 
   // Run Hono jwt middleware (expects Authorization header)
-  return jwt({ secret: c.env.JWT_SECRET })(c, next)
+  const out = await jwt({ secret: c.env.JWT_SECRET })(c, next)
+  if (out instanceof Response) {
+    // Normalize unauthorized response shape so clients can reliably detect auth failures.
+    if (out.status === 401) {
+      const { status, body } = jsonError('Unauthorized', 401)
+      return c.json(body, status as any)
+    }
+    return out
+  }
+  return out
 })
 
 // CMS admin JWT (for image uploads)
 app.use('/cms/images', async (c, next) => {
+  if (c.req.method !== 'PUT') return next()
+
+  const secret = (c.env.AUTH_JWT_SECRET || '').trim()
+  if (!secret) {
+    return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 501)
+  }
+
+  return jwt({ secret })(c, next)
+})
+
+// CMS admin JWT (for file uploads, e.g. PDF)
+app.use('/cms/files', async (c, next) => {
   if (c.req.method !== 'PUT') return next()
 
   const secret = (c.env.AUTH_JWT_SECRET || '').trim()
@@ -127,6 +169,47 @@ app.put('/cms/images', async (c) => {
       httpMetadata: {
         contentType,
         cacheControl: 'public, max-age=31536000, immutable',
+      },
+    })
+
+    const publicBaseUrl = (c.env.PUBLIC_BASE_URL || '').trim() || 'https://assets.oshidra.com'
+    const url = `${publicBaseUrl.replace(/\/$/, '')}/${fileId}`
+
+    return c.json({ error: null, data: { fileId, url } })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.put('/cms/files', async (c) => {
+  const payload = (c.get('jwtPayload') as any) ?? null
+  const kind = typeof payload?.kind === 'string' ? String(payload.kind) : ''
+  const role = typeof payload?.role === 'string' ? String(payload.role) : ''
+  const adminId = typeof payload?.adminId === 'string' ? String(payload.adminId) : ''
+  if (kind !== 'cms' || role !== 'Admin' || !adminId) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  try {
+    const file = await c.req.blob()
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return c.json({ error: `ファイルサイズが${MAX_FILE_SIZE_MB}MBを超えています。` }, 413)
+    }
+
+    const contentType = (file.type || '').toLowerCase()
+    if (!ALLOWED_FILE_CONTENT_TYPES.has(contentType)) {
+      return c.json({ error: 'アップロードできないファイルです。' }, 400)
+    }
+
+    const fileId = crypto.randomUUID()
+
+    await c.env.BUCKET.put(fileId, file, {
+      httpMetadata: {
+        contentType,
+        // Not linked from public UI; treat as private-ish.
+        cacheControl: 'private, max-age=0, no-store',
       },
     })
 
