@@ -161,7 +161,6 @@ const STORAGE_API_OVERRIDE_KEY = 'oshidra_admin_api_base_override_v1'
 const STORAGE_UPLOADER_OVERRIDE_KEY = 'oshidra_admin_uploader_base_override_v1'
 const STORAGE_DEV_POS_KEY = 'oshidra_admin_dev_pos_v1'
 const STORAGE_DEBUG_OVERLAY_POS_KEY = 'oshidra_admin_debug_overlay_pos_v1'
-const STORAGE_MOCK_KEY = 'oshidra_admin_mock_v1'
 
 const UNAUTHORIZED_EVENT = 'oshidra-admin:unauthorized'
 let unauthorizedEventEmitted = false
@@ -170,7 +169,6 @@ type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
   token: string
-  mock: boolean
 }
 
 const CmsApiContext = createContext<CmsApiConfig | null>(null)
@@ -278,7 +276,6 @@ async function cmsFetchJsonWithBase<T>(
     headers: {
       ...(init?.headers || {}),
       authorization: `Bearer ${cfg.token}`,
-      ...(cfg.mock ? { 'X-Mock': '1' } : {}),
     },
   })
   const json = (await res.json().catch(() => ({}))) as any
@@ -1931,7 +1928,7 @@ function getTokenFromLocation(): string {
   return ''
 }
 
-function PasswordResetScreen({ apiBase, mock, onGoLogin }: { apiBase: string; mock: boolean; onGoLogin: () => void }) {
+function PasswordResetScreen({ apiBase, onGoLogin }: { apiBase: string; onGoLogin: () => void }) {
   const [email, setEmail] = useState('')
   const [token, setToken] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -1949,7 +1946,7 @@ function PasswordResetScreen({ apiBase, mock, onGoLogin }: { apiBase: string; mo
     try {
       const res = await fetch(`${apiBase.replace(/\/$/, '')}/cms/auth/request-password-reset`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
       })
       const json = (await res.json().catch(() => ({}))) as any
@@ -1961,7 +1958,7 @@ function PasswordResetScreen({ apiBase, mock, onGoLogin }: { apiBase: string; mo
     } finally {
       setBusy(false)
     }
-  }, [apiBase, email, mock])
+  }, [apiBase, email])
 
   const submitNewPassword = useCallback(async () => {
     if (!token) {
@@ -1982,7 +1979,7 @@ function PasswordResetScreen({ apiBase, mock, onGoLogin }: { apiBase: string; mo
     try {
       const res = await fetch(`${apiBase.replace(/\/$/, '')}/cms/auth/reset-password`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token, newPassword }),
       })
       const json = (await res.json().catch(() => ({}))) as any
@@ -1995,7 +1992,7 @@ function PasswordResetScreen({ apiBase, mock, onGoLogin }: { apiBase: string; mo
     } finally {
       setBusy(false)
     }
-  }, [apiBase, mock, newPassword, newPassword2, token])
+  }, [apiBase, newPassword, newPassword2, token])
 
   return (
     <View style={styles.loginRoot}>
@@ -3741,13 +3738,11 @@ function AppShell({
 
 function LoginScreen({
   apiBase,
-  mock,
   onLoggedIn,
   initialBanner,
   onForgotPassword,
 }: {
   apiBase: string
-  mock: boolean
   onLoggedIn: (token: string, remember: boolean) => void
   initialBanner: string
   onForgotPassword: () => void
@@ -3766,7 +3761,7 @@ function LoginScreen({
 
     const res = await fetch(`${apiBase}/cms/auth/login`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), password, remember }),
     })
 
@@ -3778,14 +3773,7 @@ function LoginScreen({
     const token = json && typeof json.token === 'string' ? json.token : ''
     if (!token) throw new Error('通信に失敗しました。時間をおいて再度お試しください')
     return token
-  }, [apiBase, email, mock, password, remember])
-
-  const loginMock = useCallback(async (): Promise<string> => {
-    if (email.toLowerCase() === 'admin@example.com' && password === 'password') {
-      return `mock-token-${Math.random().toString(36).slice(2)}`
-    }
-    throw new Error('メールアドレスまたはパスワードが違います')
-  }, [email, password])
+  }, [apiBase, email, password, remember])
 
   const onSubmit = useCallback(async () => {
     setBanner('')
@@ -3806,14 +3794,7 @@ function LoginScreen({
 
     setBusy(true)
     try {
-      const token = await (async () => {
-        try {
-          return await loginViaApi()
-        } catch (e) {
-          if (mock) return await loginMock()
-          throw e
-        }
-      })()
+      const token = await loginViaApi()
       safeLocalStorageSet(STORAGE_EMAIL_KEY, normalizedEmail)
       onLoggedIn(token, remember)
     } catch (e) {
@@ -3822,7 +3803,7 @@ function LoginScreen({
     } finally {
       setBusy(false)
     }
-  }, [email, loginMock, loginViaApi, mock, onLoggedIn, password, remember])
+  }, [email, loginViaApi, onLoggedIn, password, remember])
 
   return (
     <View style={styles.loginRoot}>
@@ -3906,21 +3887,16 @@ export default function App() {
 
   const [devMode, setDevMode] = useState(true)
   const [debugOverlayHidden, setDebugOverlayHidden] = useState(false)
-  const [mockMode, setMockMode] = useState(false)
 
   useEffect(() => {
     const saved = safeLocalStorageGet(STORAGE_KEY)
     const savedEmail = safeLocalStorageGet(STORAGE_EMAIL_KEY)
     const savedDevMode = safeLocalStorageGet(STORAGE_DEV_MODE_KEY)
-    const savedMock = safeLocalStorageGet(STORAGE_MOCK_KEY)
     normalizeLegacyHashToPath()
     const initialRoute = getRouteFromLocation()
 
     if (savedDevMode === '1') setDevMode(true)
     if (savedDevMode === '0') setDevMode(false)
-
-    if (savedMock === '1') setMockMode(true)
-    if (savedMock === '0') setMockMode(false)
 
     if (saved) {
       setToken(saved)
@@ -4029,11 +4005,6 @@ export default function App() {
   const onSetDevMode = useCallback((v: boolean) => {
     setDevMode(v)
     safeLocalStorageSet(STORAGE_DEV_MODE_KEY, v ? '1' : '0')
-  }, [])
-
-  const onSetMockMode = useCallback((v: boolean) => {
-    setMockMode(v)
-    safeLocalStorageSet(STORAGE_MOCK_KEY, v ? '1' : '0')
   }, [])
 
   const onSetApiBase = useCallback((v: string) => {
@@ -4171,11 +4142,10 @@ export default function App() {
     <View style={styles.appRoot}>
       {screen === 'login' ? (
         route === 'password-reset' ? (
-          <PasswordResetScreen apiBase={apiBase} mock={mockMode} onGoLogin={() => onNavigate('login')} />
+          <PasswordResetScreen apiBase={apiBase} onGoLogin={() => onNavigate('login')} />
         ) : (
           <LoginScreen
             apiBase={apiBase}
-            mock={mockMode}
             onLoggedIn={onLoggedIn}
             initialBanner={loginBanner}
             onForgotPassword={() => onNavigate('password-reset')}
@@ -4217,7 +4187,7 @@ export default function App() {
           </View>
         ) : (
           <DialogProvider>
-            <CmsApiContext.Provider value={{ apiBase, uploaderBase, token, mock: mockMode }}>
+            <CmsApiContext.Provider value={{ apiBase, uploaderBase, token }}>
               <CmsMaintenanceGate route={route} adminName={adminEmail} onLogout={onLogout} onNavigate={onNavigate} />
             </CmsApiContext.Provider>
           </DialogProvider>

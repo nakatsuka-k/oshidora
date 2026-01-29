@@ -112,7 +112,7 @@ import {
   MaintenanceScreen,
 } from './screens'
 
-import { apiFetch, DEBUG_MOCK_KEY } from './utils/api'
+import { apiFetch } from './utils/api'
 import { getBoolean, setBoolean, getString, setString } from './utils/storage'
 import { useIpAddress } from './utils/useIpAddress'
 import { upsertWatchHistory } from './utils/watchHistory'
@@ -146,8 +146,7 @@ import {
   resolveShareAppBaseUrl,
   ensureWebDocumentBackground,
 } from './utils/appHelpers'
-import { MOCK_LOGIN_EMAIL, MOCK_LOGIN_PASSWORD, mockWork, createMockWorksByKey, mockApprovedComments } from './utils/mockData'
-import type { Oshi, WorkDetailWork, WorkKey, ApprovedComment, ApiWorkDetailResponse } from './types/appTypes'
+import type { Oshi, WorkDetailWork, ApprovedComment, ApiWorkDetailResponse } from './types/appTypes'
 
 const FALLBACK_ALLOWED_IPS = [
   '223.135.200.51',
@@ -164,23 +163,6 @@ const CAST_PROFILE_CAROUSEL_GAP = 12
 const SUBSCRIPTION_KEY = 'user_is_subscribed_v1'
 
 const TUTORIAL_SLIDE_COUNT = getTutorialSlideCount()
-
-const WORK_ID_ALIASES: Record<WorkKey, string[]> = {
-  doutcall: ['content-1', 'p1', 'p2', 'p3', 'r1', 'f1', 'v1', 'v2', 'v3'],
-  mysteryX: ['content-2', 'r2', 'f2', 'v4'],
-  romanceY: ['content-3', 'r3', 'f3', 'v5'],
-  comedyZ: ['content-4', 'r4'],
-  actionW: ['content-5', 'v7'],
-}
-
-function resolveWorkKeyById(id: string): WorkKey {
-  const needle = String(id || '').trim()
-  if (!needle) return 'doutcall'
-  for (const key of Object.keys(WORK_ID_ALIASES) as WorkKey[]) {
-    if (WORK_ID_ALIASES[key].includes(needle)) return key
-  }
-  return 'doutcall'
-}
 
 export type Screen =
   | 'splash'
@@ -475,7 +457,6 @@ export default function App() {
   const [debugAuthAutofill, setDebugAuthAutofill] = useState<boolean>(false)
   const [debugUserType, setDebugUserType] = useState<'user' | 'cast'>('user')
   const [debugPaypayLinked, setDebugPaypayLinked] = useState<boolean>(false)
-  const [debugMock, setDebugMock] = useState<boolean>(false)
   const [debugPaypayMaskedLabel] = useState<string>('********')
   const [debugEmailCode, setDebugEmailCode] = useState<string>('')
   const [debugSmsCode, setDebugSmsCode] = useState<string>('')
@@ -587,10 +568,6 @@ export default function App() {
         const t = (userTypeValue || '').trim()
         if (t === 'cast' || t === 'user') setDebugUserType(t)
         setDebugPaypayLinked(paypayLinked)
-
-        // Force-disable app-side mock mode even if previously enabled.
-        setDebugMock(false)
-        void setBoolean(DEBUG_MOCK_KEY, false)
       } catch {
         // ignore
       }
@@ -608,8 +585,6 @@ export default function App() {
   useEffect(() => {
     void setBoolean(DEBUG_PAYPAY_LINKED_KEY, debugPaypayLinked)
   }, [debugPaypayLinked])
-
-  // Do not persist DEBUG_MOCK_KEY; mock mode is disabled.
 
   useEffect(() => {
     if (!authToken) return
@@ -836,25 +811,6 @@ export default function App() {
   const [castLocalComments, setCastLocalComments] = useState<ApprovedComment[]>([])
   const [castFavorite, setCastFavorite] = useState(false)
 
-  const mockProfile = useMemo(
-    () => ({
-      id: 'cast-1',
-      name: '松岡美沙',
-      nameKana: 'マツオカミサ',
-      nameEn: 'Misa Matsuoka',
-      affiliation: 'フリーランス',
-      genre: ['女優'],
-      biography:
-        '生年月日：1998年11月29日\n神奈川県出身\n趣味：映画・アニメ鑑賞・カフェ巡り\n特技：ダンス・歌',
-      worksText:
-        '・ダウトコール\n・ミステリーX\n・ラブストーリーY',
-      snsLinks: ['https://x.com/', 'https://www.instagram.com/'],
-      selfPr:
-        '作品の世界観を大切に、観る人の心に残るお芝居を目指しています。応援よろしくお願いします。',
-    }),
-    []
-  )
-
   const [selectedCast, setSelectedCast] = useState<{ id: string; name: string; roleLabel?: string } | null>(null)
   const [castReviews, setCastReviews] = useState<Record<string, { rating: number; comment: string; updatedAt: number }>>({})
 
@@ -867,123 +823,7 @@ export default function App() {
     return castReviews[selectedCast.id] ?? null
   }, [castReviews, selectedCast])
 
-  const mockWork = useMemo<WorkDetailWork>(
-    () => ({
-      id: 'content-1',
-      title: 'ダウトコール',
-      subtitle: 'あなた、浮気されてますよ。',
-      tags: ['Drama', 'Mystery', 'Romance'],
-      rating: 4.7,
-      reviews: 128,
-      story:
-        '夫といつも通りの会話をしていると、突然スマホが鳴る。\nドキドキしながら手に取ると…「あなた、浮気されてますよ」\nと不気味な女から一言。\n\nそこから日々の調査は加速し、次々と“自分だけが知らない日常”が暴かれていく。\n結果として浮気しているのは誰なのか？浮気がばれてどんな復讐が待っているのか？',
-      episodes: [
-        { id: '01', title: '第01話', priceCoin: 0 },
-        { id: '02', title: '第02話', priceCoin: 0 },
-        { id: '03', title: '第03話', priceCoin: 30 },
-      ],
-      staff: [
-        { role: '出演者', name: '松岡美沙' },
-        { role: '出演者', name: '櫻井拓馬' },
-        { role: '監督', name: '監督太郎' },
-        { role: '制作プロダクション', name: 'Oshidora株式会社' },
-      ],
-    }),
-    []
-  )
-
-  const mockWorksByKey = useMemo<Record<WorkKey, WorkDetailWork>>(
-    () => ({
-      doutcall: mockWork,
-      mysteryX: {
-        id: 'content-2',
-        title: 'ミステリーX',
-        subtitle: '目撃者は、あなた自身。',
-        tags: ['Mystery', 'Drama'],
-        rating: 4.4,
-        reviews: 61,
-        story:
-          'ある夜、街の監視カメラに映ったのは“ありえない自分”。\n記憶の空白を埋めるため、あなたは手がかりを追い始める。\n\n真相に近づくほど、誰も信じられなくなっていく。',
-        episodes: [
-          { id: '01', title: '第01話', priceCoin: 0 },
-          { id: '02', title: '第02話', priceCoin: 10 },
-          { id: '03', title: '第03話', priceCoin: 30 },
-        ],
-        staff: [
-          { role: '出演者', name: 'キャストA' },
-          { role: '出演者', name: 'キャストB' },
-          { role: '監督', name: '監督X' },
-          { role: '制作プロダクション', name: 'Oshidora株式会社' },
-        ],
-      },
-      romanceY: {
-        id: 'content-3',
-        title: 'ラブストーリーY',
-        subtitle: 'すれ違いの先に、答えはある。',
-        tags: ['Romance', 'Drama'],
-        rating: 4.2,
-        reviews: 43,
-        story:
-          '些細な嘘から始まったすれ違い。\nそれでも、心のどこかで相手を想い続けてしまう。\n\n言葉にできない気持ちが、二人の距離を揺らしていく。',
-        episodes: [
-          { id: '01', title: '第01話', priceCoin: 0 },
-          { id: '02', title: '第02話', priceCoin: 10 },
-          { id: '03', title: '第03話', priceCoin: 10 },
-        ],
-        staff: [
-          { role: '出演者', name: 'キャストY1' },
-          { role: '出演者', name: 'キャストY2' },
-          { role: '監督', name: '監督Y' },
-          { role: '制作プロダクション', name: 'Oshidora株式会社' },
-        ],
-      },
-      comedyZ: {
-        id: 'content-4',
-        title: 'コメディZ',
-        subtitle: '笑って、泣いて、また笑う。',
-        tags: ['Comedy'],
-        rating: 4.1,
-        reviews: 38,
-        story:
-          'ドタバタの毎日に、予想外の出会い。\n笑いが起きた瞬間に、ちょっとだけ人生が動き出す。\n\n今日も何かが起きる、そんな物語。',
-        episodes: [
-          { id: '01', title: '第01話', priceCoin: 0 },
-          { id: '02', title: '第02話', priceCoin: 0 },
-          { id: '03', title: '第03話', priceCoin: 10 },
-        ],
-        staff: [
-          { role: '出演者', name: 'キャストZ1' },
-          { role: '出演者', name: 'キャストZ2' },
-          { role: '監督', name: '監督Z' },
-          { role: '制作プロダクション', name: 'Oshidora株式会社' },
-        ],
-      },
-      actionW: {
-        id: 'content-5',
-        title: 'アクションW',
-        subtitle: '止まらない追跡、迫るタイムリミット。',
-        tags: ['Action'],
-        rating: 4.3,
-        reviews: 37,
-        story:
-          'ある任務をきっかけに、主人公は巨大な陰謀へ巻き込まれていく。\n\n逃げるほど追われ、近づくほど危険になる。\nそれでも、真実を掴むために走り続ける。',
-        episodes: [
-          { id: '01', title: '第01話', priceCoin: 0 },
-          { id: '02', title: '第02話', priceCoin: 20 },
-          { id: '03', title: '第03話', priceCoin: 20 },
-        ],
-        staff: [
-          { role: '出演者', name: 'キャストW1' },
-          { role: '出演者', name: 'キャストW2' },
-          { role: '監督', name: '監督W' },
-          { role: '制作プロダクション', name: 'Oshidora株式会社' },
-        ],
-      },
-    }),
-    [mockWork]
-  )
-
-  const [selectedWorkId, setSelectedWorkId] = useState<string>(() => (Platform.OS === 'web' ? '' : mockWork.id))
+  const [selectedWorkId, setSelectedWorkId] = useState<string>('')
   const [guestWorkAuthCtaDismissed, setGuestWorkAuthCtaDismissed] = useState<boolean>(false)
 
   const [remoteWorkDetail, setRemoteWorkDetail] = useState<{ loading: boolean; error: string; work: WorkDetailWork | null }>(
@@ -999,11 +839,19 @@ export default function App() {
 
   const workForDetail = useMemo<WorkDetailWork>(() => {
     if (remoteWorkDetail.work && remoteWorkDetail.work.id === workIdForDetail) return remoteWorkDetail.work
-    const key = resolveWorkKeyById(workIdForDetail)
-    const base = mockWorksByKey[key] ?? mockWork
-    // Keep id consistent with the selected id for history/share/comments.
-    return { ...base, id: workIdForDetail }
-  }, [mockWork, mockWorksByKey, remoteWorkDetail.work, workIdForDetail])
+    return {
+      id: workIdForDetail,
+      title: '',
+      subtitle: '',
+      thumbnailUrl: null,
+      tags: [],
+      rating: 0,
+      reviews: 0,
+      story: '',
+      episodes: [],
+      staff: [],
+    }
+  }, [remoteWorkDetail.work, workIdForDetail])
 
   useEffect(() => {
     if (loggedIn) return
@@ -1018,13 +866,7 @@ export default function App() {
   const productionLabel = workForDetail.staff.find((s) => s.role.includes('制作プロダクション'))?.name ?? '—'
   const providerLabel = workForDetail.staff.find((s) => s.role.includes('提供'))?.name ?? '株式会社OO'
 
-  const recommendedWorks = useMemo(
-    () =>
-      Object.values(mockWorksByKey)
-        .filter((w) => w.id !== workIdForDetail)
-        .slice(0, 5),
-    [mockWorksByKey, workIdForDetail]
-  )
+  const recommendedWorks = useMemo<WorkDetailWork[]>(() => [], [workIdForDetail])
 
   const openWorkDetail = useCallback(
     (id: string) => {
@@ -1066,13 +908,17 @@ export default function App() {
     return idx >= 0 ? idx : 0
   }, [workDetailPreferredEpisodeId, workForDetail.episodes])
 
-  const resolveCastAccountIdByName = useCallback((name: string): string | null => {
-    const n = (name || '').trim()
-    if (!n) return null
-    // Current mock data only has one real cast profile.
-    if (n === mockProfile.name) return mockProfile.id
-    return null
-  }, [mockProfile.id, mockProfile.name])
+  const resolveCastAccountIdByName = useCallback(
+    (name: string): string | null => {
+      const n = (name || '').trim()
+      if (!n) return null
+      const selectedName = String(selectedCast?.name ?? '').trim()
+      const selectedId = String(selectedCast?.id ?? '').trim()
+      if (selectedId && selectedName && n === selectedName) return selectedId
+      return null
+    },
+    [selectedCast]
+  )
 
   const shareUrlForWork = useCallback((contentId: string, episodeId: string | null | undefined, title: string, thumbUrl?: string | null) => {
     const ep = String(episodeId || '').trim()
@@ -1568,18 +1414,9 @@ export default function App() {
 
   useEffect(() => {
     if (screen !== 'profile') return
-    if (!selectedCast) {
-      setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
-      return
-    }
+    if (!selectedCast) return
     void fetchCastReviewSummary(selectedCast.id)
-  }, [fetchCastReviewSummary, mockProfile.id, mockProfile.name, screen, selectedCast])
-
-  useEffect(() => {
-    if (screen !== 'castReview') return
-    if (selectedCast) return
-    setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
-  }, [mockProfile.id, mockProfile.name, screen, selectedCast])
+  }, [fetchCastReviewSummary, screen, selectedCast])
 
   const loadOshi = useCallback(async () => {
     setError('')
@@ -1846,16 +1683,6 @@ export default function App() {
 
     if (Object.keys(nextErrors).length > 0) {
       setLoginFieldErrors(nextErrors)
-      return
-    }
-
-    if (email.toLowerCase() === MOCK_LOGIN_EMAIL && password === MOCK_LOGIN_PASSWORD) {
-      setAuthToken('mock-token')
-      await setString(AUTH_TOKEN_KEY, 'mock-token')
-      setLoggedIn(true)
-      setHistory([])
-      setScreen(postLoginTarget ?? 'home')
-      setPostLoginTarget(null)
       return
     }
 
@@ -2501,20 +2328,9 @@ export default function App() {
       setSelectedWorkId(resume.workId)
 
       if (resume.episodeId) {
-        const key = resolveWorkKeyById(resume.workId)
-        const base = mockWorksByKey[key] ?? mockWork
-        const episodeIds = base.episodes.map((x) => x.id)
-        const currentIndex = episodeIds.indexOf(resume.episodeId)
-
-        setPlayerEpisodeContext(
-          currentIndex >= 0
-            ? {
-                workId: resume.workId,
-                episodeIds,
-                currentIndex,
-              }
-            : null
-        )
+        // Episode context (next/prev navigation) requires a full episode list.
+        // We intentionally avoid mock episode lists; hydrate by episodeId only.
+        setPlayerEpisodeContext(null)
 
         void hydratePlayerFromEpisodeId(resume.episodeId, { workId: resume.workId })
 
@@ -3066,7 +2882,7 @@ export default function App() {
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
           onOpenVideo={(id) => openWorkDetail(id)}
-          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
           tag={videoListTag}
           onChangeTag={setVideoListTag}
         />
@@ -3087,7 +2903,7 @@ export default function App() {
         <CastSearchScreen
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
-          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
           onOpenProfile={onCastOpenProfile}
           onOpenResults={onCastSearchOpenResults}
         />
@@ -3097,7 +2913,7 @@ export default function App() {
         <CastSearchResultScreen
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
-          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
           keyword={castSearchKeyword}
           onBack={onCastSearchResultBack}
           onOpenProfile={onCastOpenProfile}
@@ -3108,7 +2924,7 @@ export default function App() {
         <VideoSearchScreen
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
-          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
           onOpenVideo={(id) => openWorkDetail(id)}
           onOpenProfile={onCastOpenProfile}
         />
@@ -3118,7 +2934,7 @@ export default function App() {
         <WorkSearchScreen
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
-          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
           onOpenVideo={(id) => openWorkDetail(id)}
         />
       ) : null}
@@ -3131,7 +2947,7 @@ export default function App() {
           userEmail={loginEmail || registerEmail}
           userType={debugUserType}
           subscribed={isSubscribed}
-          onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
+          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
           onNavigate={onMyPageNavigate}
         />
       ) : null}
@@ -3363,7 +3179,6 @@ export default function App() {
         <NoticeListScreen
           apiBaseUrl={apiBaseUrl}
           loggedIn={loggedIn}
-          mock={debugMock}
           onBack={goBack}
           onLogin={() => goTo('login')}
           onOpenDetail={onNoticeOpenDetail}
@@ -3374,7 +3189,6 @@ export default function App() {
         <NoticeDetailScreen
           apiBaseUrl={apiBaseUrl}
           noticeId={selectedNoticeId}
-          mock={debugMock}
           onBack={goBack}
         />
       ) : null}
@@ -3438,8 +3252,6 @@ export default function App() {
           onGo={onDevGo}
           userType={debugUserType}
           onUserTypeToggle={toggleDebugUserType}
-          mock={debugMock}
-          onMockToggle={() => setDebugMock(false)}
         />
       ) : null}
 
@@ -3448,7 +3260,6 @@ export default function App() {
           styles={styles}
           apiBaseUrl={apiBaseUrl}
           selectedCast={selectedCast}
-          mockProfile={mockProfile}
           castProfileSlideIndex={castProfileSlideIndex}
           setCastProfileSlideIndex={setCastProfileSlideIndex}
           castReviewSummary={castReviewSummary}
@@ -3458,11 +3269,6 @@ export default function App() {
           requireLogin={requireLogin}
           goTo={goTo}
           goBack={goBack}
-          ensureSelectedCastForReview={() => {
-            if (!selectedCast) {
-              setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
-            }
-          }}
           setCoinGrantTarget={setCoinGrantTarget}
           setCoinGrantPrimaryReturnTo={setCoinGrantPrimaryReturnTo}
           setCoinGrantPrimaryLabel={setCoinGrantPrimaryLabel}
@@ -3474,7 +3280,6 @@ export default function App() {
           castCommentsExpanded={castCommentsExpanded}
           setCastCommentsExpanded={setCastCommentsExpanded}
           castLocalComments={castLocalComments}
-          mockApprovedComments={mockApprovedComments}
           commentStarRating={commentStarRating}
           truncateCommentBody={truncateCommentBody}
           castCommentRating={castCommentRating}
@@ -3554,7 +3359,6 @@ export default function App() {
           commentsExpanded={commentsExpanded}
           onExpandComments={() => setCommentsExpanded(true)}
           approvedComments={approvedComments}
-          mockApprovedComments={mockApprovedComments}
           commentStarRating={commentStarRating}
           truncateCommentBody={truncateCommentBody}
           commentRating={commentRating}

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { ScreenContainer, TabBar, THEME } from '../components'
-import { apiFetch, isDebugMockEnabled } from '../utils/api'
+import { apiFetch } from '../utils/api'
 import { getString, setString } from '../utils/storage'
 import {
   type TabKey,
@@ -24,52 +24,8 @@ const NOTICE_LAST_READ_AT_KEY = 'notice_last_read_at'
 
 export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, onOpenFavorites, onOpenNotice }: TopScreenProps) {
   const { width } = useWindowDimensions()
-  const mockData = useMemo<TopData>(
-    () => ({
-      pickup: [
-        { id: 'content-1', title: 'ダウトコール' },
-        { id: 'content-2', title: 'ミステリーX' },
-        { id: 'content-3', title: 'ラブストーリーY' },
-        { id: 'content-4', title: 'コメディZ' },
-        { id: 'content-5', title: 'アクションW' },
-      ],
-      recommended: [
-        { id: 'content-1', title: 'ダウトコール' },
-        { id: 'content-2', title: 'ミステリーX' },
-        { id: 'content-3', title: 'ラブストーリーY' },
-        { id: 'content-4', title: 'コメディZ' },
-        { id: 'content-5', title: 'アクションW' },
-      ],
-      rankings: {
-        byViews: [
-          { id: 'content-1', title: 'ダウトコール' },
-          { id: 'content-2', title: 'ミステリーX' },
-          { id: 'content-3', title: 'ラブストーリーY' },
-          { id: 'content-4', title: 'コメディZ' },
-          { id: 'content-5', title: 'アクションW' },
-        ],
-        byRating: [
-          { id: 'content-1', title: 'ダウトコール' },
-          { id: 'content-2', title: 'ミステリーX' },
-          { id: 'content-3', title: 'ラブストーリーY' },
-          { id: 'content-4', title: 'コメディZ' },
-          { id: 'content-5', title: 'アクションW' },
-        ],
-      },
-      popularCasts: [
-        { id: 'cast-1', name: '山下美月' },
-        { id: 'cast-2', name: '本田翼' },
-        { id: 'cast-3', name: '高石あかり' },
-        { id: 'cast-4', name: '木戸大聖' },
-        { id: 'cast-5', name: '森山未来' },
-      ],
-    }),
-    []
-  )
-
   const [data, setData] = useState<TopData>(EMPTY_TOP_DATA)
   const [loadError, setLoadError] = useState<string>('')
-  const [fallbackUsed, setFallbackUsed] = useState(false)
   const [pickupIndex, setPickupIndex] = useState(0)
   const [hasUnreadNotice, setHasUnreadNotice] = useState(false)
   const [latestNoticeAt, setLatestNoticeAt] = useState<string>('')
@@ -81,7 +37,6 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
     let cancelled = false
     void (async () => {
       setLoadError('')
-      setFallbackUsed(false)
       try {
         const res = await apiFetch(`${apiBaseUrl}/v1/top`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -89,9 +44,7 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
         if (!cancelled) setData(json)
       } catch (e) {
         if (!cancelled) {
-          const mock = await isDebugMockEnabled()
-          setFallbackUsed(mock)
-          setData(mock ? mockData : EMPTY_TOP_DATA)
+          setData(EMPTY_TOP_DATA)
           setLoadError(e instanceof Error ? e.message : String(e))
         }
       }
@@ -100,7 +53,7 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, mockData])
+  }, [apiBaseUrl])
 
   useEffect(() => {
     let cancelled = false
@@ -168,7 +121,7 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>ピックアップ</Text>
               {loadError ? (
-                <Text style={styles.sectionMeta}>読み込み失敗{fallbackUsed ? '（モック表示）' : ''}</Text>
+                <Text style={styles.sectionMeta}>読み込み失敗</Text>
               ) : null}
             </View>
 

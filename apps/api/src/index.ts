@@ -6073,6 +6073,115 @@ app.get('/v1/stream/playback/:videoId', async (c) => {
   }
 })
 
+// Proxy Cloudflare Stream subtitles (WebVTT) with CORS enabled.
+// Motivation: browsers enforce CORS for `fetch()` of VTT from videodelivery.net.
+// Cloudflare's own player works because it runs on an allowed origin; our local dev origins need this proxy.
+app.get('/v1/stream/subtitles/:videoId', async (c) => {
+  const videoId = String(c.req.param('videoId') ?? '').trim()
+  if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+
+  const token = String(c.req.query('token') ?? '').trim()
+
+  // Only allow Cloudflare Stream subtitle fetch for the given video id.
+  // (No arbitrary URL proxying / SSRF.)
+  const u = new URL(`https://videodelivery.net/${encodeURIComponent(videoId)}/subtitles/default.vtt`)
+  if (token) u.searchParams.set('token', token)
+
+  let resp: Response
+  try {
+    resp = await fetch(u.toString(), {
+      // Some environments benefit from explicitly accepting VTT.
+      headers: { Accept: 'text/vtt,*/*;q=0.8' },
+    })
+  } catch (e) {
+    return c.json(
+      {
+        error: 'Failed to fetch Stream subtitles',
+        details: String((e as any)?.message ?? e).slice(0, 500),
+      },
+      502
+    )
+  }
+
+  if (!resp.ok) {
+    const status = (resp.status >= 400 && resp.status <= 599 ? resp.status : 502) as any
+    return c.json(
+      {
+        error: 'Failed to fetch Stream subtitles',
+        status: resp.status,
+      },
+      status
+    )
+  }
+
+  // Stream the body through; ensure correct MIME.
+  return new Response(resp.body, {
+    headers: {
+      'Content-Type': 'text/vtt; charset=utf-8',
+      'Cache-Control': 'public, max-age=60',
+    },
+  })
+})
+
+// Generic (allowlisted) subtitles proxy for web clients.
+// Accepts a full HTTPS URL via `?src=` and only allows Cloudflare Stream subtitle URLs.
+app.get('/v1/stream/subtitles-proxy', async (c) => {
+  const src = String(c.req.query('src') ?? '').trim()
+  if (!src) return c.json({ error: 'src is required' }, 400)
+
+  let u: URL
+  try {
+    u = new URL(src)
+  } catch {
+    return c.json({ error: 'invalid src' }, 400)
+  }
+
+  if (u.protocol !== 'https:') return c.json({ error: 'https is required' }, 400)
+  if (u.username || u.password) return c.json({ error: 'invalid src' }, 400)
+
+  const host = u.hostname.toLowerCase()
+  const isVideoDelivery = host === 'videodelivery.net'
+  const isCustomerStream = /^customer-[a-z0-9]+\.cloudflarestream\.com$/.test(host)
+  if (!isVideoDelivery && !isCustomerStream) return c.json({ error: 'forbidden host' }, 403)
+
+  const path = u.pathname
+  if (!path.endsWith('/subtitles/default.vtt')) return c.json({ error: 'forbidden path' }, 403)
+
+  // Limit query params to reduce abuse/variance.
+  if (isVideoDelivery) {
+    for (const [k] of u.searchParams) {
+      if (k !== 'token') return c.json({ error: 'forbidden query' }, 403)
+    }
+  } else {
+    if ([...u.searchParams.keys()].length > 0) return c.json({ error: 'forbidden query' }, 403)
+  }
+
+  let resp: Response
+  try {
+    resp = await fetch(u.toString(), { headers: { Accept: 'text/vtt,*/*;q=0.8' } })
+  } catch (e) {
+    return c.json(
+      {
+        error: 'Failed to fetch Stream subtitles',
+        details: String((e as any)?.message ?? e).slice(0, 500),
+      },
+      502
+    )
+  }
+
+  if (!resp.ok) {
+    const status = (resp.status >= 400 && resp.status <= 599 ? resp.status : 502) as any
+    return c.json({ error: 'Failed to fetch Stream subtitles', status: resp.status }, status)
+  }
+
+  return new Response(resp.body, {
+    headers: {
+      'Content-Type': 'text/vtt; charset=utf-8',
+      'Cache-Control': 'public, max-age=60',
+    },
+  })
+})
+
 // Cloudflare Stream RS256 署名付き再生トークン（/token エンドポイント）
 // Cloudflare が RS256 署名トークンを生成
 app.get('/v1/stream/hmac-signed-playback/:videoId', async (c) => {

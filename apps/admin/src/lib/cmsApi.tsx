@@ -8,7 +8,6 @@ export type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
   token: string
-  mock: boolean
 }
 
 export const CmsApiContext = createContext<CmsApiConfig | null>(null)
@@ -31,7 +30,6 @@ export async function cmsFetchJsonWithBase<T>(cfg: CmsApiConfig, baseUrl: string
     headers: {
       ...(init?.headers || {}),
       authorization: `Bearer ${cfg.token}`,
-      ...(cfg.mock ? { 'X-Mock': '1' } : {}),
     },
   })
   const json = (await res.json().catch(() => ({}))) as any

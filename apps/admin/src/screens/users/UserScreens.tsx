@@ -7,7 +7,6 @@ type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
   token: string
-  mock: boolean
 }
 
 type CmsFetchJson = <T = any>(cfg: CmsApiConfig, path: string, init?: RequestInit) => Promise<T>

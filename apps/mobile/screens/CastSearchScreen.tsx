@@ -12,14 +12,13 @@ import {
   View,
 } from 'react-native'
 import { Chip, RowItem, ScreenContainer, TabBar, THEME } from '../components'
-import { apiFetch, isDebugMockEnabled } from '../utils/api'
+import { apiFetch } from '../utils/api'
 import {
   type TabKey,
   type CastSearchScreenProps,
   type Cast,
   type CastResponse,
   type HistoryItem,
-  type Work,
   HISTORY_KEY,
   HISTORY_MAX,
   normalize,
@@ -37,32 +36,11 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
   const [casts, setCasts] = useState<Cast[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [fallbackUsed, setFallbackUsed] = useState(false)
 
   const [keyword, setKeyword] = useState('')
   const [contentKeyword, setContentKeyword] = useState('')
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null)
-  const [selectedWorkId, setSelectedWorkId] = useState<string>('')
-
-  const mockCasts = useMemo<Cast[]>(
-    () => [
-      { id: 'a1', name: '松岡美沙', role: '出演者', genres: ['女優'] },
-      { id: 'a2', name: '櫻井拓馬', role: '出演者', genres: ['俳優'] },
-      { id: 'a3', name: '監督太郎', role: '監督', genres: ['監督'] },
-      { id: 'a4', name: 'Oshidora株式会社', role: '制作', genres: ['制作'] },
-    ],
-    []
-  )
-
-  const mockWorks = useMemo<Work[]>(
-    () => [
-      { id: 'content-1', title: 'ドウトコール', participantIds: ['a1', 'a2', 'a3'] },
-      { id: 'content-2', title: 'ミステリーX', participantIds: ['a1', 'a3'] },
-      { id: 'content-3', title: 'ラブストーリーY', participantIds: ['a2', 'a4'] },
-    ],
-    []
-  )
 
   const loadHistory = useCallback(async () => {
     try {
@@ -117,7 +95,6 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
   const fetchCasts = useCallback(async () => {
     setBusy(true)
     setError('')
-    setFallbackUsed(false)
     try {
       const res = await apiFetch(`${apiBaseUrl}/v1/cast`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -125,14 +102,12 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
       const items = Array.isArray(json.items) ? json.items : []
       setCasts(items)
     } catch (e) {
-      const mock = await isDebugMockEnabled()
-      setFallbackUsed(mock)
-      setCasts(mock ? mockCasts : [])
+      setCasts([])
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
-  }, [apiBaseUrl, mockCasts])
+  }, [apiBaseUrl])
 
   useEffect(() => {
     void loadHistory()
@@ -193,16 +168,8 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
                   return
                 }
 
-                const match =
-                  (h.targetId && mockWorks.find((w) => w.id === h.targetId)) ||
-                  mockWorks.find((w) => normalize(w.title) === normalize(h.keyword))
-                if (match) {
-                  setSelectedWorkId(match.id)
-                  setContentKeyword(match.title)
-                } else {
-                  setSelectedWorkId('')
-                  setContentKeyword(h.keyword)
-                }
+                setContentKeyword(h.keyword)
+                onOpenResults(h.keyword)
               }}
             >
               <Text style={styles.historyRowText}>{h.keyword}</Text>
@@ -219,24 +186,7 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
         ))}
       </View>
     )
-  }, [contentKeyword, history, keyword, mockWorks, onOpenResults, removeHistoryItem, tab])
-
-  const filteredWorks = useMemo(() => {
-    const q = normalize(contentKeyword)
-    if (!q) return mockWorks
-    return mockWorks.filter((w) => normalize(w.title).includes(q))
-  }, [contentKeyword, mockWorks])
-
-  const selectedWork = useMemo(() => {
-    if (!selectedWorkId) return null
-    return mockWorks.find((w) => w.id === selectedWorkId) ?? null
-  }, [mockWorks, selectedWorkId])
-
-  const participantCasts = useMemo(() => {
-    if (!selectedWork) return []
-    const ids = new Set(selectedWork.participantIds)
-    return casts.filter((c) => ids.has(c.id))
-  }, [casts, selectedWork])
+  }, [contentKeyword, history, keyword, onOpenResults, removeHistoryItem, tab])
 
   return (
     <ScreenContainer
@@ -281,22 +231,22 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
             <View style={styles.searchBox}>
               <TextInput
                 value={contentKeyword}
-                onChangeText={(v) => {
-                  setContentKeyword(v)
-                  if (selectedWorkId) setSelectedWorkId('')
-                }}
+                onChangeText={setContentKeyword}
                 placeholder="作品名で検索"
                 placeholderTextColor={THEME.textMuted}
                 autoCapitalize="none"
                 style={styles.searchInput}
                 returnKeyType="search"
+                onSubmitEditing={() => {
+                  void addHistory({ type: 'content', keyword: contentKeyword })
+                  onOpenResults(contentKeyword)
+                }}
               />
               <Pressable
                 style={[styles.clearBtn, !contentKeyword.trim() ? styles.clearBtnDisabled : null]}
                 disabled={!contentKeyword.trim()}
                 onPress={() => {
                   setContentKeyword('')
-                  setSelectedWorkId('')
                 }}
               >
                 <Text style={styles.clearBtnText}>クリア</Text>
@@ -304,52 +254,19 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
             </View>
 
             {renderHistory}
-
-            {selectedWork ? (
-              <>
-                <Text style={styles.sectionTitle}>参加者一覧</Text>
-                <FlatList
-                  data={participantCasts}
-                  keyExtractor={(c) => c.id}
-                  contentContainerStyle={styles.listContent}
-                  showsVerticalScrollIndicator={false}
-                  renderItem={({ item }) => (
-                    <RowItem
-                      title={item.name}
-                      subtitle={item.role}
-                      actionLabel="詳しく"
-                      onAction={() => {
-                        onOpenProfile({ id: item.id, name: item.name, role: item.role })
-                      }}
-                    />
-                  )}
-                  ListEmptyComponent={<Text style={styles.emptyText}>参加者が見つかりません</Text>}
-                />
-              </>
-            ) : (
-              <>
-                <Text style={styles.sectionTitle}>作品を選択</Text>
-                <FlatList
-                  data={filteredWorks}
-                  keyExtractor={(w) => w.id}
-                  contentContainerStyle={styles.listContent}
-                  showsVerticalScrollIndicator={false}
-                  renderItem={({ item }) => (
-                    <RowItem
-                      title={item.title}
-                      subtitle=""
-                      actionLabel="選択"
-                      onAction={() => {
-                        setSelectedWorkId(item.id)
-                        setContentKeyword(item.title)
-                        void addHistory({ type: 'content', keyword: item.title, targetId: item.id })
-                      }}
-                    />
-                  )}
-                  ListEmptyComponent={<Text style={styles.emptyText}>該当する作品が見つかりません</Text>}
-                />
-              </>
-            )}
+            <View style={styles.sectionTop}>
+              <Text style={styles.sectionTitle}>検索</Text>
+              <Pressable
+                style={[styles.searchActionBtn, !contentKeyword.trim() ? styles.searchActionBtnDisabled : null]}
+                disabled={!contentKeyword.trim()}
+                onPress={() => {
+                  void addHistory({ type: 'content', keyword: contentKeyword })
+                  onOpenResults(contentKeyword)
+                }}
+              >
+                <Text style={styles.searchActionBtnText}>このキーワードで検索</Text>
+              </Pressable>
+            </View>
           </>
         ) : (
           <>
@@ -403,7 +320,7 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
 
             {renderHistory}
 
-            {error ? <Text style={styles.loadNote}>取得に失敗しました{fallbackUsed ? '（モック表示）' : ''}</Text> : null}
+            {error ? <Text style={styles.loadNote}>取得に失敗しました</Text> : null}
 
             {busy ? (
               <View style={styles.loadingCenter}>
@@ -524,6 +441,24 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontSize: 12,
     fontWeight: '800',
+  },
+  searchActionBtn: {
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    backgroundColor: THEME.accent,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchActionBtnDisabled: {
+    opacity: 0.5,
+  },
+  searchActionBtnText: {
+    color: '#0B0B0B',
+    fontSize: 12,
+    fontWeight: '900',
   },
   sectionTop: {
     marginBottom: 12,

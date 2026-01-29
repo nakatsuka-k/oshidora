@@ -5,7 +5,6 @@
 export type NoticeDetailScreenProps = {
   apiBaseUrl: string
   noticeId: string
-  mock: boolean
   onBack: () => void
 }
 

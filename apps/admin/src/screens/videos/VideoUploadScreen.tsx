@@ -9,6 +9,7 @@ import { cmsFetchJson, cmsFetchJsonWithBase, useCmsApi } from '../../lib/cmsApi'
 import { useBanner } from '../../lib/banner'
 import { csvToIdList } from '../../lib/validation'
 import { FixedBottomBar } from '../../ui/FixedBottomBar'
+import { WebDropZone } from '../../ui/WebDropZone'
 import { StreamCaptionsPanel } from './StreamCaptionsPanel'
 
 const tus: typeof import('tus-js-client') | null = Platform.OS === 'web' ? (require('tus-js-client') as any) : null
@@ -399,16 +400,15 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           {Platform.OS === 'web' ? (
             <View>
               <View style={{ marginTop: 6 }}>
-                {
-                  // Use native file input for web.
-                  // eslint-disable-next-line react/no-unknown-property
-                }
-                <input
-                  type="file"
+                <WebDropZone
+                  title="動画ファイルを選択"
+                  hint="ドラッグ&ドロップ対応（最大30GB）"
                   accept="video/*"
-                  onChange={(e: any) => {
-                    const file = e?.target?.files?.[0] ?? null
-                    setUploadFile(file)
+                  multiple={false}
+                  onFiles={(files) => {
+                    const f = files?.[0] ?? null
+                    if (!f) return
+                    setUploadFile(f)
                     setUploadPct(0)
                     setUploadState('idle')
                     setBanner('')
@@ -503,15 +503,15 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           <Text style={styles.selectMenuDetailText}>推奨サイズ: 16:9（例: 1280×720）</Text>
           {Platform.OS === 'web' ? (
             <View style={{ marginTop: 6 }}>
-              {
-                // eslint-disable-next-line react/no-unknown-property
-              }
-              <input
-                type="file"
+              <WebDropZone
+                title="サムネ画像を追加"
+                hint="16:9 推奨（例: 1280×720）"
                 accept="image/png,image/jpeg,image/webp"
-                onChange={(e: any) => {
-                  const file = e?.target?.files?.[0] ?? null
-                  setThumbnailFile(file)
+                multiple={false}
+                onFiles={(files) => {
+                  const f = files?.[0] ?? null
+                  if (!f) return
+                  setThumbnailFile(f)
                   setBanner('')
                 }}
               />

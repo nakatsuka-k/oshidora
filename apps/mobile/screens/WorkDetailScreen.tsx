@@ -44,10 +44,7 @@ import IconDown from '../assets/icon_down.svg'
 type Props = WorkDetailScreenProps
 
 export function WorkDetailScreen(props: Props) {
-  const commentList = useMemo(
-    () => (props.commentsError ? props.mockApprovedComments : props.approvedComments),
-    [props.approvedComments, props.commentsError, props.mockApprovedComments]
-  )
+  const commentList = useMemo(() => props.approvedComments, [props.approvedComments])
 
   const slicedComments = useMemo(
     () => (props.commentsExpanded ? commentList : commentList.slice(0, 5)),

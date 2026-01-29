@@ -12,6 +12,7 @@ import {
   parseVttCues,
   findActiveCueText,
   deriveStreamSubtitleUrl,
+  proxyStreamSubtitleUrl,
   fetchJson,
   applyQualityToPlaybackUrl,
   resolvePlaybackUrl,
@@ -163,7 +164,16 @@ export function VideoPlayerScreen({
   const [webIframeTried, setWebIframeTried] = useState(false)
   const isIframePlayback = isWeb && (playUrlKind === 'signed-iframe' || playUrlKind === 'iframe')
 
-  const subtitleTrackUrl = envSubtitleUrl || resolvedSubtitleUrl
+  const subtitleTrackUrlRaw = envSubtitleUrl || resolvedSubtitleUrl
+  const subtitleProxyBaseUrl = useMemo(() => {
+    const env = String(process.env.EXPO_PUBLIC_SUBTITLE_PROXY_BASE_URL || '').trim()
+    return env || apiBaseUrl
+  }, [apiBaseUrl])
+  const subtitleTrackUrl = useMemo(() => {
+    if (!subtitleTrackUrlRaw) return ''
+    if (!isWeb) return subtitleTrackUrlRaw
+    return proxyStreamSubtitleUrl({ proxyBaseUrl: subtitleProxyBaseUrl, subtitleUrl: subtitleTrackUrlRaw })
+  }, [isWeb, subtitleProxyBaseUrl, subtitleTrackUrlRaw])
   const canSubOn = Boolean(hasAltSubVideo || subtitleTrackUrl)
 
   const vttCacheRef = useRef<{ url: string; cues: VttCue[] } | null>(null)
@@ -474,12 +484,14 @@ export function VideoPlayerScreen({
 
   useEffect(() => {
     // When using separate subtitle-baked video, no VTT overlay is needed.
+    // However, on web, native text tracks are not consistently supported by expo-av.
+    // As a fallback, still attempt VTT overlay even if `videoIdWithSub` exists.
     if (!subOn) {
       setVttCues(null)
       setVttLoading(false)
       return
     }
-    if (hasAltSubVideo) {
+    if (hasAltSubVideo && !isWeb) {
       setVttCues(null)
       setVttLoading(false)
       return
@@ -544,7 +556,7 @@ export function VideoPlayerScreen({
     return () => {
       mounted = false
     }
-  }, [hasAltSubVideo, subOn, subtitleTrackUrl])
+  }, [hasAltSubVideo, isWeb, subOn, subtitleTrackUrl])
 
   const activeSubtitleText = useMemo(() => {
     if (!subOn) return null
@@ -811,7 +823,7 @@ export function VideoPlayerScreen({
           <View pointerEvents="none" style={styles.pauseDim} />
         ) : null}
 
-        {subOn && !hasAltSubVideo && !isIframePlayback && (activeSubtitleText || vttLoading) ? (
+        {subOn && (!hasAltSubVideo || isWeb) && !isIframePlayback && (activeSubtitleText || vttLoading) ? (
           <View pointerEvents="none" style={styles.subtitleOverlay}>
             <Text style={styles.subtitleOverlayText}>
               {activeSubtitleText || (vttLoading ? '字幕を読み込み中…' : '')}

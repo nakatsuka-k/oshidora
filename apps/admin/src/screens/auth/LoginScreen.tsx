@@ -9,13 +9,11 @@ import { isValidEmail } from '../../lib/validation'
 
 export function LoginScreen({
   apiBase,
-  mock,
   onLoggedIn,
   initialBanner,
   onForgotPassword,
 }: {
   apiBase: string
-  mock: boolean
   onLoggedIn: (token: string, remember: boolean) => void
   initialBanner: string
   onForgotPassword: () => void
@@ -38,7 +36,7 @@ export function LoginScreen({
 
     const res = await fetch(`${apiBase}/cms/auth/login`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), password, remember }),
     })
 
@@ -50,14 +48,7 @@ export function LoginScreen({
     const token = json && typeof json.token === 'string' ? json.token : ''
     if (!token) throw new Error('通信に失敗しました。時間をおいて再度お試しください')
     return token
-  }, [apiBase, email, mock, password, remember])
-
-  const loginMock = useCallback(async (): Promise<string> => {
-    if (email.toLowerCase() === 'admin@example.com' && password === 'password') {
-      return `mock-token-${Math.random().toString(36).slice(2)}`
-    }
-    throw new Error('メールアドレスまたはパスワードが違います')
-  }, [email, password])
+  }, [apiBase, email, password, remember])
 
   const onSubmit = useCallback(async () => {
     setBanner('')
@@ -78,14 +69,7 @@ export function LoginScreen({
 
     setBusy(true)
     try {
-      const token = await (async () => {
-        try {
-          return await loginViaApi()
-        } catch (e) {
-          if (mock) return await loginMock()
-          throw e
-        }
-      })()
+      const token = await loginViaApi()
       safeLocalStorageSet(STORAGE_EMAIL_KEY, normalizedEmail)
       onLoggedIn(token, remember)
     } catch (e) {
@@ -94,7 +78,7 @@ export function LoginScreen({
     } finally {
       setBusy(false)
     }
-  }, [email, loginMock, loginViaApi, mock, onLoggedIn, password, remember])
+  }, [email, loginViaApi, onLoggedIn, password, remember])
 
   return (
     <View style={styles.loginRoot}>

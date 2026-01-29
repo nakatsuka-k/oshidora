@@ -3,6 +3,7 @@ import { Image, Platform, Pressable, Text, TextInput, View } from 'react-native'
 
 import { type CmsApiConfig, cmsFetchJson, cmsFetchJsonWithBase } from '../../lib/cmsApi'
 import { useBanner } from '../../lib/banner'
+import { WebDropZone } from '../../ui/WebDropZone'
 
 type SnsItem = { label: string; url: string }
 
@@ -64,6 +65,17 @@ function clampArray<T>(v: T[], max: number): T[] {
   if (!Array.isArray(v)) return []
   if (v.length <= max) return v
   return v.slice(0, max)
+}
+
+function moveArrayItem<T>(arr: T[], fromIndex: number, toIndex: number): T[] {
+  if (!Array.isArray(arr)) return []
+  if (fromIndex === toIndex) return arr
+  if (fromIndex < 0 || fromIndex >= arr.length) return arr
+  if (toIndex < 0 || toIndex >= arr.length) return arr
+  const next = arr.slice()
+  const [item] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, item)
+  return next
 }
 
 function safeUrlList(v: unknown, max: number): string[] {
@@ -615,6 +627,48 @@ export function CastStaffProfileEditor(props: {
     setProfileImages((prev) => prev.filter((_, i) => i !== idx))
   }, [])
 
+  const moveProfileImage = useCallback((fromIndex: number, toIndex: number) => {
+    setProfileImages((prev) => moveArrayItem(prev, fromIndex, toIndex))
+  }, [])
+
+  const moveProfileImageUp = useCallback(
+    (idx: number) => {
+      if (idx <= 0) return
+      moveProfileImage(idx, idx - 1)
+    },
+    [moveProfileImage]
+  )
+
+  const moveProfileImageDown = useCallback(
+    (idx: number) => {
+      if (idx >= profileImages.length - 1) return
+      moveProfileImage(idx, idx + 1)
+    },
+    [moveProfileImage, profileImages.length]
+  )
+
+  const dragIndexRef = useRef<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+
+  const beginProfileImageDrag = useCallback((idx: number, e: any) => {
+    if (Platform.OS !== 'web') return
+    dragIndexRef.current = idx
+    setDragOverIndex(null)
+    try {
+      if (e?.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', String(idx))
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const endProfileImageDrag = useCallback(() => {
+    dragIndexRef.current = null
+    setDragOverIndex(null)
+  }, [])
+
   const draft: CastStaffProfileDraft = useMemo(
     () => ({
       displayName,
@@ -737,15 +791,14 @@ export function CastStaffProfileEditor(props: {
         <Text style={styles.label}>顔画像（正方形）: 1枚</Text>
         <Text style={styles.selectMenuDetailText}>※画像エディタで正方形にトリミング</Text>
         {Platform.OS === 'web' ? (
-          <View style={{ marginTop: 6 } as any}>
-            {
-              // eslint-disable-next-line react/no-unknown-property
-            }
-            <input
-              type="file"
+          <View style={{ marginTop: 8 } as any}>
+            <WebDropZone
+              title="顔画像を追加"
+              hint="正方形(1:1)にトリミングしてアップロードします"
               accept="image/png,image/jpeg,image/webp"
-              onChange={(e: any) => {
-                const f = e?.target?.files?.[0] ?? null
+              multiple={false}
+              onFiles={(files) => {
+                const f = files?.[0] ?? null
                 if (f) void uploadFaceFile(f)
               }}
             />
@@ -761,17 +814,15 @@ export function CastStaffProfileEditor(props: {
         <Text style={styles.selectMenuDetailText}>※画像エディタで縦サイズにトリミング</Text>
 
         {Platform.OS === 'web' ? (
-          <View style={{ marginTop: 6 } as any}>
-            {
-              // eslint-disable-next-line react/no-unknown-property
-            }
-            <input
-              type="file"
-              multiple
+          <View style={{ marginTop: 8 } as any}>
+            <WebDropZone
+              title="プロフィール画像(縦)を追加"
+              hint="縦 9:16 にトリミングしてアップロードします"
+              maxFilesLabel={canAddMoreProfileImages ? `あと${Math.max(0, 10 - profileImages.length)}枚追加できます` : '上限(10枚)に達しています'}
               accept="image/png,image/jpeg,image/webp"
+              multiple
               disabled={!canAddMoreProfileImages}
-              onChange={(e: any) => {
-                const files = Array.from((e?.target?.files as FileList | undefined) ?? []) as File[]
+              onFiles={(files) => {
                 if (files.length) void uploadPortraitFiles(files)
               }}
             />
@@ -780,24 +831,110 @@ export function CastStaffProfileEditor(props: {
 
         <View style={[styles.table, { marginTop: 10 } as any]}>
           {profileImages.map((url, idx) => (
-            <View key={`${url}_${idx}`} style={styles.tableRow}>
-              <View style={styles.tableLeft}>
-                <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' } as any}>
-                  {url ? <Image source={{ uri: url }} style={styles.thumb} /> : <View style={styles.thumb} />}
-                  <View style={{ flex: 1 } as any}>
-                    <Text style={styles.tableLabel}>{`画像${idx + 1}`}</Text>
-                    <Text style={styles.tableDetail} numberOfLines={1}>
-                      {url}
-                    </Text>
+            <div
+              key={`${url}_${idx}`}
+              style={
+                Platform.OS === 'web' && dragOverIndex === idx && dragIndexRef.current !== null && dragIndexRef.current !== idx
+                  ? ({ outline: '2px solid #2563eb', outlineOffset: 2, borderRadius: 10 } as any)
+                  : undefined
+              }
+              onDragEnter={(e: any) => {
+                if (Platform.OS !== 'web') return
+                if (dragIndexRef.current === null) return
+                e?.preventDefault?.()
+                setDragOverIndex(idx)
+              }}
+              onDragOver={(e: any) => {
+                if (Platform.OS !== 'web') return
+                if (dragIndexRef.current === null) return
+                e?.preventDefault?.()
+                try {
+                  if (e?.dataTransfer) e.dataTransfer.dropEffect = 'move'
+                } catch {
+                  // ignore
+                }
+              }}
+              onDragLeave={(e: any) => {
+                if (Platform.OS !== 'web') return
+                if (dragIndexRef.current === null) return
+                e?.preventDefault?.()
+                setDragOverIndex((prev) => (prev === idx ? null : prev))
+              }}
+              onDrop={(e: any) => {
+                if (Platform.OS !== 'web') return
+                e?.preventDefault?.()
+                const from = dragIndexRef.current
+                dragIndexRef.current = null
+                setDragOverIndex(null)
+                if (typeof from === 'number') moveProfileImage(from, idx)
+              }}
+            >
+              <View style={styles.tableRow}>
+                <View style={styles.tableLeft}>
+                  <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' } as any}>
+                    {Platform.OS === 'web' ? (
+                      <div
+                        draggable
+                        onDragStart={(e: any) => beginProfileImageDrag(idx, e)}
+                        onDragEnd={endProfileImageDrag}
+                        title="ドラッグで並び替え"
+                        style={
+                          {
+                            width: 24,
+                            height: 44,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'grab',
+                            color: '#6b7280',
+                            userSelect: 'none',
+                          } as any
+                        }
+                      >
+                        ≡
+                      </div>
+                    ) : null}
+
+                    {Platform.OS === 'web' ? (
+                      <div
+                        draggable
+                        onDragStart={(e: any) => beginProfileImageDrag(idx, e)}
+                        onDragEnd={endProfileImageDrag}
+                        title="画像をドラッグして並び替え"
+                        style={{ cursor: 'grab', display: 'inline-flex' } as any}
+                      >
+                        {url ? <Image source={{ uri: url }} style={styles.thumb} /> : <View style={styles.thumb} />}
+                      </div>
+                    ) : url ? (
+                      <Image source={{ uri: url }} style={styles.thumb} />
+                    ) : (
+                      <View style={styles.thumb} />
+                    )}
+                    <View style={{ flex: 1 } as any}>
+                      <Text style={styles.tableLabel}>{`画像${idx + 1}`}</Text>
+                      <Text style={styles.tableDetail} numberOfLines={1}>
+                        {url}
+                      </Text>
+                    </View>
                   </View>
                 </View>
+                <View style={[styles.tableRight, { flexDirection: 'row', gap: 8, alignItems: 'center' } as any]}>
+                  <Pressable disabled={idx <= 0} onPress={() => moveProfileImageUp(idx)} style={[styles.smallBtnSecondary, idx <= 0 ? styles.btnDisabled : null]}>
+                    <Text style={styles.smallBtnSecondaryText}>↑</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={idx >= profileImages.length - 1}
+                    onPress={() => moveProfileImageDown(idx)}
+                    style={[styles.smallBtnSecondary, idx >= profileImages.length - 1 ? styles.btnDisabled : null]}
+                  >
+                    <Text style={styles.smallBtnSecondaryText}>↓</Text>
+                  </Pressable>
+                  <Pressable onPress={() => removeProfileImage(idx)} style={styles.smallBtnDanger}>
+                    <Text style={styles.smallBtnDangerText}>削除</Text>
+                  </Pressable>
+                </View>
               </View>
-              <View style={[styles.tableRight, { flexDirection: 'row', gap: 8, alignItems: 'center' } as any]}>
-                <Pressable onPress={() => removeProfileImage(idx)} style={styles.smallBtnDanger}>
-                  <Text style={styles.smallBtnDangerText}>削除</Text>
-                </Pressable>
-              </View>
-            </View>
+            </div>
           ))}
           {!profileImages.length ? (
             <View style={styles.placeholderBox}>
@@ -885,14 +1022,13 @@ export function CastStaffProfileEditor(props: {
         <Text style={styles.label}>PDFアップロード（非公開 / 事務局閲覧用）</Text>
         {Platform.OS === 'web' ? (
           <View style={{ marginTop: 6 } as any}>
-            {
-              // eslint-disable-next-line react/no-unknown-property
-            }
-            <input
-              type="file"
+            <WebDropZone
+              title="PDFを追加"
+              hint="非公開（事務局閲覧用）"
               accept="application/pdf"
-              onChange={(e: any) => {
-                const f = e?.target?.files?.[0] ?? null
+              multiple={false}
+              onFiles={(files) => {
+                const f = files?.[0] ?? null
                 if (f) void uploadPdfFile(f)
               }}
             />

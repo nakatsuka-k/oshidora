@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, THEME } from '../components'
 import { apiFetch } from '../utils/api'
-import { getMockNoticeListItems } from '../utils/mockNotices'
 import { setString } from '../utils/storage'
 
 const NOTICE_LAST_READ_AT_KEY = 'notice_last_read_at'
@@ -10,7 +9,6 @@ const NOTICE_LAST_READ_AT_KEY = 'notice_last_read_at'
 type NoticeListScreenProps = {
   apiBaseUrl: string
   loggedIn: boolean
-  mock: boolean
   onBack: () => void
   onOpenDetail: (id: string) => void
   onLogin: () => void
@@ -28,7 +26,7 @@ type NoticeListResponse = {
   items: NoticeListItem[]
 }
 
-export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDetail, onLogin }: NoticeListScreenProps) {
+export function NoticeListScreen({ apiBaseUrl, loggedIn, onBack, onOpenDetail, onLogin }: NoticeListScreenProps) {
   const [items, setItems] = useState<NoticeListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -42,13 +40,6 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDet
 
   useEffect(() => {
     let cancelled = false
-
-    if (mock) {
-      setItems(getMockNoticeListItems())
-      setLoading(false)
-      setError('')
-      return
-    }
 
     void (async () => {
       setLoading(true)
@@ -71,7 +62,7 @@ export function NoticeListScreen({ apiBaseUrl, loggedIn, mock, onBack, onOpenDet
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, loggedIn, mock])
+  }, [apiBaseUrl, loggedIn])
 
   useEffect(() => {
     const latest = items[0]

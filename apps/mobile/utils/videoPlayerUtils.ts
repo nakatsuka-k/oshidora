@@ -147,6 +147,28 @@ export function deriveStreamSubtitleUrl(params: {
   return ''
 }
 
+// On web, directly fetching VTT from `videodelivery.net` can be blocked by CORS.
+// This helper rewrites the VTT URL to our API proxy endpoint (which sets CORS).
+export function proxyStreamSubtitleUrl(params: { proxyBaseUrl: string; subtitleUrl: string }): string {
+  const apiBaseUrl = String(params.proxyBaseUrl || '').trim().replace(/\/+$/, '')
+  const subtitleUrl = String(params.subtitleUrl || '').trim()
+  if (!apiBaseUrl || !subtitleUrl) return subtitleUrl
+
+  try {
+    const u = new URL(subtitleUrl)
+    const host = u.hostname.toLowerCase()
+    const isVideoDelivery = host === 'videodelivery.net'
+    const isCustomerStream = /\.cloudflarestream\.com$/i.test(host)
+    if (!isVideoDelivery && !isCustomerStream) return subtitleUrl
+
+    const proxy = new URL(`${apiBaseUrl}/v1/stream/subtitles-proxy`)
+    proxy.searchParams.set('src', subtitleUrl)
+    return proxy.toString()
+  } catch {
+    return subtitleUrl
+  }
+}
+
 /**
  * Video playback and streaming utilities
  */

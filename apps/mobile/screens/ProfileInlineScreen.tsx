@@ -33,7 +33,6 @@ type Props = {
   apiBaseUrl: string
 
   selectedCast: any
-  mockProfile: any
 
   castProfileSlideIndex: number
   setCastProfileSlideIndex: (next: number) => void
@@ -47,8 +46,6 @@ type Props = {
   requireLogin: (screen: any) => boolean
   goTo: (screen: any) => void
   goBack: () => void
-
-  ensureSelectedCastForReview: () => void
 
   setCoinGrantTarget: (next: any) => void
   setCoinGrantPrimaryReturnTo: (next: any) => void
@@ -65,7 +62,6 @@ type Props = {
   castCommentsExpanded: boolean
   setCastCommentsExpanded: (next: boolean) => void
   castLocalComments: any[]
-  mockApprovedComments: any[]
 
   commentStarRating: (comment: any) => number
   truncateCommentBody: (body: string) => string
@@ -83,17 +79,28 @@ type Props = {
 export function ProfileInlineScreen(props: Props) {
   const styles = props.styles
 
-  const castName = props.selectedCast?.name ?? props.mockProfile.name
-  const castId = props.selectedCast?.id ?? props.mockProfile.id
+  if (!props.selectedCast?.id) {
+    return (
+      <ScreenContainer title="キャストプロフィール" onBack={props.goBack} scroll>
+        <View style={styles.profileCard}>
+          <Text style={styles.sectionTitle}>キャストが未選択です</Text>
+          <Text style={styles.bodyText}>キャスト一覧からプロフィールを開いてください。</Text>
+        </View>
+      </ScreenContainer>
+    )
+  }
+
+  const castName = String(props.selectedCast?.name ?? '').trim() || '—'
+  const castId = String(props.selectedCast?.id ?? '').trim()
 
   const ratingText = useMemo(() => {
     const rating = props.castReviewSummary
       ? props.castReviewSummary.ratingAvg.toFixed(1)
       : props.selectedCastReview
         ? props.selectedCastReview.rating.toFixed(1)
-        : '4.7'
-    const count = props.castReviewSummary ? ` (${props.castReviewSummary.reviewCount}件)` : ' (375件)'
-    return `${rating}${count}`
+        : '—'
+    const count = props.castReviewSummary ? ` (${props.castReviewSummary.reviewCount}件)` : ''
+    return rating === '—' ? '—' : `${rating}${count}`
   }, [props.castReviewSummary, props.selectedCastReview])
 
   const onToggleFavorite = () => {
@@ -211,7 +218,7 @@ export function ProfileInlineScreen(props: Props) {
       <View style={styles.castTitleBlock}>
         <Text style={styles.castNameMain}>{castName}</Text>
         <Text style={styles.castNameSub}>
-          {String((props.mockProfile as any).nameKana ?? '—')} / {String((props.mockProfile as any).nameEn ?? '—')}
+          {String(props.selectedCast?.roleLabel ?? '') || '—'}
         </Text>
         <View style={styles.castRatingRow}>
           <IconStarYellow width={14} height={14} />
@@ -236,7 +243,6 @@ export function ProfileInlineScreen(props: Props) {
           style={styles.castActionItem}
           onPress={() => {
             if (!props.requireLogin('castReview')) return
-            props.ensureSelectedCastForReview()
             props.goTo('castReview')
           }}
         >
@@ -257,87 +263,12 @@ export function ProfileInlineScreen(props: Props) {
 
       <View style={styles.profileCard}>
         <Text style={styles.sectionTitle}>プロフィール</Text>
-        {[
-          { label: 'ジャンル', value: (props.mockProfile.genre ?? []).join(' / ') || '—' },
-          { label: '所属', value: props.mockProfile.affiliation || '—' },
-          { label: '生年月日', value: '1998年11月29日' },
-          { label: '出身地', value: '神奈川県（最寄駅：未指定）' },
-          { label: '血液型', value: 'A型' },
-          { label: '趣味', value: '映画・アニメ鑑賞・カフェ巡り・ホカンス' },
-          { label: '特技', value: 'ダンス・歌・ラーメン作り・中華鍋' },
-          { label: '資格', value: '英検1級' },
-        ].map((it) => (
-          <View key={it.label} style={styles.infoRow}>
-            <Text style={styles.infoLabel}>{it.label}</Text>
-            <Text style={styles.infoValue}>{it.value}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.profileCard}>
-        <Text style={styles.sectionTitle}>カテゴリ</Text>
-        <View style={styles.castCategoryRow}>
-          {['Drama', 'Comedy', 'Action'].map((t) => (
-            <View key={t} style={styles.castCategoryChip}>
-              <Text style={styles.castCategoryChipText}>{t}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.profileCard}>
-        <Text style={styles.sectionTitle}>SNSリンク</Text>
-        {props.mockProfile.snsLinks.length === 0 ? (
-          <Text style={styles.bodyText}>—</Text>
-        ) : (
-          <View style={{ gap: 0 }}>
-            {props.mockProfile.snsLinks.map((url: string, idx: number) => (
-              <Pressable
-                key={url}
-                onPress={() => {
-                  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                    window.open(url, '_blank', 'noopener,noreferrer')
-                  }
-                }}
-                style={[styles.castSnsRow, idx === props.mockProfile.snsLinks.length - 1 ? styles.castSnsRowLast : null]}
-              >
-                <View style={styles.castSnsIcon} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.castSnsLabel}>{detectSocialService(url).label}</Text>
-                  <Text style={styles.castSnsUrl} numberOfLines={1}>
-                    {url}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        )}
-      </View>
-
-      <View style={styles.profileCard}>
-        <Text style={styles.sectionTitle}>自己PR</Text>
-        <Text style={styles.bodyText}>{props.mockProfile.selfPr || '—'}</Text>
-      </View>
-
-      <View style={styles.profileCard}>
-        <Text style={styles.sectionTitle}>経歴・出演実績</Text>
-        <Text style={styles.bodyText}>
-          2014年、都内の養成所に入所し演技・ダンス・発声を学ぶ。{`\n`}
-          2016年、Webドラマで役をデビュー。{`\n`}
-          2018年、深夜ドラマでの繊細な演技が話題になり注目を集める。{`\n`}
-          2020年、映画初主演。{`\n`}
-          以降、ドラマ・映画・CMを中心に活動。
-        </Text>
-      </View>
-
-      <View style={styles.profileCard}>
-        <Text style={styles.sectionTitle}>作品</Text>
-        <Text style={styles.bodyText}>{props.mockProfile.worksText || '—'}</Text>
+        <Text style={styles.bodyText}>プロフィール情報は準備中です。</Text>
       </View>
 
       <View style={styles.commentsBox}>
         <View style={styles.commentItem}>
-          <Text style={styles.sectionTitle}>コメント（{props.castReviewSummary ? props.castReviewSummary.reviewCount : 375}件）</Text>
+          <Text style={styles.sectionTitle}>コメント（{props.castReviewSummary ? props.castReviewSummary.reviewCount : props.castLocalComments.length}件）</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
             {Array.from({ length: 5 }).map((_, idx) => (
               <IconStarYellow key={idx} width={16} height={16} />
@@ -346,10 +277,7 @@ export function ProfileInlineScreen(props: Props) {
           </View>
         </View>
 
-        {(props.castCommentsExpanded
-          ? [...props.castLocalComments, ...props.mockApprovedComments]
-          : [...props.castLocalComments, ...props.mockApprovedComments].slice(0, 3)
-        ).map((c: any) => {
+        {(props.castCommentsExpanded ? props.castLocalComments : props.castLocalComments.slice(0, 3)).map((c: any) => {
           const stars = props.commentStarRating(c)
           return (
             <View key={c.id} style={styles.commentItem}>
@@ -369,7 +297,7 @@ export function ProfileInlineScreen(props: Props) {
           )
         })}
 
-        {!props.castCommentsExpanded && [...props.castLocalComments, ...props.mockApprovedComments].length > 3 ? (
+        {!props.castCommentsExpanded && props.castLocalComments.length > 3 ? (
           <Pressable style={styles.moreRow} onPress={() => props.setCastCommentsExpanded(true)}>
             <Text style={styles.moreLink}>さらに表示</Text>
             <Text style={styles.moreLink}>›</Text>

@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native'
 import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
-import { apiFetch, isDebugMockEnabled } from '../utils/api'
+import { apiFetch } from '../utils/api'
 import { type TabKey, type WorkSearchScreenProps, type Work, type WorkResponse, type HistoryItem, HISTORY_KEY, HISTORY_MAX, normalize, uniqueHistory } from '../types/workSearchTypes'
 
 const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
@@ -21,19 +21,9 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNo
   const [keyword, setKeyword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [fallbackUsed, setFallbackUsed] = useState(false)
 
   const [works, setWorks] = useState<Work[]>([])
   const [history, setHistory] = useState<HistoryItem[]>([])
-
-  const mockWorks = useMemo<Work[]>(
-    () => [
-      { id: 'w1', title: 'ダウトコール', ratingAvg: 4.7, reviewCount: 382, priceCoin: 0 },
-      { id: 'w2', title: 'ミステリーX', ratingAvg: 4.4, reviewCount: 195, priceCoin: 0 },
-      { id: 'w3', title: 'ラブストーリーY', ratingAvg: 4.2, reviewCount: 108, priceCoin: 0 },
-    ],
-    []
-  )
 
   const loadHistory = useCallback(async () => {
     try {
@@ -82,24 +72,21 @@ export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNo
 
     setBusy(true)
     setError('')
-    setFallbackUsed(false)
     try {
       const u = new URL(`${apiBaseUrl}/v1/works`)
       u.searchParams.set('q', q)
       const res = await apiFetch(u.toString())
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as WorkResponse
-      setWorks(Array.isArray(json.items) ? json.items : mockWorks)
+      setWorks(Array.isArray(json.items) ? json.items : [])
       void saveToHistory(keyword)
     } catch (e) {
-      const mock = await isDebugMockEnabled()
-      setFallbackUsed(mock)
-      setWorks(mock ? mockWorks : [])
+      setWorks([])
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
-  }, [apiBaseUrl, keyword, mockWorks, saveToHistory])
+  }, [apiBaseUrl, keyword, saveToHistory])
 
   const handleSearchPress = useCallback(() => {
     void runSearch()

@@ -32,11 +32,9 @@ function getTokenFromLocation(): string {
 
 export function PasswordResetScreen({
   apiBase,
-  mock,
   onGoLogin,
 }: {
   apiBase: string
-  mock: boolean
   onGoLogin: () => void
 }) {
   const [email, setEmail] = useState('')
@@ -56,7 +54,7 @@ export function PasswordResetScreen({
     try {
       const res = await fetch(`${apiBase.replace(/\/$/, '')}/cms/auth/request-password-reset`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
       })
       const json = (await res.json().catch(() => ({}))) as any
@@ -71,7 +69,7 @@ export function PasswordResetScreen({
     } finally {
       setBusy(false)
     }
-  }, [apiBase, email, mock])
+  }, [apiBase, email])
 
   const submitNewPassword = useCallback(async () => {
     if (!token) {
@@ -92,7 +90,7 @@ export function PasswordResetScreen({
     try {
       const res = await fetch(`${apiBase.replace(/\/$/, '')}/cms/auth/reset-password`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...(mock ? { 'X-Mock': '1' } : {}) },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token, newPassword }),
       })
       const json = (await res.json().catch(() => ({}))) as any
@@ -105,7 +103,7 @@ export function PasswordResetScreen({
     } finally {
       setBusy(false)
     }
-  }, [apiBase, mock, newPassword, newPassword2, token])
+  }, [apiBase, newPassword, newPassword2, token])
 
   return (
     <View style={styles.loginRoot}>

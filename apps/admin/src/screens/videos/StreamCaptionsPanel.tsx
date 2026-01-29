@@ -5,6 +5,7 @@ import type { CmsApiConfig } from '../../lib/cmsApi'
 import { useBanner } from '../../lib/banner'
 import { cmsFetchJson } from '../../lib/cmsApi'
 import { styles } from '../../app/styles'
+import { WebDropZone } from '../../ui/WebDropZone'
 
 export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig; streamVideoId: string }) {
   const videoId = String(streamVideoId || '').trim()
@@ -63,7 +64,6 @@ export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig;
         method: 'POST',
         headers: {
           authorization: `Bearer ${cfg.token}`,
-          ...(cfg.mock ? { 'X-Mock': '1' } : {}),
         },
         body: form,
       })
@@ -79,7 +79,7 @@ export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig;
     } finally {
       setUploading(false)
     }
-  }, [cfg.apiBase, cfg.mock, cfg.token, file, isDefault, label, lang, refresh, setBanner, videoId])
+  }, [cfg.apiBase, cfg.token, file, isDefault, label, lang, refresh, setBanner, videoId])
 
   useEffect(() => {
     if (!videoId) return
@@ -95,14 +95,14 @@ export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig;
         <>
           {Platform.OS === 'web' ? (
             <View style={{ marginTop: 6 }}>
-              {
-                // eslint-disable-next-line react/no-unknown-property
-              }
-              <input
-                type="file"
+              <WebDropZone
+                title="字幕ファイル（.vtt）を選択"
+                hint="ドラッグ&ドロップ対応"
                 accept=".vtt,text/vtt"
-                onChange={(e: any) => {
-                  const f = e?.target?.files?.[0] ?? null
+                multiple={false}
+                onFiles={(files) => {
+                  const f = files?.[0] ?? null
+                  if (!f) return
                   setFile(f)
                   setBanner('')
                 }}

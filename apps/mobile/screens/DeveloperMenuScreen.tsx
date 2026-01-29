@@ -13,8 +13,6 @@ type DeveloperMenuScreenProps = {
   onGo: (screenKey: string) => void
   userType: 'user' | 'cast'
   onUserTypeToggle: () => void
-  mock: boolean
-  onMockToggle: () => void
 }
 
 export function DeveloperMenuScreen({
@@ -22,8 +20,6 @@ export function DeveloperMenuScreen({
   onGo,
   userType,
   onUserTypeToggle,
-  mock,
-  onMockToggle,
 }: DeveloperMenuScreenProps) {
   const [query, setQuery] = useState('')
 
@@ -112,18 +108,6 @@ export function DeveloperMenuScreen({
           >
             <Text style={[styles.toggleText, userType === 'cast' ? styles.toggleTextActive : null]}>
               {userType === 'cast' ? 'ON' : 'OFF'}
-            </Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.toggleBox}>
-          <Text style={styles.toggleLabel}>MOCK：</Text>
-          <Pressable
-            style={[styles.toggleButton, mock ? styles.toggleButtonActive : null]}
-            onPress={onMockToggle}
-          >
-            <Text style={[styles.toggleText, mock ? styles.toggleTextActive : null]}>
-              {mock ? 'ON' : 'OFF'}
             </Text>
           </Pressable>
         </View>

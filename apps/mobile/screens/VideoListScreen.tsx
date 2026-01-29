@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, TabBar, THEME } from '../components'
-import { apiFetch, isDebugMockEnabled } from '../utils/api'
+import { apiFetch } from '../utils/api'
 import { type VideoListScreenProps, type Video, type Category, type VideosResponse, type CategoriesResponse, PAGE_SIZE, normalizeText } from '../types/videoListTypes'
 
 import IconNotification from '../assets/icon_notification.svg'
@@ -12,44 +12,19 @@ const LOGO_IMAGE = require('../assets/oshidora_logo.png')
 const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
 
 export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNotice, tag, onChangeTag }: VideoListScreenProps) {
-  const mockCategories = useMemo<Category[]>(
-    () => [
-      { id: 'c1', name: 'ドラマ' },
-      { id: 'c2', name: 'ミステリー' },
-      { id: 'c3', name: '恋愛' },
-      { id: 'c4', name: 'コメディ' },
-      { id: 'c5', name: 'アクション' },
-    ],
-    []
-  )
-
-  const mockVideos = useMemo<Video[]>(
-    () => [
-      { id: 'content-1', title: 'ダウトコール', ratingAvg: 4.7, reviewCount: 128, priceCoin: 30, tags: ['Drama', 'Mystery'] },
-      { id: 'content-2', title: 'ミステリーX', ratingAvg: 4.4, reviewCount: 61, priceCoin: 30, tags: ['Mystery', 'Drama'] },
-      { id: 'content-3', title: 'ラブストーリーY', ratingAvg: 4.2, reviewCount: 43, priceCoin: 10, tags: ['Romance', 'Drama'] },
-      { id: 'content-4', title: 'コメディZ', ratingAvg: 4.1, reviewCount: 22, priceCoin: 10, tags: ['Comedy'] },
-      { id: 'content-5', title: 'アクションW', ratingAvg: 4.3, reviewCount: 37, priceCoin: 20, tags: ['Action'] },
-    ],
-    []
-  )
-
   const [categories, setCategories] = useState<Category[]>([])
   const [categoriesError, setCategoriesError] = useState<string>('')
-  const [categoriesFallbackUsed, setCategoriesFallbackUsed] = useState(false)
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all')
 
   const [videos, setVideos] = useState<Video[]>([])
   const [videosError, setVideosError] = useState<string>('')
-  const [videosFallbackUsed, setVideosFallbackUsed] = useState(false)
   const [busyInitial, setBusyInitial] = useState(false)
   const [busyMore, setBusyMore] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
 
   const fetchCategories = useCallback(async () => {
     setCategoriesError('')
-    setCategoriesFallbackUsed(false)
     try {
       const res = await apiFetch(`${apiBaseUrl}/v1/categories`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -57,12 +32,10 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
       const items = Array.isArray(json.items) ? json.items : []
       setCategories(items)
     } catch (e) {
-      const mock = await isDebugMockEnabled()
-      setCategoriesFallbackUsed(mock)
-      setCategories(mock ? mockCategories : [])
+      setCategories([])
       setCategoriesError(e instanceof Error ? e.message : String(e))
     }
-  }, [apiBaseUrl, mockCategories])
+  }, [apiBaseUrl])
 
   const buildVideosUrl = useCallback((opts: { categoryId: string; tag?: string | null; cursor?: string | null }) => {
     const u = new URL(`${apiBaseUrl}/v1/works`)
@@ -83,7 +56,6 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
     mode === 'initial' ? setBusyInitial(true) : setBusyMore(true)
     if (mode === 'initial') {
       setVideosError('')
-      setVideosFallbackUsed(false)
     }
 
     try {
@@ -110,16 +82,14 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
       setNextCursor(next)
     } catch (e) {
       if (mode === 'initial') {
-        const mock = await isDebugMockEnabled()
-        setVideosFallbackUsed(mock)
-        setVideos(mock ? mockVideos : [])
+        setVideos([])
         setNextCursor(null)
         setVideosError(e instanceof Error ? e.message : String(e))
       }
     } finally {
       mode === 'initial' ? setBusyInitial(false) : setBusyMore(false)
     }
-  }, [buildVideosUrl, busyInitial, busyMore, mockVideos, nextCursor, selectedCategoryId, tag])
+  }, [buildVideosUrl, busyInitial, busyMore, nextCursor, selectedCategoryId, tag])
 
   useEffect(() => {
     void fetchCategories()
@@ -238,7 +208,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
               </Pressable>
             </View>
             {categoriesError ? (
-              <Text style={styles.loadNote}>カテゴリ取得に失敗しました{categoriesFallbackUsed ? '（モック表示）' : ''}</Text>
+              <Text style={styles.loadNote}>カテゴリ取得に失敗しました</Text>
             ) : null}
           </View>
         ) : null}
@@ -261,7 +231,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
             }}
             ListHeaderComponent={
               videosError ? (
-                <Text style={styles.loadNote}>作品取得に失敗しました{videosFallbackUsed ? '（モック表示）' : ''}</Text>
+                <Text style={styles.loadNote}>作品取得に失敗しました</Text>
               ) : null
             }
             ListFooterComponent={

@@ -6,7 +6,6 @@ import { Animated, PanResponder, Platform } from 'react-native'
  */
 export function useDebugOverlay() {
   const [debugOverlayHidden, setDebugOverlayHidden] = useState<boolean>(false)
-  const [debugMock, setDebugMock] = useState<boolean>(false)
   const [debugEmailCode, setDebugEmailCode] = useState<string>('')
   const [debugSmsCode, setDebugSmsCode] = useState<string>('')
   const [debugPaypayMaskedLabel] = useState<string>('********')
@@ -103,8 +102,6 @@ export function useDebugOverlay() {
   return {
     debugOverlayHidden,
     setDebugOverlayHidden,
-    debugMock,
-    setDebugMock,
     debugEmailCode,
     setDebugEmailCode,
     debugSmsCode,

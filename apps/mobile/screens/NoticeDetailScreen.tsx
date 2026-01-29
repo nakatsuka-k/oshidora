@@ -3,10 +3,9 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, V
 import RenderHtml from 'react-native-render-html'
 import { ScreenContainer, THEME } from '../components'
 import { apiFetch } from '../utils/api'
-import { getMockNoticeDetail } from '../utils/mockNotices'
 import { type NoticeDetailScreenProps, type NoticeDetail, type NoticeDetailResponse } from '../types/noticeDetailScreenTypes'
 
-export function NoticeDetailScreen({ apiBaseUrl, noticeId, mock, onBack }: NoticeDetailScreenProps) {
+export function NoticeDetailScreen({ apiBaseUrl, noticeId, onBack }: NoticeDetailScreenProps) {
   const { width } = useWindowDimensions()
   const contentWidth = Math.max(1, Math.min(768, Math.round(width - 32)))
 
@@ -19,13 +18,6 @@ export function NoticeDetailScreen({ apiBaseUrl, noticeId, mock, onBack }: Notic
 
     if (!noticeId) {
       setItem(null)
-      setLoading(false)
-      setError('')
-      return
-    }
-
-    if (mock) {
-      setItem(getMockNoticeDetail(noticeId))
       setLoading(false)
       setError('')
       return
@@ -50,7 +42,7 @@ export function NoticeDetailScreen({ apiBaseUrl, noticeId, mock, onBack }: Notic
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, noticeId, mock])
+  }, [apiBaseUrl, noticeId])
 
   const htmlSource = useMemo(() => ({ html: item?.bodyHtml ?? '' }), [item?.bodyHtml])
 

@@ -99,7 +99,6 @@ export type WorkDetailScreenProps = {
   commentsExpanded: boolean
   onExpandComments: () => void
   approvedComments: CommentItem[]
-  mockApprovedComments: CommentItem[]
   commentStarRating: (c: CommentItem) => number
   truncateCommentBody: (body: string) => string
 

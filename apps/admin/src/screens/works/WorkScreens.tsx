@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
 import { useBanner } from '../../lib/banner'
+import { WebDropZone } from '../../ui/WebDropZone'
 
 type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
   token: string
-  mock: boolean
 }
 
 type CmsFetchJson = <T = any>(cfg: CmsApiConfig, path: string, init?: RequestInit) => Promise<T>
@@ -315,15 +315,14 @@ export function WorkEditScreen({
           <Text style={styles.selectMenuDetailText}>推奨サイズ: 16:9（例: 1280×720）</Text>
           {Platform.OS === 'web' ? (
             <View style={{ marginTop: 6 }}>
-              {
-                // eslint-disable-next-line react/no-unknown-property
-              }
-              <input
-                type="file"
+              <WebDropZone
+                title="サムネ画像を追加"
+                hint="16:9 推奨（例: 1280×720）"
                 accept="image/png,image/jpeg,image/webp"
-                onChange={(e: any) => {
-                  const file = e?.target?.files?.[0] ?? null
-                  setThumbnailFile(file)
+                multiple={false}
+                onFiles={(files) => {
+                  const f = files?.[0] ?? null
+                  if (f) setThumbnailFile(f)
                 }}
               />
               <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>

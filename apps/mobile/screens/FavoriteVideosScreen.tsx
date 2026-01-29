@@ -1,23 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
-import { apiFetch, isDebugMockEnabled } from '../utils/api'
+import { apiFetch } from '../utils/api'
 import { type Props, type VideoItem, type FavoritesResponse } from '../types/favoriteVideosScreenTypes'
 
 export function FavoriteVideosScreen({ apiBaseUrl, authToken, loggedIn, onBack, onOpenVideo }: Props) {
-  const mockData = useMemo<FavoritesResponse>(() => ({ items: [] }), [])
-
-  const [favorites, setFavorites] = useState<VideoItem[]>(mockData.items)
+  const [favorites, setFavorites] = useState<VideoItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [fallbackUsed, setFallbackUsed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       setLoading(true)
       setError('')
-      setFallbackUsed(false)
 
       if (!loggedIn || !authToken) {
         if (!cancelled) {
@@ -39,9 +35,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, authToken, loggedIn, onBack, 
         if (!cancelled) setFavorites(list)
       } catch (e) {
         if (!cancelled) {
-          const mock = await isDebugMockEnabled()
-          setFallbackUsed(mock)
-          setFavorites(mock ? mockData.items : [])
+          setFavorites([])
           setError(e instanceof Error ? e.message : String(e))
         }
       } finally {
@@ -52,7 +46,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, authToken, loggedIn, onBack, 
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, authToken, loggedIn, mockData.items])
+  }, [apiBaseUrl, authToken, loggedIn])
 
   return (
     <ScreenContainer title="お気に入り（動画）" onBack={onBack}>
@@ -66,7 +60,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, authToken, loggedIn, onBack, 
             <Text style={styles.emptyTitle}>お気に入り動画がありません</Text>
             <Text style={styles.emptyDesc}>作品・動画の詳細からお気に入り登録してください</Text>
             {!loggedIn ? <Text style={styles.emptyDesc}>ログインするとお気に入り動画を確認できます</Text> : null}
-            {error ? <Text style={styles.error}>読み込み失敗{fallbackUsed ? '（モック表示）' : ''}：{error}</Text> : null}
+            {error ? <Text style={styles.error}>読み込み失敗：{error}</Text> : null}
           </View>
         ) : (
           <View style={styles.card}>
@@ -84,7 +78,7 @@ export function FavoriteVideosScreen({ apiBaseUrl, authToken, loggedIn, onBack, 
                 </Pressable>
               ))}
             </ScrollView>
-            {error ? <Text style={styles.error}>読み込み失敗{fallbackUsed ? '（モック表示）' : ''}：{error}</Text> : null}
+            {error ? <Text style={styles.error}>読み込み失敗：{error}</Text> : null}
           </View>
         )}
       </View>
