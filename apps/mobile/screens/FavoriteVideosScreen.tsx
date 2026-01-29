@@ -2,24 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
 import { apiFetch, isDebugMockEnabled } from '../utils/api'
-
-type Props = {
-  apiBaseUrl: string
-  authToken: string | null
-  loggedIn: boolean
-  onBack: () => void
-  onOpenVideo: (id: string) => void
-}
-
-type VideoItem = {
-  id: string
-  title: string
-  thumbnailUrl?: string
-}
-
-type FavoritesResponse = {
-  items: VideoItem[]
-}
+import { type Props, type VideoItem, type FavoritesResponse } from '../types/favoriteVideosScreenTypes'
 
 export function FavoriteVideosScreen({ apiBaseUrl, authToken, loggedIn, onBack, onOpenVideo }: Props) {
   const mockData = useMemo<FavoritesResponse>(() => ({ items: [] }), [])

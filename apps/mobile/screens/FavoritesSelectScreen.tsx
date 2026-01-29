@@ -1,11 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
-
-type Props = {
-  onBack: () => void
-  onSelectVideos: () => void
-  onSelectCasts: () => void
-}
+import type { Props } from '../types/favoritesSelectScreenTypes'
 
 export function FavoritesSelectScreen({ onBack, onSelectVideos, onSelectCasts }: Props) {
   return (

@@ -2,26 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native'
 import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch } from '../utils/api'
-
-type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
-
-type CastSearchResultScreenProps = {
-  apiBaseUrl: string
-  onPressTab: (key: TabKey) => void
-  keyword: string
-  onBack: () => void
-  onOpenProfile: (cast: { id: string; name: string; role: string }) => void
-  onOpenNotice?: () => void
-}
-
-type Cast = {
-  id: string
-  name: string
-  role: string
-  thumbnailUrl?: string
-}
-
-type CastResponse = { items: Cast[] }
+import type { Cast, CastResponse, CastSearchResultScreenProps, TabKey } from '../types/castSearchResultScreenTypes'
 
 export function CastSearchResultScreen({ apiBaseUrl, onPressTab, keyword, onBack, onOpenProfile, onOpenNotice }: CastSearchResultScreenProps) {
   const q = useMemo(() => keyword.trim(), [keyword])

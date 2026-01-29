@@ -1,13 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
-
-type TermsScreenProps = {
-  onBack: () => void
-  readOnly?: boolean
-  onAgreeRegister?: () => void
-  onOpenPrivacyPolicy?: () => void
-}
+import { type TermsScreenProps } from '../types/termsScreenTypes'
 
 export function TermsScreen({ onAgreeRegister, onBack, onOpenPrivacyPolicy, readOnly }: TermsScreenProps) {
   const [checked, setChecked] = useState(false)

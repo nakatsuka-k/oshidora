@@ -1,16 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type CommentPostScreenProps = {
-  onBack: () => void
-  workId: string
-  workTitle: string
-  onSubmitted: (opts: { workId: string; body: string }) => Promise<void>
-  onDone: () => void
-}
-
-const MAX_LEN = 500
+import { type CommentPostScreenProps, MAX_LEN } from '../types/commentPostScreenTypes'
 
 export function CommentPostScreen({
   onBack,

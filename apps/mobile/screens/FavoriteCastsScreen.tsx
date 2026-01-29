@@ -2,24 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { RowItem, ScreenContainer, THEME } from '../components'
 import { apiFetch } from '../utils/api'
-
-type FavoriteCastsScreenProps = {
-  apiBaseUrl: string
-  authToken: string
-  loggedIn: boolean
-  onBack: () => void
-  onEdit: () => void
-  onOpenProfile: (cast: { id: string; name: string; role: string }) => void
-}
-
-type Cast = {
-  id: string
-  name: string
-  role: string
-  thumbnailUrl?: string
-}
-
-type CastResponse = { items: Cast[] }
+import { type FavoriteCastsScreenProps, type Cast, type CastResponse } from '../types/favoriteCastsScreenTypes'
 
 export function FavoriteCastsScreen({ apiBaseUrl, authToken, loggedIn, onBack, onEdit, onOpenProfile }: FavoriteCastsScreenProps) {
   const [casts, setCasts] = useState<Cast[]>([])

@@ -1,43 +1,8 @@
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { PaginationDots, PrimaryButton, ScreenContainer, SecondaryButton, Slideshow, THEME } from '../components'
-
-type Oshi = { id: string; name: string; created_at: string }
-
-type Props = {
-  styles: any
-
-  apiBaseUrl: string
-  health: string
-  error: string
-  loggedIn: boolean
-
-  onGoLogin: () => void
-  onGoProfile: () => void
-  onGoWorkDetail: () => void
-  onGoDev: () => void
-
-  onCheckHealth: () => void
-  onReload: () => void
-
-  debugDotsIndex: number
-  onChangeDebugDotsIndex: (next: number) => void
-
-  debugSlideIndex: number
-  onChangeDebugSlideIndex: (next: number) => void
-
-  name: string
-  onChangeName: (next: string) => void
-  onAddOshi: () => void
-  apiBusy: boolean
-  items: Oshi[]
-}
-
-const tutorialImages = [
-  require('../assets/tutorial0.png'),
-  require('../assets/tutorial1.png'),
-  require('../assets/tutorial2.png'),
-]
+import type { Oshi, Props } from '../types/debugTopScreenTypes'
+import { tutorialImages } from '../types/debugTopScreenTypes'
 
 export function DebugTopScreen(props: Props) {
   const styles = props.styles

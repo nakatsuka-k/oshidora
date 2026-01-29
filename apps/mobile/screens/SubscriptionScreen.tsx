@@ -1,15 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type Props = {
-  subscribed: boolean
-  onBack: () => void
-  onSubscribe: () => Promise<void>
-  onCancel: () => Promise<void>
-  onRefresh?: (() => Promise<void>) | undefined
-  note?: string | null
-}
+import { type Props } from '../types/subscriptionScreenTypes'
 
 export function SubscriptionScreen({ subscribed, onBack, onSubscribe, onCancel, onRefresh, note }: Props) {
   const [busy, setBusy] = useState(false)

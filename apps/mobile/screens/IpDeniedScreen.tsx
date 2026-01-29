@@ -1,20 +1,7 @@
 import { SafeAreaView, Text, View } from 'react-native'
 
 import { ScreenContainer, SecondaryButton } from '../components'
-
-type IpInfo = {
-  ip?: string
-  city?: string
-  region?: string
-  country?: string
-}
-
-type Props = {
-  styles: any
-  ipInfo: IpInfo | null
-  ipError: string | null
-  onRetry: () => void
-}
+import type { IpInfo, Props } from '../types/ipDeniedScreenTypes'
 
 export function IpDeniedScreen(props: Props) {
   return (

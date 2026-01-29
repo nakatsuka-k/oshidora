@@ -19,8 +19,14 @@ import {
   CategoriesListScreen as CatalogCategoriesListScreen,
   CategoryEditScreen as CatalogCategoryEditScreen,
 } from './src/screens/catalog/CategoriesScreens'
-import { TagsListScreen as CatalogTagsListScreen, TagEditScreen as CatalogTagEditScreen } from './src/screens/catalog/TagsScreens'
-import { GenresListScreen as CatalogGenresListScreen, GenreEditScreen as CatalogGenreEditScreen } from './src/screens/catalog/GenresScreens'
+import {
+  TagsListScreen as CatalogTagsListScreen,
+  TagEditScreen as CatalogTagEditScreen,
+} from './src/screens/catalog/TagsScreens'
+import {
+  GenresListScreen as CatalogGenresListScreen,
+  GenreEditScreen as CatalogGenreEditScreen,
+} from './src/screens/catalog/GenresScreens'
 import {
   CastCategoriesListScreen as CatalogCastCategoriesListScreen,
   CastCategoryEditScreen as CatalogCastCategoryEditScreen,
@@ -62,9 +68,13 @@ import {
   UnapprovedVideoDetailScreen as ExtractedUnapprovedVideoDetailScreen,
   UnapprovedVideosListScreen as ExtractedUnapprovedVideosListScreen,
 } from './src/screens/videos/VideoModerationScreens'
-import { WorkEditScreen as ExtractedWorkEditScreen, WorksListScreen as ExtractedWorksListScreen } from './src/screens/works/WorkScreens'
+import {
+  WorkEditScreen as ExtractedWorkEditScreen,
+  WorksListScreen as ExtractedWorksListScreen,
+} from './src/screens/works/WorkScreens'
 
-const tus: typeof import('tus-js-client') | null = Platform.OS === 'web' ? (require('tus-js-client') as any) : null
+const tus: typeof import('tus-js-client') | null =
+  Platform.OS === 'web' ? (require('tus-js-client') as any) : null
 
 type Screen = 'login' | 'app'
 
@@ -202,7 +212,7 @@ function DialogProvider({ children }: { children: ReactNode }) {
       try {
         prev.resolve?.(result)
       } catch {
-        // ignore
+        // empty
       }
       return { open: false, message: '', options: {}, resolve: null }
     })
@@ -220,8 +230,16 @@ function DialogProvider({ children }: { children: ReactNode }) {
               <Pressable onPress={() => close(false)} style={styles.dialogBtn}>
                 <Text style={styles.dialogBtnText}>{state.options.cancelText || 'キャンセル'}</Text>
               </Pressable>
-              <Pressable onPress={() => close(true)} style={[styles.dialogBtn, state.options.danger ? styles.dialogBtnDanger : styles.dialogBtnOk]}>
-                <Text style={[styles.dialogBtnText, styles.dialogBtnOkText]}>{state.options.okText || 'OK'}</Text>
+              <Pressable
+                onPress={() => close(true)}
+                style={[
+                  styles.dialogBtn,
+                  state.options.danger ? styles.dialogBtnDanger : styles.dialogBtnOk,
+                ]}
+              >
+                <Text style={[styles.dialogBtnText, styles.dialogBtnOkText]}>
+                  {state.options.okText || 'OK'}
+                </Text>
               </Pressable>
             </View>
           </Pressable>
@@ -244,7 +262,12 @@ function csvToIdList(text: string): string[] {
     .filter(Boolean)
 }
 
-async function cmsFetchJsonWithBase<T>(cfg: CmsApiConfig, baseUrl: string, path: string, init?: RequestInit): Promise<T> {
+async function cmsFetchJsonWithBase<T>(
+  cfg: CmsApiConfig,
+  baseUrl: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
   const base = (baseUrl || '').replace(/\/$/, '')
   if (!base) throw new Error('API Base が未設定です')
   if (!cfg.token) throw new Error('セッションが切れました')
@@ -261,7 +284,6 @@ async function cmsFetchJsonWithBase<T>(cfg: CmsApiConfig, baseUrl: string, path:
 
   if (res.status === 401) {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      // Ensure a bad/expired remembered token doesn't keep auto-logging in.
       safeLocalStorageRemove(STORAGE_KEY)
 
       if (!unauthorizedEventEmitted) {
@@ -282,11 +304,10 @@ async function cmsFetchJsonWithBase<T>(cfg: CmsApiConfig, baseUrl: string, path:
           try {
             window.location.href = '/login'
           } catch {
-            // ignore
+            // empty
           }
         }
 
-        // Only suppress future emissions if we actually notified the app.
         unauthorizedEventEmitted = dispatched
       }
     }
@@ -294,7 +315,8 @@ async function cmsFetchJsonWithBase<T>(cfg: CmsApiConfig, baseUrl: string, path:
   }
 
   if (!res.ok) {
-    const msg = json && json.error ? String(json.error) : '通信に失敗しました。時間をおいて再度お試しください'
+    const DEFAULT_ERROR = '通信に失敗しました。時間をおいて再度お試しください'
+    const msg = json && json.error ? String(json.error) : DEFAULT_ERROR
     throw new Error(msg)
   }
   return json as T
@@ -572,8 +594,6 @@ function getApiBaseFromLocation(): string {
   const q = String(url.searchParams.get('api') || '').trim()
   if (q) return q.replace(/\/$/, '')
 
-  // Default (production)
-  // Local development can override via ?api=http://localhost:8787 or API Base Override in /dev.
   return 'https://api.oshidra.com'
 }
 
@@ -587,8 +607,6 @@ function getUploaderBaseFromLocation(): string {
   const q = String(url.searchParams.get('uploader') || '').trim()
   if (q) return q.replace(/\/$/, '')
 
-  // Default (production)
-  // Local development can override via ?uploader=http://localhost:8788 or Uploader Base Override in /dev.
   return 'https://assets-uploader.oshidra.com'
 }
 
@@ -614,7 +632,7 @@ function safeLocalStorageSet(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value)
   } catch {
-    // ignore
+    // empty
   }
 }
 
@@ -623,7 +641,7 @@ function safeLocalStorageRemove(key: string): void {
   try {
     window.localStorage.removeItem(key)
   } catch {
-    // ignore
+    // empty
   }
 }
 
@@ -644,7 +662,15 @@ function AppHeader({ adminName, onLogout }: { adminName: string; onLogout: () =>
   )
 }
 
-function Sidebar({ entries, activeId, onNavigate }: { entries: SidebarEntry[]; activeId: RouteId; onNavigate: (id: RouteId) => void }) {
+function Sidebar({
+  entries,
+  activeId,
+  onNavigate,
+}: {
+  entries: SidebarEntry[]
+  activeId: RouteId
+  onNavigate: (id: RouteId) => void
+}) {
   return (
     <View style={styles.sidebar}>
       <Text style={styles.sidebarTitle}>管理メニュー</Text>
@@ -673,7 +699,14 @@ function Sidebar({ entries, activeId, onNavigate }: { entries: SidebarEntry[]; a
                 activeId === it.id ? styles.sidebarItemActive : null,
               ]}
             >
-              <Text style={[styles.sidebarItemText, activeId === it.id ? styles.sidebarItemTextActive : null]}>{it.label}</Text>
+              <Text
+                style={[
+                  styles.sidebarItemText,
+                  activeId === it.id ? styles.sidebarItemTextActive : null,
+                ]}
+              >
+                {it.label}
+              </Text>
             </Pressable>
           )
         })}
@@ -751,7 +784,8 @@ function DashboardScreen({
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const [scheduledRows, setScheduledRows] = useState<Array<{ id: string; title: string; scheduledAt: string; status: string }>>([])
+  type ScheduledRow = { id: string; title: string; scheduledAt: string; status: string }
+  const [scheduledRows, setScheduledRows] = useState<ScheduledRow[]>([])
 
   const [kpis, setKpis] = useState<KPIItem[]>(() => [
     { id: 'users_total', label: '総ユーザー数', value: '—', route: 'users' },
@@ -763,9 +797,27 @@ function DashboardScreen({
   ])
 
   const [activities, setActivities] = useState<ActivityItem[]>(() => [
-    { id: 'a_unapproved_videos', label: '未承認動画', detail: '承認待ち', pendingCount: 0, route: 'unapproved-videos' },
-    { id: 'a_unapproved_comments', label: '未承認コメント', detail: '承認待ち', pendingCount: 0, route: 'comments-pending' },
-    { id: 'a_unapproved_actors', label: '未承認俳優アカウント', detail: '審査待ち', pendingCount: 0, route: 'unapproved-actor-accounts' },
+    {
+      id: 'a_unapproved_videos',
+      label: '未承認動画',
+      detail: '承認待ち',
+      pendingCount: 0,
+      route: 'unapproved-videos',
+    },
+    {
+      id: 'a_unapproved_comments',
+      label: '未承認コメント',
+      detail: '承認待ち',
+      pendingCount: 0,
+      route: 'comments-pending',
+    },
+    {
+      id: 'a_unapproved_actors',
+      label: '未承認俳優アカウント',
+      detail: '審査待ち',
+      pendingCount: 0,
+      route: 'unapproved-actor-accounts',
+    },
   ])
 
   const shortcuts = useMemo<Array<{ id: string; label: string; route: RouteId }>>(
@@ -806,12 +858,42 @@ function DashboardScreen({
         const scheduled = scheduledRes.status === 'fulfilled' ? scheduledRes.value : { items: [] as any[] }
 
         setKpis([
-          { id: 'users_total', label: '総ユーザー数', value: String(summary?.usersTotal ?? 0), route: 'users' },
-          { id: 'users_today', label: '本日の新規登録', value: String(summary?.usersToday ?? 0), route: 'users' },
-          { id: 'works_published', label: '公開中作品数', value: String(summary?.worksPublished ?? 0), route: 'works' },
-          { id: 'videos_published', label: '公開中動画数', value: String(summary?.videosPublished ?? 0), route: 'videos' },
-          { id: 'plays_today', label: '本日の再生回数', value: String(summary?.playsToday ?? 0), route: 'videos' },
-          { id: 'coins_spent_today', label: '本日のコイン消費', value: String(summary?.coinsSpentToday ?? 0), route: 'coin' },
+          {
+            id: 'users_total',
+            label: '総ユーザー数',
+            value: String(summary?.usersTotal ?? 0),
+            route: 'users',
+          },
+          {
+            id: 'users_today',
+            label: '本日の新規登録',
+            value: String(summary?.usersToday ?? 0),
+            route: 'users',
+          },
+          {
+            id: 'works_published',
+            label: '公開中作品数',
+            value: String(summary?.worksPublished ?? 0),
+            route: 'works',
+          },
+          {
+            id: 'videos_published',
+            label: '公開中動画数',
+            value: String(summary?.videosPublished ?? 0),
+            route: 'videos',
+          },
+          {
+            id: 'plays_today',
+            label: '本日の再生回数',
+            value: String(summary?.playsToday ?? 0),
+            route: 'videos',
+          },
+          {
+            id: 'coins_spent_today',
+            label: '本日のコイン消費',
+            value: String(summary?.coinsSpentToday ?? 0),
+            route: 'coin',
+          },
         ])
 
         setActivities([
@@ -1229,7 +1311,7 @@ function MultiSelectField({
 
 /* LEGACY: extracted to ./src/screens/**
  * Kept temporarily for reference during refactor; safe to delete once confirmed.
- *
+ */
 
 type UnapprovedVideoRow = {
   id: string
@@ -1334,7 +1416,15 @@ function UnapprovedActorAccountDetailScreen({ id, onBack }: { id: string; onBack
   const { confirm } = useDialog()
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
-  const [item, setItem] = useState<null | { id: string; name: string; email: string; submittedAt: string; draft: any }>(null)
+
+  type ActorAccount = {
+    id: string
+    name: string
+    email: string
+    submittedAt: string
+    draft: any
+  }
+  const [item, setItem] = useState<null | ActorAccount>(null)
   const [rejectReason, setRejectReason] = useState('')
 
   useEffect(() => {
@@ -1485,9 +1575,17 @@ function UnapprovedVideosListScreen({ onOpenDetail }: { onOpenDetail: (id: strin
     setBanner('')
     void (async () => {
       try {
-        const json = await cmsFetchJson<{
-          items: Array<{ id: string; title: string; approvalRequestedAt: string | null; scheduledAt: string | null; submitterEmail: string }>
-        }>(cfg, '/cms/videos/unapproved')
+        type UnapprovedVideoItem = {
+          id: string
+          title: string
+          approvalRequestedAt: string | null
+          scheduledAt: string | null
+          submitterEmail: string
+        }
+        const json = await cmsFetchJson<{ items: UnapprovedVideoItem[] }>(
+          cfg,
+          '/cms/videos/unapproved',
+        )
         if (!mounted) return
         setRows(
           json.items.map((v) => ({
@@ -1749,7 +1847,7 @@ function CmsMaintenanceGate({
         setMaintenanceMode(Boolean(json.maintenanceMode))
         setMaintenanceMessage(String(json.maintenanceMessage ?? ''))
       } catch {
-        // ignore
+        // empty
       }
     }
     void tick()
@@ -1775,7 +1873,7 @@ function getTokenFromLocation(): string {
     const q = String(url.searchParams.get('token') || '').trim()
     if (q) return q
   } catch {
-    // ignore
+    // empty
   }
 
   const rawHash = String(window.location.hash || '')
@@ -4136,8 +4234,6 @@ export default function App() {
         ) : null}
       </View>
 
-      {/* token is intentionally unused for now; wiring to API will come later */}
-      {token ? null : null}
       <StatusBar style="auto" />
     </View>
   )

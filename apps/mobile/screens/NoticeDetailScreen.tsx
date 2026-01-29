@@ -4,25 +4,7 @@ import RenderHtml from 'react-native-render-html'
 import { ScreenContainer, THEME } from '../components'
 import { apiFetch } from '../utils/api'
 import { getMockNoticeDetail } from '../utils/mockNotices'
-
-type NoticeDetailScreenProps = {
-  apiBaseUrl: string
-  noticeId: string
-  mock: boolean
-  onBack: () => void
-}
-
-type NoticeDetail = {
-  id: string
-  title: string
-  publishedAt: string
-  bodyHtml: string
-  tags?: string[]
-}
-
-type NoticeDetailResponse = {
-  item: NoticeDetail | null
-}
+import { type NoticeDetailScreenProps, type NoticeDetail, type NoticeDetailResponse } from '../types/noticeDetailScreenTypes'
 
 export function NoticeDetailScreen({ apiBaseUrl, noticeId, mock, onBack }: NoticeDetailScreenProps) {
   const { width } = useWindowDimensions()

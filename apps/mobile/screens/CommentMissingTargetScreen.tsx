@@ -1,13 +1,7 @@
 import { Text, View } from 'react-native'
 
 import { PrimaryButton, ScreenContainer, SecondaryButton } from '../components'
-
-type Props = {
-  styles: any
-  onBack: () => void
-  onGoDev: () => void
-  onGoHome: () => void
-}
+import type { Props } from '../types/commentMissingTargetScreenTypes'
 
 export function CommentMissingTargetScreen(props: Props) {
   return (

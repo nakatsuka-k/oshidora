@@ -1,13 +1,7 @@
 import { ActivityIndicator, Text, View } from 'react-native'
 
 import { PrimaryButton, ScreenContainer } from '../components'
-
-type Props = {
-  styles: any
-  hydrating: boolean
-  onBack: () => void
-  onGoHome: () => void
-}
+import type { Props } from '../types/videoPlayerMissingTargetScreenTypes'
 
 export function VideoPlayerMissingTargetScreen(props: Props) {
   return (

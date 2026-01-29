@@ -3,12 +3,7 @@ import { StatusBar } from 'expo-status-bar'
 import { useEffect, useMemo, useRef } from 'react'
 import { Animated, Easing, Image, Platform, StyleSheet, View } from 'react-native'
 import { THEME } from '../components'
-
-type Props = {
-  videoUri?: string
-  maxDurationMs?: number
-  onDone: () => void
-}
+import { type Props } from '../types/splashScreenTypes'
 
 export function SplashScreen({ videoUri, maxDurationMs = 3000, onDone }: Props) {
   const doneRef = useRef(false)

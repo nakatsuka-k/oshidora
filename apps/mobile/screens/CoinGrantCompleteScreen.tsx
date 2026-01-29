@@ -1,15 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type Props = {
-  grantedCoins: number
-  reasonLabel: string
-  grantedAt: number
-  balanceAfter: number
-  primaryAction: { label: string; onPress: () => void }
-  showMyPageAction?: boolean
-  onGoMyPage?: () => void
-}
+import type { Props } from '../types/coinGrantCompleteScreenTypes'
 
 function formatYmdHm(ms: number) {
   if (!Number.isFinite(ms) || ms <= 0) return '—'

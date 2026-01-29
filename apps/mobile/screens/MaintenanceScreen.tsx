@@ -1,13 +1,7 @@
 import { SafeAreaView, Text, View } from 'react-native'
 
 import { ScreenContainer, SecondaryButton } from '../components'
-
-type Props = {
-  styles: any
-  message: string
-  checkedOnce: boolean
-  onReload: () => void
-}
+import type { Props } from '../types/maintenanceScreenTypes'
 
 export function MaintenanceScreen(props: Props) {
   return (

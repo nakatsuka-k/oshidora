@@ -1,14 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native'
 import { NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
-
-type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
-
-type TabbedPlaceholderScreenProps = {
-  title: string
-  activeTab: TabKey
-  onPressTab: (key: TabKey) => void
-  onOpenNotice?: () => void
-}
+import type { TabKey, TabbedPlaceholderScreenProps } from '../types/tabbedPlaceholderScreenTypes'
 
 export function TabbedPlaceholderScreen({ title, activeTab, onPressTab, onOpenNotice }: TabbedPlaceholderScreenProps) {
   return (

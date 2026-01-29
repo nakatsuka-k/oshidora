@@ -1,11 +1,6 @@
 import { StyleSheet, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type WelcomeAuthChoiceScreenProps = {
-  onBack: () => void
-  onLogin: () => void
-  onRegister: () => void
-}
+import type { WelcomeAuthChoiceScreenProps } from '../types/welcomeAuthChoiceScreenTypes'
 
 export function WelcomeAuthChoiceScreen({ onBack, onLogin, onRegister }: WelcomeAuthChoiceScreenProps) {
   return (

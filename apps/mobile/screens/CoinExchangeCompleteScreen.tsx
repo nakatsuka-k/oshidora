@@ -1,17 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, THEME } from '../components'
-
-type CoinExchangeCompleteScreenProps = {
-  coinAmount: number
-  pointAmount: number
-  paypayMaskedLabel: string
-  onDone: () => void
-}
-
-function formatCoins(value: number) {
-  const v = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
-  return v.toLocaleString('ja-JP')
-}
+import type { CoinExchangeCompleteScreenProps } from '../types/coinExchangeCompleteScreenTypes'
+import { formatCoins } from '../types/coinExchangeCompleteScreenTypes'
 
 export function CoinExchangeCompleteScreen({ coinAmount, pointAmount, paypayMaskedLabel, onDone }: CoinExchangeCompleteScreenProps) {
   return (

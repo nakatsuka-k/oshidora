@@ -1,10 +1,7 @@
 import { ActivityIndicator, SafeAreaView, Text, View } from 'react-native'
 
 import { ScreenContainer } from '../components'
-
-type Props = {
-  styles: any
-}
+import type { Props } from '../types/ipCheckingScreenTypes'
 
 export function IpCheckingScreen(props: Props) {
   return (

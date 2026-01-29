@@ -1,10 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import { PrimaryButton, ScreenContainer, THEME } from '../components'
-
-type RegisterCompleteScreenProps = {
-  onGoVideos: () => void
-}
+import type { RegisterCompleteScreenProps } from '../types/registerCompleteScreenTypes'
 
 export function RegisterCompleteScreen({ onGoVideos }: RegisterCompleteScreenProps) {
   return (

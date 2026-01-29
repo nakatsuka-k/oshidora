@@ -2,24 +2,7 @@ import { useMemo } from 'react'
 import { Image, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type LoginFieldErrors = {
-  email?: string
-  password?: string
-}
-
-type Props = {
-  email: string
-  password: string
-  fieldErrors: LoginFieldErrors
-  bannerError: string
-  busy: boolean
-  onChangeEmail: (value: string) => void
-  onChangePassword: (value: string) => void
-  onCancel: () => void
-  onNext: () => void
-  canNext: boolean
-}
+import { type Props, type LoginFieldErrors } from '../types/loginScreenTypes'
 
 export function LoginScreen(props: Props) {
   const inputErrorStyle = useMemo(() => styles.inputError, [])

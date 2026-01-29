@@ -1,9 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, THEME } from '../components'
-
-type PrivacyPolicyScreenProps = {
-  onBack: () => void
-}
+import type { PrivacyPolicyScreenProps } from '../types/privacyPolicyScreenTypes'
 
 export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
   const policyText =
