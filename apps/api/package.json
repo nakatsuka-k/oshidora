@@ -11,7 +11,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply oshidora-db --remote"
   },
   "dependencies": {
-    "hono": "^4.6.12"
+    "hono": "^4.6.12",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241230.0",

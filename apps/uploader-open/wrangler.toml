@@ -1,0 +1,30 @@
+name = "oshidra-uploader-open"
+account_id = "c6270d2ac0aefb2ca6ce6831cbc9ca30"
+main = "src/index.ts"
+# Keep in sync with local runtime compatibility.
+compatibility_date = "2025-12-10"
+
+# IMPORTANT:
+# - This worker is intentionally unauthenticated for TEST/DATA-SEED usage.
+# - Do NOT expose it publicly unless you understand the risks.
+# - Set PUBLIC_UPLOAD_ENABLED=1 explicitly to enable uploads.
+
+[vars]
+PUBLIC_BASE_URL = "https://assets.oshidra.com"
+PUBLIC_UPLOAD_ENABLED = "0"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "assets"
+
+[env.production]
+name = "oshidra-uploader-open"
+
+[env.production.vars]
+PUBLIC_BASE_URL = "https://assets.oshidra.com"
+# Intentionally open for test-data seeding
+PUBLIC_UPLOAD_ENABLED = "1"
+
+[[env.production.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "assets"

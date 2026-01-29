@@ -16,6 +16,8 @@ import {
   View,
 } from 'react-native'
 
+import { WebDropZone } from './src/ui/WebDropZone'
+
 import {
   CategoriesListScreen as CatalogCategoriesListScreen,
   CategoryEditScreen as CatalogCategoryEditScreen,
@@ -271,10 +273,21 @@ async function cmsFetchJsonWithBase<T>(
   if (!base) throw new Error('API Base が未設定です')
   if (!cfg.token) throw new Error('セッションが切れました')
 
+  const isWeb = Platform.OS === 'web' && typeof window !== 'undefined'
+
   const res = await fetch(`${base}${path}`, {
     ...init,
+    // Prevent browser/service-worker caches from reusing old CMS responses.
+    // (React Native native fetch may ignore this field, which is fine.)
+    cache: isWeb ? 'no-store' : (init as any)?.cache,
     headers: {
       ...(init?.headers || {}),
+      ...(isWeb
+        ? {
+            'cache-control': 'no-cache',
+            pragma: 'no-cache',
+          }
+        : null),
       authorization: `Bearer ${cfg.token}`,
     },
   })
@@ -1871,34 +1884,7 @@ function CmsMaintenanceGate({
   onLogout: () => void
   onNavigate: (id: RouteId) => void
 }) {
-  const cfg = useCmsApi()
-  const [maintenanceMode, setMaintenanceMode] = useState(false)
-  const [maintenanceMessage, setMaintenanceMessage] = useState('')
-
-  useEffect(() => {
-    let mounted = true
-    const tick = async () => {
-      try {
-        const json = await cmsFetchJson<{ maintenanceMode: boolean; maintenanceMessage: string }>(cfg, '/cms/settings')
-        if (!mounted) return
-        setMaintenanceMode(Boolean(json.maintenanceMode))
-        setMaintenanceMessage(String(json.maintenanceMessage ?? ''))
-      } catch {
-        // empty
-      }
-    }
-    void tick()
-    const t = setInterval(() => void tick(), 30_000)
-    return () => {
-      mounted = false
-      clearInterval(t)
-    }
-  }, [cfg])
-
-  if (maintenanceMode && route !== 'settings' && route !== 'dev') {
-    return <MaintenanceModeScreen message={maintenanceMessage} onGoSettings={() => onNavigate('settings')} />
-  }
-
+  // Admin should remain usable even when the consumer site is in maintenance mode.
   return <AppShell route={route} adminName={adminName} onLogout={onLogout} onNavigate={onNavigate} />
 }
 
@@ -2291,8 +2277,443 @@ function RecommendVideosScreen() {
   return <FeaturedVideosScreen slot="recommend" title="おすすめ動画" />
 }
 
-function PickupVideosScreen() {
-  return <FeaturedVideosScreen slot="pickup" title="ピックアップ動画" />
+type PickupLinkItem = {
+  kind: 'link'
+  id: string
+  title: string
+  url: string
+  thumbnailUrl: string
+}
+
+type PickupVideoItem = FeaturedVideoItem & {
+  kind: 'video'
+  videoId: string
+}
+
+type PickupItem = PickupVideoItem | PickupLinkItem
+
+function PickupScreen() {
+  const cfg = useCmsApi()
+
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const [addMode, setAddMode] = useState<'video' | 'link' | ''>('')
+
+  // Video search fields
+  const [q, setQ] = useState('')
+  const [qCast, setQCast] = useState('')
+  const [qCategory, setQCategory] = useState('')
+  const [qTag, setQTag] = useState('')
+  const [searchRows, setSearchRows] = useState<FeaturedVideoItem[]>([])
+  const [busy, setBusy] = useState(false)
+
+  // Link fields
+  const [linkTitle, setLinkTitle] = useState('')
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkThumbUrl, setLinkThumbUrl] = useState('')
+  const [linkThumbFile, setLinkThumbFile] = useState<File | null>(null)
+  const [linkThumbUploading, setLinkThumbUploading] = useState(false)
+
+  const [selectedRows, setSelectedRows] = useState<PickupItem[]>([])
+  const [banner, setBanner] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const loadSelected = useCallback(async () => {
+    setBanner('')
+    try {
+      const json = await cmsFetchJson<{ items: PickupItem[] }>(cfg, '/cms/pickup/items')
+      setSelectedRows(Array.isArray(json.items) ? json.items : [])
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    }
+  }, [cfg])
+
+  useEffect(() => {
+    void loadSelected()
+  }, [loadSelected])
+
+  const runSearch = useCallback(async () => {
+    setBusy(true)
+    setBanner('')
+    try {
+      const params = new URLSearchParams()
+      if (q.trim()) params.set('q', q.trim())
+      if (qCast.trim()) params.set('cast', qCast.trim())
+      if (qCategory.trim()) params.set('category', qCategory.trim())
+      if (qTag.trim()) params.set('tag', qTag.trim())
+      params.set('limit', '80')
+      const json = await cmsFetchJson<{ items: FeaturedVideoItem[] }>(cfg, `/cms/videos/search?${params.toString()}`)
+      setSearchRows(Array.isArray(json.items) ? json.items : [])
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [cfg, q, qCast, qCategory, qTag])
+
+  const resetSearch = useCallback(() => {
+    setQ('')
+    setQCast('')
+    setQCategory('')
+    setQTag('')
+    setSearchRows([])
+    setBanner('')
+  }, [])
+
+  const selectedVideoIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const r of selectedRows) {
+      if (r.kind === 'video') s.add(r.videoId || r.id)
+    }
+    return s
+  }, [selectedRows])
+
+  const addVideo = useCallback((it: FeaturedVideoItem) => {
+    setSelectedRows((prev) => {
+      if (prev.some((p) => p.kind === 'video' && (p.videoId || p.id) === it.id)) return prev
+      const next: PickupVideoItem = { ...it, kind: 'video', videoId: it.id }
+      return [...prev, next]
+    })
+  }, [])
+
+  const addLink = useCallback(() => {
+    const url = linkUrl.trim()
+    if (!/^https?:\/\//i.test(url)) {
+      setBanner('URLは http(s):// から始まる形式で入力してください')
+      return
+    }
+    const id = `link_${Date.now()}_${Math.random().toString(16).slice(2)}`
+    const title = linkTitle.trim() || url
+    const thumbnailUrl = linkThumbUrl.trim()
+    setSelectedRows((prev) => [...prev, { kind: 'link', id, title, url, thumbnailUrl }])
+    setLinkTitle('')
+    setLinkUrl('')
+    setLinkThumbUrl('')
+    setBanner('')
+  }, [linkThumbUrl, linkTitle, linkUrl])
+
+  const uploadLinkThumbnail = useCallback(
+    (file?: File | null) => {
+      if (Platform.OS !== 'web') {
+        setBanner('画像アップロードはWeb版管理画面のみ対応です')
+        return
+      }
+
+      const f = file ?? linkThumbFile
+      if (!f) {
+        setBanner('画像ファイルを選択してください')
+        return
+      }
+
+      setLinkThumbUploading(true)
+      setBanner('画像アップロード中…')
+      void (async () => {
+        try {
+          const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
+            cfg,
+            cfg.uploaderBase,
+            '/cms/images',
+            {
+              method: 'PUT',
+              headers: {
+                'content-type': f.type || 'application/octet-stream',
+              },
+              body: f,
+            },
+          )
+
+          if ((res as any).error || !(res as any).data?.url) {
+            throw new Error((res as any).error || '画像アップロードに失敗しました')
+          }
+
+          setLinkThumbUrl(String((res as any).data.url || ''))
+          setBanner('画像アップロード完了')
+        } catch (e) {
+          setBanner(e instanceof Error ? e.message : String(e))
+        } finally {
+          setLinkThumbUploading(false)
+        }
+      })()
+    },
+    [cfg, linkThumbFile]
+  )
+
+  const removeSelected = useCallback((id: string) => {
+    setSelectedRows((prev) => prev.filter((p) => p.id !== id))
+  }, [])
+
+  const moveSelected = useCallback((from: number, to: number) => {
+    setSelectedRows((prev) => {
+      if (from < 0 || from >= prev.length) return prev
+      if (to < 0 || to >= prev.length) return prev
+      const next = [...prev]
+      const [picked] = next.splice(from, 1)
+      next.splice(to, 0, picked)
+      return next
+    })
+  }, [])
+
+  const onSave = useCallback(async () => {
+    setSaving(true)
+    setBanner('')
+    try {
+      await cmsFetchJson<{ ok: boolean }>(cfg, '/cms/pickup/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: selectedRows.map((r) => {
+            if (r.kind === 'video') return { kind: 'video', videoId: r.videoId || r.id }
+            return { kind: 'link', id: r.id, title: r.title, url: r.url, thumbnailUrl: r.thumbnailUrl }
+          }),
+        }),
+      })
+      setBanner('保存しました')
+      await loadSelected()
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }, [cfg, loadSelected, selectedRows])
+
+  return (
+    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+      <View style={styles.pageHeaderRow}>
+        <Text style={styles.pageTitle}>ピックアップ</Text>
+        <Pressable onPress={() => setAddMenuOpen((v) => !v)} style={styles.plusBtn}>
+          <Text style={styles.plusBtnText}>＋</Text>
+        </Pressable>
+      </View>
+
+      {banner ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{banner}</Text>
+        </View>
+      ) : null}
+
+      {addMenuOpen ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>追加</Text>
+          <View style={[styles.filterActions, { justifyContent: 'flex-start', gap: 8 }]}>
+            <Pressable
+              onPress={() => {
+                setAddMode('video')
+                setAddMenuOpen(false)
+              }}
+              style={styles.smallBtnPrimary}
+            >
+              <Text style={styles.smallBtnPrimaryText}>動画を追加</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setAddMode('link')
+                setAddMenuOpen(false)
+              }}
+              style={styles.smallBtnPrimary}
+            >
+              <Text style={styles.smallBtnPrimaryText}>URLリンクを追加</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {addMode === 'link' ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>URLリンク追加</Text>
+          <View style={styles.field}>
+            <Text style={styles.label}>タイトル（任意）</Text>
+            <TextInput value={linkTitle} onChangeText={setLinkTitle} placeholder="例: 特設ページ" style={styles.input} />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>URL（必須）</Text>
+            <TextInput value={linkUrl} onChangeText={setLinkUrl} placeholder="https://..." style={styles.input} autoCapitalize="none" />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>サムネイル画像URL（任意）</Text>
+            <TextInput
+              value={linkThumbUrl}
+              onChangeText={setLinkThumbUrl}
+              placeholder="https://..."
+              style={styles.input}
+              autoCapitalize="none"
+            />
+            {Platform.OS === 'web' ? (
+              <View style={{ marginTop: 8 }}>
+                <WebDropZone
+                  title="サムネ画像を選択（自動アップロード）"
+                  hint="画像を選ぶとR2へアップロードしてURLを自動入力します"
+                  accept="image/png,image/jpeg,image/webp"
+                  multiple={false}
+                  disabled={linkThumbUploading}
+                  onFiles={(files) => {
+                    const f = files?.[0] ?? null
+                    if (!f) return
+                    setLinkThumbFile(f)
+                    uploadLinkThumbnail(f)
+                  }}
+                />
+                {linkThumbFile ? (
+                  <Text style={[styles.tableDetail, { marginTop: 6 }]}>
+                    {linkThumbUploading ? 'アップロード中…' : `選択: ${linkThumbFile.name}`}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.filterActions}>
+            <Pressable onPress={addLink} style={styles.btnPrimary}>
+              <Text style={styles.btnPrimaryText}>追加</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setAddMode('')
+              }}
+              style={styles.btnSecondary}
+            >
+              <Text style={styles.btnSecondaryText}>閉じる</Text>
+            </Pressable>
+          </View>
+          {linkThumbUrl.trim() ? (
+            <View style={{ marginTop: 8 }}>
+              <Text style={styles.tableDetail}>プレビュー</Text>
+              <Image source={{ uri: linkThumbUrl.trim() }} style={styles.thumb} />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {addMode === 'video' ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>動画追加</Text>
+          <View style={styles.filtersGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>タイトル</Text>
+              <TextInput value={q} onChangeText={setQ} placeholder="部分一致" style={styles.input} />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>出演者</Text>
+              <TextInput value={qCast} onChangeText={setQCast} placeholder="部分一致" style={styles.input} />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>カテゴリ</Text>
+              <TextInput value={qCategory} onChangeText={setQCategory} placeholder="部分一致" style={styles.input} />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>タグ</Text>
+              <TextInput value={qTag} onChangeText={setQTag} placeholder="部分一致" style={styles.input} />
+            </View>
+          </View>
+
+          <View style={styles.filterActions}>
+            <Pressable disabled={busy} onPress={runSearch} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+              <Text style={styles.btnPrimaryText}>{busy ? '検索中…' : '検索'}</Text>
+            </Pressable>
+            <Pressable onPress={resetSearch} style={styles.btnSecondary}>
+              <Text style={styles.btnSecondaryText}>リセット</Text>
+            </Pressable>
+            <Pressable onPress={() => setAddMode('')} style={styles.btnSecondary}>
+              <Text style={styles.btnSecondaryText}>閉じる</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.table}>
+            {searchRows.length === 0 ? (
+              <View style={styles.tableRow}>
+                <View style={styles.tableLeft}>
+                  <Text style={styles.tableDetail}>検索結果がありません</Text>
+                </View>
+              </View>
+            ) : (
+              searchRows.map((r) => (
+                <View key={r.id} style={styles.tableRow}>
+                  <View style={[styles.tableLeft, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}
+                  >
+                    {r.thumbnailUrl ? <Image source={{ uri: r.thumbnailUrl }} style={styles.thumb} /> : <View style={styles.thumb} />}
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={styles.tableLabel}>{r.title || '—'}</Text>
+                      <Text style={styles.tableDetail}>{`${r.id} / ${r.workTitle || '—'}`}</Text>
+                      <Text style={styles.tableDetail}>{`出演者: ${r.castNames || '—'}`}</Text>
+                      <Text style={styles.tableDetail}>{`カテゴリ: ${r.categoryNames || '—'} / タグ: ${r.tagNames || '—'}`}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.tableRight}>
+                    <Pressable
+                      disabled={selectedVideoIds.has(r.id)}
+                      onPress={() => addVideo(r)}
+                      style={[styles.smallBtnPrimary, selectedVideoIds.has(r.id) ? styles.btnDisabled : null]}
+                    >
+                      <Text style={styles.smallBtnPrimaryText}>{selectedVideoIds.has(r.id) ? '追加済み' : '追加'}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <View style={styles.pageHeaderRow}>
+          <Text style={styles.sectionTitle}>{`選定済み（${selectedRows.length}件）`}</Text>
+          <Pressable disabled={saving} onPress={onSave} style={[styles.btnPrimary, saving ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{saving ? '保存中…' : '保存'}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.table}>
+          {selectedRows.length === 0 ? (
+            <View style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableDetail}>未選定です</Text>
+              </View>
+            </View>
+          ) : (
+            selectedRows.map((r, idx) => (
+              <View key={r.id} style={styles.tableRow}>
+                <View style={[styles.tableLeft, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}
+                >
+                  {r.thumbnailUrl ? <Image source={{ uri: r.thumbnailUrl }} style={styles.thumb} /> : <View style={styles.thumb} />}
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={styles.tableLabel}>{`${idx + 1}. ${r.title || '—'}`}</Text>
+                    {r.kind === 'video' ? (
+                      <>
+                        <Text style={styles.tableDetail}>{`VIDEO: ${(r as PickupVideoItem).videoId} / ${(r as PickupVideoItem).workTitle || '—'}`}</Text>
+                        <Text style={styles.tableDetail}>{`出演者: ${(r as PickupVideoItem).castNames || '—'}`}</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.tableDetail}>{`LINK: ${(r as PickupLinkItem).url}`}</Text>
+                        <Text style={styles.tableDetail}>{`ID: ${r.id}`}</Text>
+                      </>
+                    )}
+                  </View>
+                </View>
+                <View style={[styles.tableRight, { flexDirection: 'row', gap: 8, alignItems: 'center' }]}
+                >
+                  <Pressable
+                    disabled={idx === 0}
+                    onPress={() => moveSelected(idx, idx - 1)}
+                    style={[styles.smallBtn, idx === 0 ? styles.btnDisabled : null]}
+                  >
+                    <Text style={styles.smallBtnText}>上へ</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={idx === selectedRows.length - 1}
+                    onPress={() => moveSelected(idx, idx + 1)}
+                    style={[styles.smallBtn, idx === selectedRows.length - 1 ? styles.btnDisabled : null]}
+                  >
+                    <Text style={styles.smallBtnText}>下へ</Text>
+                  </Pressable>
+                  <Pressable onPress={() => removeSelected(r.id)} style={styles.smallBtn}>
+                    <Text style={styles.smallBtnText}>削除</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      </View>
+    </ScrollView>
+  )
 }
 
 type CastStaffRow = {
@@ -3252,6 +3673,7 @@ function AppShell({
           <ExtractedVideoDetailScreen
             cfg={cfg}
             cmsFetchJson={cmsFetchJson}
+            cmsFetchJsonWithBase={cmsFetchJsonWithBase}
             csvToIdList={csvToIdList}
             styles={styles}
             SelectField={SelectField}
@@ -3333,7 +3755,7 @@ function AppShell({
       case 'recommend':
         return <RecommendVideosScreen />
       case 'pickup':
-        return <PickupVideosScreen />
+        return <PickupScreen />
 
       case 'castStaff':
         return (
@@ -3666,6 +4088,7 @@ function AppShell({
       case 'admins':
         return (
           <ExtractedAdminsListScreen
+            cfg={cfg}
             onNew={() => {
               setSelectedAdminId('')
               onNavigate('admin-new')
@@ -3677,13 +4100,14 @@ function AppShell({
           />
         )
       case 'admin-detail':
-        return <ExtractedAdminEditScreen title="管理者詳細・編集" id={selectedAdminId} onBack={() => onNavigate('admins')} />
+        return <ExtractedAdminEditScreen cfg={cfg} title="管理者詳細・編集" id={selectedAdminId} onBack={() => onNavigate('admins')} />
       case 'admin-new':
-        return <ExtractedAdminEditScreen title="管理者新規作成" id="" onBack={() => onNavigate('admins')} />
+        return <ExtractedAdminEditScreen cfg={cfg} title="管理者新規作成" id="" onBack={() => onNavigate('admins')} />
 
       case 'inquiries':
         return (
           <ExtractedInquiriesListScreen
+            cfg={cfg}
             onOpenDetail={(id) => {
               setSelectedInquiryId(id)
               onNavigate('inquiry-detail')
@@ -3691,7 +4115,7 @@ function AppShell({
           />
         )
       case 'inquiry-detail':
-        return <ExtractedInquiryDetailScreen id={selectedInquiryId} onBack={() => onNavigate('inquiries')} />
+        return <ExtractedInquiryDetailScreen cfg={cfg} id={selectedInquiryId} onBack={() => onNavigate('inquiries')} />
 
       case 'settings':
         return <SettingsScreen />
@@ -4892,6 +5316,20 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 12,
     fontWeight: '900',
+  },
+  plusBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: COLORS.text,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plusBtnText: {
+    color: COLORS.white,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 22,
   },
   tagTemplateRow: {
     flexDirection: 'row',

@@ -2,5 +2,5 @@ export type Props = {
   styles: any
   message: string
   checkedOnce: boolean
-  onReload: () => void
+  onReload: () => void | Promise<void>
 }

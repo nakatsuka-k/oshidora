@@ -25,7 +25,7 @@ const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 const ALLOWED_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 
-const ALLOWED_FILE_CONTENT_TYPES = new Set(['application/pdf'])
+const ALLOWED_FILE_CONTENT_TYPES = new Set(['application/pdf', 'text/vtt'])
 
 function jsonError(message: string, status = 500): { status: number; body: ResponseBody } {
   return { status, body: { error: message, data: null } }
@@ -106,7 +106,7 @@ app.use('*', async (c, next) => {
   }
 
   // Run Hono jwt middleware (expects Authorization header)
-  const out = await jwt({ secret: c.env.JWT_SECRET })(c, next)
+  const out = await jwt({ secret: c.env.JWT_SECRET, alg: 'HS256' })(c, next)
   if (out instanceof Response) {
     // Normalize unauthorized response shape so clients can reliably detect auth failures.
     if (out.status === 401) {
@@ -127,7 +127,7 @@ app.use('/cms/images', async (c, next) => {
     return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 501)
   }
 
-  return jwt({ secret })(c, next)
+  return jwt({ secret, alg: 'HS256' })(c, next)
 })
 
 // CMS admin JWT (for file uploads, e.g. PDF)
@@ -139,7 +139,7 @@ app.use('/cms/files', async (c, next) => {
     return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 501)
   }
 
-  return jwt({ secret })(c, next)
+  return jwt({ secret, alg: 'HS256' })(c, next)
 })
 
 app.put('/cms/images', async (c) => {
@@ -205,11 +205,14 @@ app.put('/cms/files', async (c) => {
 
     const fileId = crypto.randomUUID()
 
+    const cacheControl = contentType === 'text/vtt'
+      ? 'public, max-age=31536000, immutable'
+      : 'private, max-age=0, no-store'
+
     await c.env.BUCKET.put(fileId, file, {
       httpMetadata: {
         contentType,
-        // Not linked from public UI; treat as private-ish.
-        cacheControl: 'private, max-age=0, no-store',
+        cacheControl,
       },
     })
 
@@ -233,7 +236,7 @@ app.use('/cms/stream/*', async (c, next) => {
   }
 
   // Run Hono jwt middleware (expects Authorization header)
-  return jwt({ secret })(c, next)
+  return jwt({ secret, alg: 'HS256' })(c, next)
 })
 
 app.post('/cms/stream/tus', async (c) => {

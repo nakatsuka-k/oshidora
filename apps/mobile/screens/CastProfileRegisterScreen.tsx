@@ -1,27 +1,29 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import DateTimePicker from '@react-native-community/datetimepicker'
+import { Alert, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { CheckboxRow, PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
+import { PrimaryButton, ScreenContainer, SecondaryButton, TabBar, THEME } from '../components'
 import { normalizeUrl } from '../utils/socialLinks'
-import { showAlert, confirmDiscard, emptyDraft, statusLabel, type CastProfileDraft, type CastProfileStatus, type SocialLink, type StoredCastProfile, type CastProfileRegisterScreenProps, STORAGE_KEY, GENRE_OPTIONS, CATEGORY_OPTIONS } from '../utils/castProfileUtils'
+import { showAlert, confirmDiscard, emptyDraft, statusLabel, type CastProfileDraft, type CastProfileStatus, type SocialLink, type StoredCastProfile, type CastProfileRegisterScreenProps, STORAGE_KEY, GENRE_OPTIONS, STANDARD_CATEGORY_OPTIONS, GENRE_TAG_OPTIONS } from '../utils/castProfileUtils'
 
-export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: CastProfileRegisterScreenProps) {
+export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack, activeTab, onPressTab }: CastProfileRegisterScreenProps) {
+  const { width: windowWidth } = useWindowDimensions()
   const [status, setStatus] = useState<CastProfileStatus>('unregistered')
   const [approvedAt, setApprovedAt] = useState<string | undefined>(undefined)
   const [rejectionReason, setRejectionReason] = useState<string | undefined>(undefined)
-  const [editMode, setEditMode] = useState(true)
   const [busy, setBusy] = useState(false)
+
+  const [birthPickerOpen, setBirthPickerOpen] = useState(false)
+  const [focusedField, setFocusedField] = useState<string>('')
+  const [thumbGridWidth, setThumbGridWidth] = useState<number>(0)
 
   const [draft, setDraft] = useState<CastProfileDraft>(() => emptyDraft())
   const [initialSnapshot, setInitialSnapshot] = useState<string>('')
 
   const readOnly = useMemo(() => {
-    if (status === 'pending') return true
-    if (status === 'rejected') return false
-    if (status === 'published') return !editMode
-    return false
-  }, [editMode, status])
+    return status === 'pending'
+  }, [status])
 
   const hasChanges = useMemo(() => {
     return JSON.stringify(draft) !== initialSnapshot
@@ -102,7 +104,6 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
         setRejectionReason(apiItem?.rejectionReason ? String(apiItem.rejectionReason) : undefined)
         setDraft(nextDraft)
         setInitialSnapshot(JSON.stringify(nextDraft))
-        setEditMode(mappedStatus !== 'pending')
         return
       }
 
@@ -112,7 +113,6 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
         setStatus('unregistered')
         setApprovedAt(undefined)
         setRejectionReason(undefined)
-        setEditMode(true)
         setDraft(emptyDraft())
         setInitialSnapshot(JSON.stringify(emptyDraft()))
         return
@@ -164,7 +164,6 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
       setRejectionReason(stored?.rejectionReason)
       setDraft(nextDraft)
       setInitialSnapshot(JSON.stringify(nextDraft))
-      setEditMode(stored?.status !== 'pending')
     } catch {
       setStatus('unregistered')
       setApprovedAt(undefined)
@@ -172,7 +171,6 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
       const d = emptyDraft()
       setDraft(d)
       setInitialSnapshot(JSON.stringify(d))
-      setEditMode(true)
     }
   }, [apiBaseUrl, authToken])
 
@@ -293,38 +291,94 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
     setDraft((prev) => ({ ...prev, profileImages: prev.profileImages.filter((_, i) => i !== index) }))
   }, [])
 
-  const pickFaceImage = useCallback(async () => {
+  const openBirthDatePicker = useCallback((pressEvent?: any) => {
     if (readOnly || busy) return
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (!permission.granted) {
-        showAlert('権限が必要です', '画像を選択するために写真へのアクセスを許可してください')
-        return
+
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const existing = document.getElementById('cast-birthdate-input') as HTMLInputElement | null
+      if (existing) {
+        try {
+          existing.focus()
+          ;(existing as any).showPicker?.()
+          existing.click()
+          return
+        } catch {
+          // fallthrough
+        }
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.9,
-      })
+      const input = document.createElement('input')
+      input.id = 'cast-birthdate-input'
+      input.type = 'date'
+      input.value = (draft.birthDate || '').trim()
+      input.max = new Date().toISOString().slice(0, 10)
 
-      if (result.canceled || !result.assets[0]) return
-      setBusy(true)
-      try {
-        const url = await uploadImageAsset(result.assets[0], 'cast-profile-face')
-        setDraft((prev) => ({ ...prev, faceImageUrl: url }))
-      } finally {
-        setBusy(false)
+      const rect = pressEvent?.currentTarget?.getBoundingClientRect?.()
+      input.style.position = 'fixed'
+      input.style.left = rect ? `${Math.max(0, Math.min(rect.left, (window.innerWidth || 1) - 1))}px` : '0'
+      input.style.top = rect ? `${Math.max(0, Math.min(rect.top, (window.innerHeight || 1) - 1))}px` : '0'
+      input.style.width = '1px'
+      input.style.height = '1px'
+      input.style.opacity = '0'
+      input.style.pointerEvents = 'none'
+      input.style.zIndex = '-1'
+
+      input.onchange = () => {
+        const v = input.value
+        if (v) setDraft((p) => ({ ...p, birthDate: v }))
+        input.remove()
       }
-    } catch (e) {
-      showAlert('エラー', e instanceof Error ? e.message : '画像の選択に失敗しました')
+      input.onblur = () => {
+        setTimeout(() => input.remove(), 0)
+      }
+
+      document.body.appendChild(input)
+      input.focus()
+      ;(input as any).showPicker?.()
+      input.click()
+      return
     }
-  }, [busy, readOnly, uploadImageAsset])
 
-  const clearFaceImage = useCallback(() => {
-    setDraft((prev) => ({ ...prev, faceImageUrl: '' }))
-  }, [])
+    setBirthPickerOpen(true)
+  }, [busy, draft.birthDate, readOnly])
+
+  const birthDateAsDate = useMemo(() => {
+    const raw = String(draft.birthDate || '').trim()
+    if (!raw) return new Date(1995, 0, 1)
+    const m = raw.match(/^\d{4}-\d{2}-\d{2}$/)
+    if (!m) return new Date(1995, 0, 1)
+    const d = new Date(raw + 'T00:00:00')
+    if (Number.isNaN(d.getTime())) return new Date(1995, 0, 1)
+    return d
+  }, [draft.birthDate])
+
+  const birthDatePicker = Platform.OS !== 'web' ? (
+    <Modal transparent visible={birthPickerOpen} animationType="fade" onRequestClose={() => setBirthPickerOpen(false)}>
+      <Pressable style={styles.modalBackdrop} onPress={() => setBirthPickerOpen(false)}>
+        <Pressable style={styles.modalCard} onPress={() => null}>
+          <Text style={styles.modalTitle}>生年月日</Text>
+          <DateTimePicker
+            value={birthDateAsDate}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            maximumDate={new Date()}
+            onChange={(_, date) => {
+              if (!date) {
+                if (Platform.OS !== 'ios') setBirthPickerOpen(false)
+                return
+              }
+              const iso = date.toISOString().slice(0, 10)
+              setDraft((p) => ({ ...p, birthDate: iso }))
+              if (Platform.OS !== 'ios') setBirthPickerOpen(false)
+            }}
+          />
+          <View style={styles.modalActions}>
+            <SecondaryButton label="閉じる" onPress={() => setBirthPickerOpen(false)} disabled={busy} />
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  ) : null
 
   const toggleGenre = useCallback(
     (g: string) => {
@@ -445,7 +499,6 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
       }
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next))
       setStatus(nextStatus)
-      setEditMode(false)
       setInitialSnapshot(JSON.stringify(nextDraft))
       showAlert('送信完了', status === 'published' ? '更新申請を送信しました（承認待ち）' : '登録内容を送信しました（承認待ち）')
     } catch (e) {
@@ -456,86 +509,127 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
     }
   }, [apiBaseUrl, approvedAt, authToken, draft, rejectionReason, status, validate])
 
-  const headerRight = useMemo(() => {
-    if (status === 'pending') return null
-    if (status === 'published' && !editMode) {
-      return <SecondaryButton label="編集" onPress={() => setEditMode(true)} disabled={busy} />
-    }
-    return <PrimaryButton label="保存" onPress={save} disabled={busy || readOnly || !hasChanges} fullWidth={false} />
-  }, [busy, editMode, hasChanges, readOnly, save, status])
+  const headerSaveDisabled = busy || readOnly || !hasChanges
+
+  const thumbLayout = useMemo(() => {
+    // Match layout deterministically across platforms by computing sizes from the available width.
+    const cols = 4
+    const gap = 8
+    const fallbackWidth = Math.max(0, windowWidth - 32) // ScreenContainer default padding=16 on both sides
+    const gridWidth = thumbGridWidth > 0 ? thumbGridWidth : fallbackWidth
+
+    const usable = Math.max(0, gridWidth - gap * (cols - 1))
+    const itemW = Math.max(56, Math.floor(usable / cols))
+    const itemH = Math.round((itemW * 16) / 9)
+
+    return { cols, gap, itemW, itemH }
+  }, [thumbGridWidth, windowWidth])
+
+  const headerRight = (
+    <Pressable
+      accessibilityRole="button"
+      onPress={save}
+      disabled={headerSaveDisabled}
+      style={[styles.headerSaveBtn, headerSaveDisabled ? styles.headerSaveBtnDisabled : null]}
+    >
+      <Text style={styles.headerSaveText}>保存</Text>
+    </Pressable>
+  )
+
+  const headerLeft = (
+    <Pressable onPress={handleBack} disabled={busy} style={styles.headerBackBtn} accessibilityRole="button">
+      <Text style={styles.headerBackText}>＜</Text>
+    </Pressable>
+  )
+
+  const inputStyle = useCallback(
+    (key: string) => {
+      return [styles.input, focusedField === key ? styles.inputFocused : null, readOnly || busy ? styles.inputDisabled : null]
+    },
+    [busy, focusedField, readOnly]
+  )
+
+  const selectStyle = useCallback(
+    (key: string) => {
+      return [styles.selectInput, focusedField === key ? styles.inputFocused : null, readOnly || busy ? styles.inputDisabled : null]
+    },
+    [busy, focusedField, readOnly]
+  )
+
+  const ToggleRow = ({ label, checked, onToggle }: { label: string; checked: boolean; onToggle: () => void }) => (
+    <Pressable onPress={onToggle} disabled={readOnly || busy} style={styles.checkRow} accessibilityRole="button">
+      <View style={[styles.checkBox, checked ? styles.checkBoxChecked : null]}>
+        {checked ? <Text style={styles.checkMark}>✓</Text> : null}
+      </View>
+      <Text style={styles.checkLabel}>{label}</Text>
+    </Pressable>
+  )
+
+  const Tag = ({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) => (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      disabled={readOnly || busy}
+      style={[styles.tag, selected ? styles.tagSelected : null]}
+    >
+      <Text style={[styles.tagText, selected ? styles.tagTextSelected : null]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  )
 
   return (
-    <ScreenContainer scroll>
+    <ScreenContainer
+      title="キャストプロフィール登録"
+      onBack={handleBack}
+      headerRight={headerRight}
+      headerLeft={headerLeft}
+      scroll
+      footer={<TabBar active={activeTab ?? 'cast'} onPress={(k) => onPressTab?.(k)} />}
+      footerPaddingHorizontal={0}
+    >
       <View style={styles.root}>
-        <View style={styles.headerRow}>
-          <Pressable onPress={handleBack} disabled={busy} style={styles.backBtn} accessibilityRole="button">
-            <Text style={styles.backText}>‹</Text>
-          </Pressable>
-          <Text style={styles.headerTitle}>キャストプロフィール登録</Text>
-          <View style={styles.headerRight}>{headerRight}</View>
+
+        <View style={styles.statusWrap}>
+          <Text style={styles.statusTitle}>登録ステータス</Text>
+          <Text style={styles.statusValueMuted}>{statusLabel(status)}</Text>
         </View>
 
-        <View style={styles.statusBox}>
-          <Text style={styles.statusTitle}>登録ステータス</Text>
-          <Text style={styles.statusValue}>{statusLabel(status)}</Text>
-          {status === 'pending' ? (
-            <Text style={styles.statusNote}>承認中です。結果はメールで通知されます。</Text>
-          ) : null}
-          {status === 'rejected' ? (
-            <Text style={styles.statusNote}>差し戻し: {rejectionReason || '内容をご確認のうえ再送信してください。'}</Text>
-          ) : null}
-          {status === 'published' && approvedAt ? (
-            <Text style={styles.statusNote}>承認日時: {approvedAt}</Text>
-          ) : null}
-        </View>
+        <View style={styles.sectionDivider} />
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>プロフィール</Text>
-
           <View style={styles.field}>
-            <Text style={styles.label}>顔写真をアップロード（1:1）</Text>
-            <View style={styles.fileRow}>
-              <Pressable
-                onPress={pickFaceImage}
-                disabled={readOnly || busy}
-                style={[styles.fileButton, readOnly || busy ? styles.inputDisabled : null]}
-                accessibilityRole="button"
-              >
-                <Text style={styles.fileButtonText}>画像を選択</Text>
-              </Pressable>
-              {draft.faceImageUrl ? (
-                <Pressable onPress={clearFaceImage} disabled={readOnly || busy} accessibilityRole="button" style={styles.clearBtn}>
-                  <Text style={styles.clearBtnText}>削除</Text>
-                </Pressable>
-              ) : null}
-            </View>
-            {draft.faceImageUrl ? (
-              <View style={styles.thumbGrid}>
-                <View style={styles.thumbWrap}>
-                  <Image source={{ uri: draft.faceImageUrl }} style={styles.thumbSquare} />
-                </View>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>プロフィール画像をアップロード（9:16 / 10枚まで）</Text>
-            <View style={styles.fileRow}>
+            <Text style={styles.helperLabel}>プロフィール画像をアップロード</Text>
+            <View style={styles.fileRowBetween}>
               <Pressable
                 onPress={pickProfileImage}
                 disabled={readOnly || busy}
-                style={[styles.fileButton, readOnly || busy ? styles.inputDisabled : null]}
+                style={[styles.fileButtonPrimary, readOnly || busy ? styles.inputDisabled : null]}
                 accessibilityRole="button"
               >
-                <Text style={styles.fileButtonText}>ファイルを選択</Text>
+                <Text style={styles.fileButtonPrimaryText}>ファイルを選択</Text>
               </Pressable>
-              <Text style={styles.fileNote}>※1枚ずつトリミングします</Text>
+              <Text style={styles.fileNote}>※10枚まで</Text>
             </View>
             {draft.profileImages.length ? (
-              <View style={styles.thumbGrid}>
+              <View
+                style={styles.thumbGrid}
+                onLayout={(e) => setThumbGridWidth(e.nativeEvent.layout.width)}
+              >
                 {draft.profileImages.map((uri, idx) => (
-                  <View key={`${uri}-${idx}`} style={styles.thumbWrap}>
-                    <Image source={{ uri }} style={styles.thumbPortrait} />
+                  <View
+                    key={`${uri}-${idx}`}
+                    style={[
+                      styles.thumbWrap,
+                      {
+                        width: thumbLayout.itemW,
+                        marginRight: idx % thumbLayout.cols === thumbLayout.cols - 1 ? 0 : thumbLayout.gap,
+                        marginBottom: thumbLayout.gap,
+                      },
+                    ]}
+                  >
+                    <Image source={{ uri }} style={[styles.thumbPortrait, { width: thumbLayout.itemW, height: thumbLayout.itemH }]} />
                     {!readOnly && !busy ? (
                       <Pressable onPress={() => removeProfileImage(idx)} style={styles.thumbRemove} accessibilityRole="button">
                         <Text style={styles.thumbRemoveText}>×</Text>
@@ -546,6 +640,12 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               </View>
             ) : null}
           </View>
+        </View>
+
+        <View style={styles.sectionDivider} />
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>基本情報</Text>
 
           <View style={styles.field}>
             <Text style={styles.label}>氏名（本名もしくは芸名）</Text>
@@ -556,7 +656,9 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
               maxLength={50}
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('name')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('name')}
             />
             <Text style={styles.count}>{draft.name.length}/50</Text>
           </View>
@@ -569,7 +671,9 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholder="ヤマダタロウ"
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('nameKana')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('nameKana')}
             />
           </View>
 
@@ -582,7 +686,9 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
               autoCapitalize="none"
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('nameAlphabet')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('nameAlphabet')}
             />
           </View>
 
@@ -591,41 +697,53 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
             <TextInput
               value={draft.affiliation}
               onChangeText={(v) => setDraft((p) => ({ ...p, affiliation: v }))}
-              placeholder="フリーランス/事務所名"
+              placeholder="フリーランス／事務所名"
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('affiliation')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('affiliation')}
             />
           </View>
+        </View>
+
+        <View style={styles.sectionDivider} />
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ジャンル（複数選択）</Text>
 
           <View style={styles.field}>
-            <Text style={styles.label}>ジャンル（複数選択）</Text>
-            <View style={styles.checkboxGroup}>
-              {GENRE_OPTIONS.map((g) => (
-                <CheckboxRow
-                  key={g}
-                  checked={draft.genres.includes(g)}
-                  onToggle={() => {
-                    if (readOnly || busy) return
-                    toggleGenre(g)
-                  }}
-                >
-                  <Text style={styles.checkboxText}>{g}</Text>
-                </CheckboxRow>
-              ))}
-            </View>
+            {GENRE_OPTIONS.map((g) => (
+              <ToggleRow
+                key={g}
+                label={g}
+                checked={draft.genres.includes(g)}
+                onToggle={() => toggleGenre(g)}
+              />
+            ))}
           </View>
+        </View>
+
+        <View style={styles.sectionDivider} />
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>個人データ</Text>
 
           <View style={styles.field}>
             <Text style={styles.label}>生年月日</Text>
-            <TextInput
-              value={draft.birthDate}
-              onChangeText={(v) => setDraft((p) => ({ ...p, birthDate: v }))}
-              placeholder="選択してください"
-              placeholderTextColor={THEME.textMuted}
-              editable={!readOnly && !busy}
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
-            />
+            <Pressable
+              accessibilityRole="button"
+              onPress={(e) => openBirthDatePicker(e)}
+              disabled={readOnly || busy}
+              onPressIn={() => setFocusedField('birthDate')}
+              onPressOut={() => setFocusedField('')}
+              style={selectStyle('birthDate')}
+            >
+              <Text style={[styles.selectText, draft.birthDate ? null : styles.selectTextPlaceholder]}>
+                {draft.birthDate ? draft.birthDate : '選択してください'}
+              </Text>
+              <Text style={styles.selectChevron}>▾</Text>
+            </Pressable>
           </View>
 
           <View style={styles.field}>
@@ -636,7 +754,9 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholder="東京都"
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('birthplace')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('birthplace')}
             />
           </View>
 
@@ -648,7 +768,9 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholder="A型"
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('bloodType')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('bloodType')}
             />
           </View>
 
@@ -657,11 +779,12 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
             <TextInput
               value={draft.hobbies}
               onChangeText={(v) => setDraft((p) => ({ ...p, hobbies: v }))}
-              placeholder={'映画・アニメ鑑賞\nダンス・歌'}
+              placeholder={'映画・アニメ鑑賞'}
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
-              multiline
-              style={[styles.textareaShort, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('hobbies')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('hobbies')}
             />
           </View>
 
@@ -673,7 +796,9 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholder="演技・ダンス・歌など"
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('specialSkills')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('specialSkills')}
             />
           </View>
 
@@ -685,36 +810,52 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholder="英検1級"
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('qualifications')}
+              onBlur={() => setFocusedField('')}
+              style={inputStyle('qualifications')}
             />
           </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>カテゴリ</Text>
-            <View style={styles.chipGroup}>
-              {CATEGORY_OPTIONS.map((c) => {
-                const selected = draft.categories.includes(c)
-                return (
-                  <Pressable
-                    key={c}
-                    onPress={() => {
-                      if (readOnly || busy) return
-                      toggleCategory(c)
-                    }}
-                    accessibilityRole="button"
-                    style={[styles.chip, selected ? styles.chipSelected : null]}
-                  >
-                    <Text style={[styles.chipText, selected ? styles.chipTextSelected : null]} numberOfLines={1}>
-                      {c}
-                    </Text>
-                  </Pressable>
-                )
-              })}
-            </View>
-          </View>
+        </View>
+
+        <View style={styles.sectionDivider} />
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>カテゴリ</Text>
 
           <View style={styles.field}>
-            <Text style={styles.label}>SNSリンク</Text>
+            <Text style={styles.subTitleAccent}>定番・王道ジャンル</Text>
+            <View style={styles.tagGroup}>
+              {STANDARD_CATEGORY_OPTIONS.map((c) => (
+                <Tag
+                  key={c}
+                  label={c}
+                  selected={draft.categories.includes(c)}
+                  onPress={() => toggleCategory(c)}
+                />
+              ))}
+            </View>
+
+            <Text style={[styles.subTitle, { marginTop: 14 }]}>ジャンルタグ</Text>
+            <View style={styles.tagGroup}>
+              {GENRE_TAG_OPTIONS.map((c) => (
+                <Tag
+                  key={c}
+                  label={c}
+                  selected={draft.categories.includes(c)}
+                  onPress={() => toggleCategory(c)}
+                />
+              ))}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.sectionDivider} />
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>SNSリンク</Text>
+
+          <View style={styles.field}>
             {draft.socialLinks.map((it, idx) => (
               <View key={`${idx}-${it.url}`} style={styles.socialRow}>
                 <TextInput
@@ -724,7 +865,9 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
                   placeholderTextColor={THEME.textMuted}
                   autoCapitalize="none"
                   editable={!readOnly && !busy}
-                  style={[styles.socialUrl, readOnly || busy ? styles.inputDisabled : null]}
+                  onFocus={() => setFocusedField(`social-${idx}`)}
+                  onBlur={() => setFocusedField('')}
+                  style={[styles.socialUrl, focusedField === `social-${idx}` ? styles.inputFocused : null, readOnly || busy ? styles.inputDisabled : null]}
                 />
                 {!readOnly && !busy && draft.socialLinks.length > 1 ? (
                   <Pressable onPress={() => removeSocialLink(idx)} style={styles.socialRemove} accessibilityRole="button">
@@ -739,9 +882,14 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               </Pressable>
             ) : null}
           </View>
+        </View>
+
+        <View style={styles.sectionDivider} />
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>自己PR</Text>
 
           <View style={styles.field}>
-            <Text style={styles.label}>自己PR</Text>
             <TextInput
               value={draft.bio}
               onChangeText={(v) => setDraft((p) => ({ ...p, bio: v }))}
@@ -749,13 +897,20 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
               multiline
-              style={[styles.textarea, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('bio')}
+              onBlur={() => setFocusedField('')}
+              style={[styles.textarea, focusedField === 'bio' ? styles.inputFocused : null, readOnly || busy ? styles.inputDisabled : null]}
             />
             <Text style={styles.count}>{draft.bio.length}/500</Text>
           </View>
+        </View>
+
+        <View style={styles.sectionDivider} />
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>経歴・出演実績</Text>
 
           <View style={styles.field}>
-            <Text style={styles.label}>経歴・出演実績</Text>
             <TextInput
               value={draft.career}
               onChangeText={(v) => setDraft((p) => ({ ...p, career: v }))}
@@ -763,37 +918,28 @@ export function CastProfileRegisterScreen({ apiBaseUrl, authToken, onBack }: Cas
               placeholderTextColor={THEME.textMuted}
               editable={!readOnly && !busy}
               multiline
-              style={[styles.textarea, readOnly || busy ? styles.inputDisabled : null]}
+              onFocus={() => setFocusedField('career')}
+              onBlur={() => setFocusedField('')}
+              style={[styles.textarea, focusedField === 'career' ? styles.inputFocused : null, readOnly || busy ? styles.inputDisabled : null]}
             />
           </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>PDF（非公開）URL</Text>
-            <TextInput
-              value={draft.privatePdfUrl}
-              onChangeText={(v) => setDraft((p) => ({ ...p, privatePdfUrl: v }))}
-              placeholder="https://..."
-              placeholderTextColor={THEME.textMuted}
-              editable={!readOnly && !busy}
-              autoCapitalize="none"
-              style={[styles.input, readOnly || busy ? styles.inputDisabled : null]}
-            />
-            <Text style={styles.helperText}>※公開プロフィールには表示されない想定です</Text>
-          </View>
-
-          {status === 'pending' ? (
-            <View style={styles.bottomActions}>
-              <SecondaryButton label="戻る" onPress={handleBack} disabled={busy} />
-            </View>
-          ) : null}
-
-          {status !== 'pending' ? (
-            <View style={styles.bottomActions}>
-              <PrimaryButton label="保存" onPress={save} disabled={busy || readOnly || !hasChanges} />
-            </View>
-          ) : null}
         </View>
+
+        <View style={styles.bottomSpacer} />
+
+        <View style={styles.bottomActions}>
+          <PrimaryButton
+            label="保存"
+            onPress={save}
+            disabled={headerSaveDisabled}
+            containerStyle={styles.bottomSaveBtn}
+            textStyle={styles.bottomSaveText}
+          />
+        </View>
+
+        <View style={styles.bottomSafeArea} />
       </View>
+      {birthDatePicker}
     </ScreenContainer>
   )
 }
@@ -802,75 +948,75 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-  },
-  backBtn: {
+  headerBackBtn: {
     width: 40,
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    borderRadius: 20,
-    backgroundColor: THEME.card,
   },
-  backText: {
+  headerBackText: {
     color: THEME.text,
-    fontSize: 20,
-    lineHeight: 20,
+    fontSize: 18,
+    fontWeight: '900',
   },
-  headerTitle: {
-    flex: 1,
-    color: THEME.text,
-    fontSize: 14,
-    fontWeight: '800',
-    textAlign: 'center',
-    paddingHorizontal: 10,
+  headerSaveBtn: {
+    backgroundColor: THEME.accent,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  headerRight: {
-    width: 90,
-    alignItems: 'flex-end',
+  headerSaveBtnDisabled: {
+    opacity: 0.45,
   },
-  statusBox: {
-    backgroundColor: THEME.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    padding: 14,
-    marginBottom: 16,
+  headerSaveText: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  statusWrap: {
+    paddingTop: 6,
+    paddingBottom: 16,
   },
   statusTitle: {
-    color: THEME.textMuted,
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  statusValue: {
     color: THEME.text,
-    fontSize: 14,
-    fontWeight: '900',
-    marginBottom: 6,
-  },
-  statusNote: {
-    color: THEME.textMuted,
     fontSize: 12,
-    lineHeight: 18,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  statusValueMuted: {
+    color: THEME.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   section: {
-    marginBottom: 20,
+    paddingVertical: 18,
   },
   sectionTitle: {
     color: THEME.text,
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 12,
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 18,
   },
   field: {
     marginBottom: 14,
+  },
+  subTitle: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  subTitleAccent: {
+    color: THEME.accent,
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 10,
   },
   label: {
     color: THEME.text,
@@ -878,38 +1024,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 6,
   },
+  helperLabel: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
   input: {
     borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    borderRadius: 8,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#0B0B0B',
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    height: 46,
     color: THEME.text,
     fontSize: 13,
+  },
+  inputFocused: {
+    borderColor: 'rgba(255,255,255,0.32)',
   },
   textarea: {
     borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    borderRadius: 8,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#0B0B0B',
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: THEME.text,
     fontSize: 13,
-    minHeight: 96,
-    textAlignVertical: 'top',
-  },
-  textareaShort: {
-    borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: THEME.text,
-    fontSize: 13,
-    minHeight: 72,
+    minHeight: 120,
     textAlignVertical: 'top',
   },
   inputDisabled: {
@@ -920,6 +1063,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  fileRowBetween: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   fileButton: {
     borderWidth: 1,
     borderColor: THEME.outline,
@@ -927,6 +1076,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
+  },
+  fileButtonPrimary: {
+    flex: 1,
+    borderWidth: 0,
+    backgroundColor: THEME.accent,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileButtonPrimaryText: {
+    color: THEME.bg,
+    fontSize: 12,
+    fontWeight: '900',
   },
   fileButtonText: {
     color: THEME.text,
@@ -936,7 +1100,9 @@ const styles = StyleSheet.create({
   fileNote: {
     color: THEME.textMuted,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
+    minWidth: 80,
+    textAlign: 'right',
   },
   clearBtn: {
     borderWidth: 1,
@@ -954,23 +1120,12 @@ const styles = StyleSheet.create({
   thumbGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 10,
+    marginTop: 12,
   },
   thumbWrap: {
     position: 'relative',
   },
   thumbPortrait: {
-    width: 72,
-    height: 128,
-    borderRadius: 10,
-    backgroundColor: THEME.card,
-    borderWidth: 1,
-    borderColor: THEME.outline,
-  },
-  thumbSquare: {
-    width: 72,
-    height: 72,
     borderRadius: 10,
     backgroundColor: THEME.card,
     borderWidth: 1,
@@ -978,15 +1133,15 @@ const styles = StyleSheet.create({
   },
   thumbRemove: {
     position: 'absolute',
-    top: -8,
-    right: -8,
-    width: 26,
-    height: 26,
+    top: -6,
+    right: -6,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: THEME.outline,
-    borderRadius: 13,
+    borderRadius: 12,
     backgroundColor: THEME.card,
   },
   thumbRemoveText: {
@@ -1001,49 +1156,87 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textAlign: 'right',
   },
-  helperText: {
-    marginTop: 6,
-    color: THEME.textMuted,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  checkboxGroup: {
+  selectInput: {
     borderWidth: 1,
-    borderColor: THEME.outline,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#0B0B0B',
     borderRadius: 12,
     paddingHorizontal: 12,
-    backgroundColor: THEME.card,
+    height: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  checkboxText: {
+  selectText: {
     color: THEME.text,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
-  chipGroup: {
+  selectTextPlaceholder: {
+    color: THEME.textMuted,
+    fontWeight: '700',
+  },
+  selectChevron: {
+    color: THEME.textMuted,
+    fontSize: 14,
+    fontWeight: '900',
+    marginLeft: 10,
+  },
+  tagGroup: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  chip: {
+  tag: {
     borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    borderRadius: 999,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'transparent',
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     maxWidth: '100%',
   },
-  chipSelected: {
+  tagSelected: {
     borderColor: THEME.accent,
-    backgroundColor: 'rgba(0,0,0,0)',
   },
-  chipText: {
+  tagText: {
     color: THEME.text,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '900',
   },
-  chipTextSelected: {
+  tagTextSelected: {
     color: THEME.accent,
+  },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  checkBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkBoxChecked: {
+    borderColor: THEME.accent,
+  },
+  checkMark: {
+    color: THEME.accent,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 14,
+  },
+  checkLabel: {
+    flex: 1,
+    color: THEME.text,
+    fontSize: 13,
+    fontWeight: '700',
   },
   socialRow: {
     flexDirection: 'row',
@@ -1053,11 +1246,11 @@ const styles = StyleSheet.create({
   socialUrl: {
     flex: 1,
     borderWidth: 1,
-    borderColor: THEME.outline,
-    backgroundColor: THEME.card,
-    borderRadius: 8,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#0B0B0B',
+    borderRadius: 12,
     paddingHorizontal: 10,
-    paddingVertical: 10,
+    height: 46,
     color: THEME.text,
     fontSize: 12,
   },
@@ -1070,7 +1263,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.outline,
     borderRadius: 16,
-    backgroundColor: THEME.card,
+    backgroundColor: 'transparent',
   },
   socialRemoveText: {
     color: THEME.textMuted,
@@ -1089,5 +1282,45 @@ const styles = StyleSheet.create({
   },
   bottomActions: {
     marginTop: 16,
+  },
+  bottomSaveBtn: {
+    borderRadius: 999,
+    paddingVertical: 16,
+  },
+  bottomSaveText: {
+    color: '#111827',
+    fontWeight: '900',
+  },
+  bottomSpacer: {
+    height: 8,
+  },
+  bottomSafeArea: {
+    height: 28,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: THEME.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    padding: 14,
+  },
+  modalTitle: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  modalActions: {
+    marginTop: 12,
   },
 })

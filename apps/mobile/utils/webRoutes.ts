@@ -48,6 +48,8 @@ export function screenToWebPath(screen: string): string {
       return '/videos'
     case 'cast':
       return '/cast'
+    case 'castRanking':
+      return '/cast-ranking'
     case 'castSearchResult':
       return '/cast-result'
     case 'search':
@@ -171,6 +173,18 @@ export function workDetailToWebUrl(params: { workId?: string | null; episodeId?:
   return q ? `/work?${q}` : '/work'
 }
 
+export function profileToWebUrl(params: { castId?: string | null; title?: string | null }): string {
+  const castId = String(params.castId || '').trim()
+  const title = String(params.title || '').trim()
+
+  const qs = new URLSearchParams()
+  if (title) qs.set('title', title)
+  const q = qs.toString()
+
+  if (castId) return `/profile/${encodeURIComponent(castId)}${q ? `?${q}` : ''}`
+  return q ? `/profile?${q}` : '/profile'
+}
+
 export function webPathnameToScreen(pathname: string): string {
   const parts = splitPathname(pathname)
   if (parts.length === 0) return 'splash'
@@ -240,6 +254,8 @@ export function webPathnameToScreen(pathname: string): string {
       return 'videoList'
     case 'cast':
       return 'cast'
+    case 'cast-ranking':
+      return 'castRanking'
     case 'cast-result':
       return 'castSearchResult'
     case 'search':

@@ -30,7 +30,7 @@ export function TabBar({ active, onPress }: TabBarProps) {
     <View style={styles.root}>
       {tabs.map((t) => {
         const isActive = t.key === active
-        const color = isActive ? THEME.text : THEME.textMuted
+        const color = isActive ? THEME.accent : THEME.textMuted
         return (
           <Pressable
             key={t.key}

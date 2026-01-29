@@ -103,6 +103,39 @@ export function VideoListScreen({
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
+  const deleteVideo = useCallback(
+    async (id: string) => {
+      const row = rows.find((r) => r.id === id)
+      if (!row) return
+
+      const ok = await confirm(`${row.title || 'この動画'} を削除しますか？`, {
+        title: '削除',
+        okText: '削除',
+        cancelText: 'キャンセル',
+        danger: true,
+      })
+      if (!ok) return
+
+      setBusy(true)
+      setBanner('')
+      void (async () => {
+        try {
+          await cmsFetchJson(cfg, `/cms/videos/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ deleted: 1 }),
+          })
+          setRows((prev) => prev.filter((r) => r.id !== id))
+        } catch (e) {
+          setBanner(e instanceof Error ? e.message : String(e))
+        } finally {
+          setBusy(false)
+        }
+      })()
+    },
+    [cfg, cmsFetchJson, confirm, rows, setBanner]
+  )
+
   const loadVideos = useCallback(
     async (opts?: {
       q?: string
@@ -139,7 +172,7 @@ export function VideoListScreen({
           const createdAt = String(v.createdAt || '').slice(0, 19).replace('T', ' ')
           const episodeNo = v.episodeNo === null || v.episodeNo === undefined ? null : Number(v.episodeNo)
           const episodeLabel = episodeNo === null || !Number.isFinite(episodeNo) ? '—' : `#${episodeNo}`
-          const subtitles = String(v.streamVideoIdSubtitled ?? '') ? 'あり' : 'なし'
+          const subtitles = String(v.subtitleUrl ?? '').trim() ? 'あり' : 'なし'
           return {
             id: String(v.id ?? ''),
             thumbnailUrl: String(v.thumbnailUrl ?? ''),
@@ -385,7 +418,7 @@ export function VideoListScreen({
           <View style={styles.videoTable}>
             <View style={[styles.videoRow, styles.videoHeaderRow]}>
               {[
-                '動画ID',
+                '操作',
                 'サムネイル',
                 '動画タイトル',
                 '作品名',
@@ -394,7 +427,7 @@ export function VideoListScreen({
                 '公開状態',
                 '評価',
                 '登録日',
-                '操作',
+                '削除',
               ].map((h) => (
                 <Text key={h} style={[styles.videoCell, styles.videoHeaderCell]}>
                   {h}
@@ -404,17 +437,6 @@ export function VideoListScreen({
 
             {pageRows.map((r) => (
               <View key={r.id} style={[styles.videoRow, r.status === '非公開' ? styles.videoRowDim : null]}>
-                <Text style={styles.videoCell}>{r.id}</Text>
-                <View style={styles.videoCell}>
-                  {r.thumbnailUrl ? <Image source={{ uri: r.thumbnailUrl }} style={styles.thumb} /> : <View style={styles.thumb} />}
-                </View>
-                <Text style={styles.videoCell}>{r.title}</Text>
-                <Text style={styles.videoCell}>{r.workName}</Text>
-                <Text style={styles.videoCell}>{r.episodeLabel}</Text>
-                <Text style={styles.videoCell}>{r.subtitles}</Text>
-                <Text style={styles.videoCell}>{r.status}</Text>
-                <Text style={styles.videoCell}>{`${r.rating.toFixed(1)} (${r.reviewCount})`}</Text>
-                <Text style={styles.videoCell}>{r.createdAt}</Text>
                 <View style={[styles.videoCell, styles.actionsCell]}>
                   <Pressable onPress={() => onOpenDetail(r.id)} style={styles.smallBtn}>
                     <Text style={styles.smallBtnText}>詳細</Text>
@@ -428,6 +450,25 @@ export function VideoListScreen({
                     style={[styles.smallBtnPrimary, busy ? styles.btnDisabled : null]}
                   >
                     <Text style={styles.smallBtnPrimaryText}>{r.status === '公開' ? '非公開' : '公開'}</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.videoCell}>
+                  {r.thumbnailUrl ? <Image source={{ uri: r.thumbnailUrl }} style={styles.thumb} /> : <View style={styles.thumb} />}
+                </View>
+                <Text style={styles.videoCell}>{r.title}</Text>
+                <Text style={styles.videoCell}>{r.workName}</Text>
+                <Text style={styles.videoCell}>{r.episodeLabel}</Text>
+                <Text style={styles.videoCell}>{r.subtitles}</Text>
+                <Text style={styles.videoCell}>{r.status}</Text>
+                <Text style={styles.videoCell}>{`${r.rating.toFixed(1)} (${r.reviewCount})`}</Text>
+                <Text style={styles.videoCell}>{r.createdAt}</Text>
+                <View style={[styles.videoCell, styles.actionsCell]}>
+                  <Pressable
+                    disabled={busy}
+                    onPress={() => void deleteVideo(r.id)}
+                    style={[styles.smallBtnDanger, busy ? styles.btnDisabled : null]}
+                  >
+                    <Text style={styles.smallBtnDangerText}>削除</Text>
                   </Pressable>
                 </View>
               </View>
@@ -470,6 +511,7 @@ export function VideoListScreen({
 export function VideoDetailScreen({
   cfg,
   cmsFetchJson,
+  cmsFetchJsonWithBase,
   csvToIdList,
   styles,
   SelectField,
@@ -481,6 +523,7 @@ export function VideoDetailScreen({
 }: {
   cfg: CmsApiConfig
   cmsFetchJson: CmsFetchJson
+  cmsFetchJsonWithBase: CmsFetchJsonWithBase
   csvToIdList: (csv: string) => string[]
   styles: any
   SelectField: SelectFieldComponent
@@ -494,8 +537,7 @@ export function VideoDetailScreen({
   const [workId, setWorkId] = useState('')
   const [desc, setDesc] = useState('')
   const [streamVideoId, setStreamVideoId] = useState('')
-  const [streamVideoIdClean, setStreamVideoIdClean] = useState('')
-  const [streamVideoIdSubtitled, setStreamVideoIdSubtitled] = useState('')
+  const [subtitleUrl, setSubtitleUrl] = useState('')
   const [thumbnailUrl, setThumbnailUrl] = useState('')
   const [scheduledAt, setScheduledAt] = useState('')
   const [episodeNoText, setEpisodeNoText] = useState('')
@@ -625,8 +667,7 @@ export function VideoDetailScreen({
         setTitle(json.item.title || '')
         setDesc(json.item.description || '')
         setStreamVideoId(json.item.streamVideoId || '')
-        setStreamVideoIdClean(String((json.item as any).streamVideoIdClean ?? ''))
-        setStreamVideoIdSubtitled(String((json.item as any).streamVideoIdSubtitled ?? ''))
+        setSubtitleUrl(String((json.item as any).subtitleUrl ?? ''))
         setThumbnailUrl(json.item.thumbnailUrl || '')
         setScheduledAt(json.item.scheduledAt || '')
         const ep = (json.item as any).episodeNo
@@ -697,8 +738,7 @@ export function VideoDetailScreen({
             title,
             description: desc,
             streamVideoId,
-            streamVideoIdClean,
-            streamVideoIdSubtitled,
+            subtitleUrl,
             thumbnailUrl,
             scheduledAt,
             episodeNo: episodeNoText.trim() ? Number(episodeNoText) : null,
@@ -716,26 +756,138 @@ export function VideoDetailScreen({
         setBusy(false)
       }
     })()
-  }, [
-    castIdsText,
-    categoryIdsText,
-    cfg,
-    cmsFetchJson,
-    desc,
-    episodeNoText,
-    genreIdsText,
-    id,
-    published,
-    scheduledAt,
-    streamVideoId,
-    streamVideoIdClean,
-    streamVideoIdSubtitled,
-    tagIdsText,
-    thumbnailUrl,
-    title,
-    workId,
-    csvToIdList,
-  ])
+  }, [castIdsText, categoryIdsText, cfg, cmsFetchJson, desc, episodeNoText, genreIdsText, id, published, scheduledAt, streamVideoId, subtitleUrl, tagIdsText, thumbnailUrl, title, workId, csvToIdList])
+
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
+  const [thumbnailUploading, setThumbnailUploading] = useState(false)
+  const uploadThumbnail = useCallback((file?: File | null) => {
+    if (Platform.OS !== 'web') {
+      setBanner('サムネイル画像アップロードはWeb版管理画面のみ対応です')
+      return
+    }
+    const f = file ?? thumbnailFile
+    if (!f) {
+      setBanner('画像ファイルを選択してください')
+      return
+    }
+
+    setThumbnailUploading(true)
+    setBanner('画像アップロード中…')
+    void (async () => {
+      try {
+        const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
+          cfg,
+          cfg.uploaderBase,
+          '/cms/images',
+          {
+            method: 'PUT',
+            headers: {
+              'content-type': f.type || 'application/octet-stream',
+            },
+            body: f,
+          }
+        )
+
+        if (res.error || !res.data?.url) {
+          throw new Error(res.error || '画像アップロードに失敗しました')
+        }
+
+        setThumbnailUrl(res.data.url)
+        setBanner('画像アップロード完了')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setThumbnailUploading(false)
+      }
+    })()
+  }, [cfg, cmsFetchJsonWithBase, setBanner, thumbnailFile])
+
+  const [subtitleFile, setSubtitleFile] = useState<File | null>(null)
+  const [subtitleUploading, setSubtitleUploading] = useState(false)
+  const uploadSubtitle = useCallback((file?: File | null) => {
+    if (Platform.OS !== 'web') {
+      setBanner('字幕ファイルアップロードはWeb版管理画面のみ対応です')
+      return
+    }
+    const f = file ?? subtitleFile
+    if (!f) {
+      setBanner('字幕ファイル（.vtt）を選択してください')
+      return
+    }
+
+    const name = String(f.name || '').toLowerCase()
+    if (!name.endsWith('.vtt')) {
+      setBanner('WebVTT（.vtt）ファイルを選択してください')
+      return
+    }
+
+    setSubtitleUploading(true)
+    setBanner('字幕ファイルアップロード中…')
+    void (async () => {
+      try {
+        const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
+          cfg,
+          cfg.uploaderBase,
+          '/cms/files',
+          {
+            method: 'PUT',
+            headers: {
+              'content-type': f.type || 'text/vtt',
+            },
+            body: f,
+          }
+        )
+
+        if (res.error || !res.data?.url) {
+          throw new Error(res.error || '字幕ファイルアップロードに失敗しました')
+        }
+
+        setSubtitleUrl(res.data.url)
+        setBanner('字幕ファイルアップロード完了')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setSubtitleUploading(false)
+      }
+    })()
+  }, [cfg, cmsFetchJsonWithBase, setBanner, subtitleFile])
+
+  const [playback, setPlayback] = useState<{
+    loading: boolean
+    iframeUrl: string
+    mp4Url: string
+    hlsUrl: string
+    error: string
+  }>({ loading: false, iframeUrl: '', mp4Url: '', hlsUrl: '', error: '' })
+
+  useEffect(() => {
+    const vid = String(streamVideoId || '').trim()
+    if (!vid) {
+      setPlayback({ loading: false, iframeUrl: '', mp4Url: '', hlsUrl: '', error: '' })
+      return
+    }
+    let cancelled = false
+    setPlayback((p) => ({ ...p, loading: true, error: '' }))
+    void (async () => {
+      try {
+        const json = await cmsFetchJson<any>(cfg, `/v1/stream/playback/${encodeURIComponent(vid)}`)
+        if (cancelled) return
+        setPlayback({
+          loading: false,
+          iframeUrl: String(json?.iframeUrl ?? ''),
+          mp4Url: String(json?.mp4Url ?? ''),
+          hlsUrl: String(json?.hlsUrl ?? ''),
+          error: '',
+        })
+      } catch (e) {
+        if (cancelled) return
+        setPlayback({ loading: false, iframeUrl: '', mp4Url: '', hlsUrl: '', error: e instanceof Error ? e.message : String(e) })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [cfg, cmsFetchJson, streamVideoId])
 
   const moveReco = useCallback((videoId: string, dir: -1 | 1) => {
     setRecommendations((prev) => {
@@ -837,6 +989,43 @@ export function VideoDetailScreen({
           <Text style={styles.label}>評価</Text>
           <Text style={styles.readonlyText}>{`${(Number(ratingAvg) || 0).toFixed(2)}（${Number(reviewCount) || 0}件） / 再生:${Number(playsCount) || 0} / コメント:${Number(commentsCount) || 0}`}</Text>
         </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>プレビュー</Text>
+          {Platform.OS === 'web' ? (
+            <View>
+              {playback.loading ? <Text style={styles.selectMenuDetailText}>再生情報取得中…</Text> : null}
+              {playback.error ? <Text style={styles.selectMenuDetailText}>{`再生情報エラー: ${playback.error}`}</Text> : null}
+              {playback.mp4Url ? (
+                <View style={{ marginTop: 8 }}>
+                  <video style={{ width: '100%', maxWidth: 720, backgroundColor: '#111', borderRadius: 10 }} controls preload="metadata">
+                    <source src={playback.mp4Url} type="video/mp4" />
+                    {subtitleUrl.trim() ? <track src={subtitleUrl.trim()} kind="subtitles" srcLang="ja" label="日本語" default /> : null}
+                  </video>
+                  <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
+                    <Pressable
+                      onPress={() => {
+                        try {
+                          const url = (playback.iframeUrl || playback.hlsUrl || playback.mp4Url || '').trim()
+                          if (!url) return
+                          ;(globalThis as any)?.window?.open?.(url, '_blank')
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      style={styles.btnSecondary}
+                    >
+                      <Text style={styles.btnSecondaryText}>別タブで開く</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <Text style={styles.selectMenuDetailText}>Stream Video ID 未設定、または再生URLが取得できません</Text>
+              )}
+            </View>
+          ) : (
+            <Text style={styles.selectMenuDetailText}>Web版管理画面でプレビューできます</Text>
+          )}
+        </View>
         <SelectField label="作品" value={workId} placeholder="選択" options={workOptions} onChange={setWorkId} />
         <View style={styles.field}>
           <Text style={styles.label}>タイトル</Text>
@@ -847,20 +1036,113 @@ export function VideoDetailScreen({
           <TextInput value={desc} onChangeText={setDesc} style={[styles.input, { minHeight: 110 }]} multiline />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>Stream Video ID</Text>
-          <TextInput value={streamVideoId} onChangeText={setStreamVideoId} style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>Stream Video ID（クリーン）</Text>
-          <TextInput value={streamVideoIdClean} onChangeText={setStreamVideoIdClean} style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>Stream Video ID（字幕）</Text>
-          <TextInput value={streamVideoIdSubtitled} onChangeText={setStreamVideoIdSubtitled} style={styles.input} autoCapitalize="none" />
-        </View>
-        <View style={styles.field}>
           <Text style={styles.label}>サムネURL</Text>
           <TextInput value={thumbnailUrl} onChangeText={setThumbnailUrl} style={styles.input} autoCapitalize="none" />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>サムネイル</Text>
+          {Platform.OS === 'web' ? (
+            <View style={{ marginTop: 6 }}>
+              <WebDropZone
+                title="サムネ画像を差し替え"
+                hint="16:9 推奨（例: 1280×720）"
+                accept="image/png,image/jpeg,image/webp"
+                multiple={false}
+                onFiles={(files) => {
+                  const f = files?.[0] ?? null
+                  if (!f) return
+                  setThumbnailFile(f)
+                  uploadThumbnail(f)
+                }}
+              />
+              <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
+                <Pressable
+                  disabled={thumbnailUploading || !thumbnailFile}
+                  onPress={() => uploadThumbnail()}
+                  style={[styles.btnSecondary, thumbnailUploading || !thumbnailFile ? styles.btnDisabled : null]}
+                >
+                  <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : '再アップロード'}</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+          {thumbnailUrl.trim() ? (
+            <Pressable
+              onPress={() => {
+                try {
+                  const u = thumbnailUrl.trim()
+                  if (!u) return
+                  ;(globalThis as any)?.window?.open?.(u, '_blank')
+                } catch {
+                  // ignore
+                }
+              }}
+              style={{ marginTop: 10, alignSelf: 'flex-start' }}
+            >
+              <Image
+                source={{ uri: thumbnailUrl.trim() }}
+                style={{ width: 240, height: 135, borderRadius: 10, backgroundColor: '#e5e7eb' }}
+                resizeMode="cover"
+              />
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>字幕ファイル（WebVTT）</Text>
+          <Text style={styles.selectMenuDetailText}>字幕は .vtt ファイルをURLとして保持します</Text>
+          {subtitleUrl.trim() ? (
+            <Pressable
+              onPress={() => {
+                try {
+                  const u = subtitleUrl.trim()
+                  if (!u) return
+                  ;(globalThis as any)?.window?.open?.(u, '_blank')
+                } catch {
+                  // ignore
+                }
+              }}
+              style={{ marginTop: 6 }}
+            >
+              <Text style={styles.linkText}>{subtitleUrl.trim()}</Text>
+            </Pressable>
+          ) : (
+            <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>未設定</Text>
+          )}
+
+          {Platform.OS === 'web' ? (
+            <View style={{ marginTop: 10 }}>
+              <WebDropZone
+                title="字幕ファイル（.vtt）を差し替え"
+                hint="WebVTT（.vtt）"
+                accept=".vtt,text/vtt"
+                multiple={false}
+                onFiles={(files) => {
+                  const f = files?.[0] ?? null
+                  if (!f) return
+                  setSubtitleFile(f)
+                  uploadSubtitle(f)
+                }}
+              />
+              <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
+                <Pressable
+                  disabled={subtitleUploading || !subtitleFile}
+                  onPress={() => uploadSubtitle()}
+                  style={[styles.btnSecondary, subtitleUploading || !subtitleFile ? styles.btnDisabled : null]}
+                >
+                  <Text style={styles.btnSecondaryText}>{subtitleUploading ? '字幕アップロード中…' : '再アップロード'}</Text>
+                </Pressable>
+                {subtitleUrl.trim() ? (
+                  <Pressable
+                    onPress={() => setSubtitleUrl('')}
+                    style={styles.btnSecondary}
+                  >
+                    <Text style={styles.btnSecondaryText}>字幕URLをクリア</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>話数（episodeNo）</Text>

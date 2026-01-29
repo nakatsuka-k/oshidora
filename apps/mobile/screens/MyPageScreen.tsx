@@ -47,7 +47,7 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="検索"
-              onPress={() => onPressTab('search')}
+              onPress={() => onPressTab('cast')}
               style={styles.headerIconButton}
             >
               <IconSearch width={22} height={22} />
@@ -146,7 +146,7 @@ export function MyPageScreen({ apiBaseUrl, onPressTab, loggedIn, userEmail, user
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="検索"
-            onPress={() => onPressTab('search')}
+            onPress={() => onPressTab('cast')}
             style={styles.headerIconButton}
           >
             <IconSearch width={22} height={22} />

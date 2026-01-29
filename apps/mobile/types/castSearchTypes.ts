@@ -9,6 +9,7 @@ export type CastSearchScreenProps = {
   onPressTab: (key: TabKey) => void
   onOpenProfile: (cast: { id: string; name: string; role: string }) => void
   onOpenResults: (keyword: string) => void
+  onOpenCastRanking?: () => void
   onOpenNotice?: () => void
 }
 

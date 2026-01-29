@@ -1,0 +1,819 @@
+{
+  "generatedAt": "2026-01-29T19:53:54.613Z",
+  "outDir": "./seed-images-generated",
+  "files": {
+    "works": [
+      {
+        "id": "seed_work_001",
+        "localFile": "seed-images-generated/works/seed_work_001.png",
+        "r2Path": "seed-images/works/seed_work_001.png"
+      },
+      {
+        "id": "seed_work_002",
+        "localFile": "seed-images-generated/works/seed_work_002.png",
+        "r2Path": "seed-images/works/seed_work_002.png"
+      },
+      {
+        "id": "seed_work_003",
+        "localFile": "seed-images-generated/works/seed_work_003.png",
+        "r2Path": "seed-images/works/seed_work_003.png"
+      }
+    ],
+    "castProfiles": [
+      {
+        "id": "seed_cast_001",
+        "index": 1,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-1.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-1.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 2,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-2.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-2.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 4,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-4.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-4.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 5,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-5.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-5.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 6,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-6.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-6.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 8,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-8.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-8.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 9,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-9.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-9.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 10,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-10.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-10.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 1,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-1.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-1.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 2,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-2.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-2.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 3,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-3.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-3.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 4,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-4.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-4.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 5,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-5.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-5.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 6,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-6.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-6.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 7,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-7.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-7.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 8,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-8.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-8.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 9,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-9.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-9.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "index": 1,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_003-1.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_003-1.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "index": 2,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_003-2.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_003-2.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "index": 3,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_003-3.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_003-3.png"
+      }
+    ],
+    "castFaces": [
+      {
+        "id": "seed_cast_001",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_001.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_001.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_002.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_002.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_003.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_003.png"
+      },
+      {
+        "id": "seed_cast_004",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_004.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_004.png"
+      },
+      {
+        "id": "seed_cast_005",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_005.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_005.png"
+      },
+      {
+        "id": "seed_cast_006",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_006.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_006.png"
+      },
+      {
+        "id": "seed_cast_007",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_007.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_007.png"
+      },
+      {
+        "id": "seed_cast_008",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_008.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_008.png"
+      },
+      {
+        "id": "seed_cast_009",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_009.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_009.png"
+      },
+      {
+        "id": "seed_cast_010",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_010.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_010.png"
+      }
+    ],
+    "videos": [
+      {
+        "id": "seed_video_001",
+        "localFile": "seed-images-generated/videos/seed_video_001.png",
+        "r2Path": "seed-images/videos/seed_video_001.png"
+      },
+      {
+        "id": "seed_video_002",
+        "localFile": "seed-images-generated/videos/seed_video_002.png",
+        "r2Path": "seed-images/videos/seed_video_002.png"
+      },
+      {
+        "id": "seed_video_003",
+        "localFile": "seed-images-generated/videos/seed_video_003.png",
+        "r2Path": "seed-images/videos/seed_video_003.png"
+      },
+      {
+        "id": "seed_video_004",
+        "localFile": "seed-images-generated/videos/seed_video_004.png",
+        "r2Path": "seed-images/videos/seed_video_004.png"
+      },
+      {
+        "id": "seed_video_005",
+        "localFile": "seed-images-generated/videos/seed_video_005.png",
+        "r2Path": "seed-images/videos/seed_video_005.png"
+      },
+      {
+        "id": "seed_video_006",
+        "localFile": "seed-images-generated/videos/seed_video_006.png",
+        "r2Path": "seed-images/videos/seed_video_006.png"
+      },
+      {
+        "id": "seed_video_007",
+        "localFile": "seed-images-generated/videos/seed_video_007.png",
+        "r2Path": "seed-images/videos/seed_video_007.png"
+      },
+      {
+        "id": "seed_video_008",
+        "localFile": "seed-images-generated/videos/seed_video_008.png",
+        "r2Path": "seed-images/videos/seed_video_008.png"
+      },
+      {
+        "id": "seed_video_009",
+        "localFile": "seed-images-generated/videos/seed_video_009.png",
+        "r2Path": "seed-images/videos/seed_video_009.png"
+      },
+      {
+        "id": "seed_video_010",
+        "localFile": "seed-images-generated/videos/seed_video_010.png",
+        "r2Path": "seed-images/videos/seed_video_010.png"
+      },
+      {
+        "id": "seed_video_011",
+        "localFile": "seed-images-generated/videos/seed_video_011.png",
+        "r2Path": "seed-images/videos/seed_video_011.png"
+      },
+      {
+        "id": "seed_video_012",
+        "localFile": "seed-images-generated/videos/seed_video_012.png",
+        "r2Path": "seed-images/videos/seed_video_012.png"
+      },
+      {
+        "id": "seed_video_013",
+        "localFile": "seed-images-generated/videos/seed_video_013.png",
+        "r2Path": "seed-images/videos/seed_video_013.png"
+      },
+      {
+        "id": "seed_video_014",
+        "localFile": "seed-images-generated/videos/seed_video_014.png",
+        "r2Path": "seed-images/videos/seed_video_014.png"
+      },
+      {
+        "id": "seed_video_015",
+        "localFile": "seed-images-generated/videos/seed_video_015.png",
+        "r2Path": "seed-images/videos/seed_video_015.png"
+      },
+      {
+        "id": "seed_video_016",
+        "localFile": "seed-images-generated/videos/seed_video_016.png",
+        "r2Path": "seed-images/videos/seed_video_016.png"
+      },
+      {
+        "id": "seed_video_017",
+        "localFile": "seed-images-generated/videos/seed_video_017.png",
+        "r2Path": "seed-images/videos/seed_video_017.png"
+      },
+      {
+        "id": "seed_video_018",
+        "localFile": "seed-images-generated/videos/seed_video_018.png",
+        "r2Path": "seed-images/videos/seed_video_018.png"
+      },
+      {
+        "id": "seed_video_019",
+        "localFile": "seed-images-generated/videos/seed_video_019.png",
+        "r2Path": "seed-images/videos/seed_video_019.png"
+      },
+      {
+        "id": "seed_video_020",
+        "localFile": "seed-images-generated/videos/seed_video_020.png",
+        "r2Path": "seed-images/videos/seed_video_020.png"
+      },
+      {
+        "id": "seed_video_021",
+        "localFile": "seed-images-generated/videos/seed_video_021.png",
+        "r2Path": "seed-images/videos/seed_video_021.png"
+      },
+      {
+        "id": "seed_video_022",
+        "localFile": "seed-images-generated/videos/seed_video_022.png",
+        "r2Path": "seed-images/videos/seed_video_022.png"
+      },
+      {
+        "id": "seed_video_023",
+        "localFile": "seed-images-generated/videos/seed_video_023.png",
+        "r2Path": "seed-images/videos/seed_video_023.png"
+      },
+      {
+        "id": "seed_video_024",
+        "localFile": "seed-images-generated/videos/seed_video_024.png",
+        "r2Path": "seed-images/videos/seed_video_024.png"
+      },
+      {
+        "id": "seed_video_025",
+        "localFile": "seed-images-generated/videos/seed_video_025.png",
+        "r2Path": "seed-images/videos/seed_video_025.png"
+      },
+      {
+        "id": "seed_video_026",
+        "localFile": "seed-images-generated/videos/seed_video_026.png",
+        "r2Path": "seed-images/videos/seed_video_026.png"
+      },
+      {
+        "id": "seed_video_027",
+        "localFile": "seed-images-generated/videos/seed_video_027.png",
+        "r2Path": "seed-images/videos/seed_video_027.png"
+      },
+      {
+        "id": "seed_video_028",
+        "localFile": "seed-images-generated/videos/seed_video_028.png",
+        "r2Path": "seed-images/videos/seed_video_028.png"
+      },
+      {
+        "id": "seed_video_029",
+        "localFile": "seed-images-generated/videos/seed_video_029.png",
+        "r2Path": "seed-images/videos/seed_video_029.png"
+      },
+      {
+        "id": "seed_video_030",
+        "localFile": "seed-images-generated/videos/seed_video_030.png",
+        "r2Path": "seed-images/videos/seed_video_030.png"
+      },
+      {
+        "id": "seed_video_031",
+        "localFile": "seed-images-generated/videos/seed_video_031.png",
+        "r2Path": "seed-images/videos/seed_video_031.png"
+      },
+      {
+        "id": "seed_video_032",
+        "localFile": "seed-images-generated/videos/seed_video_032.png",
+        "r2Path": "seed-images/videos/seed_video_032.png"
+      },
+      {
+        "id": "seed_video_033",
+        "localFile": "seed-images-generated/videos/seed_video_033.png",
+        "r2Path": "seed-images/videos/seed_video_033.png"
+      },
+      {
+        "id": "seed_video_034",
+        "localFile": "seed-images-generated/videos/seed_video_034.png",
+        "r2Path": "seed-images/videos/seed_video_034.png"
+      },
+      {
+        "id": "seed_video_035",
+        "localFile": "seed-images-generated/videos/seed_video_035.png",
+        "r2Path": "seed-images/videos/seed_video_035.png"
+      },
+      {
+        "id": "seed_video_036",
+        "localFile": "seed-images-generated/videos/seed_video_036.png",
+        "r2Path": "seed-images/videos/seed_video_036.png"
+      },
+      {
+        "id": "seed_video_037",
+        "localFile": "seed-images-generated/videos/seed_video_037.png",
+        "r2Path": "seed-images/videos/seed_video_037.png"
+      },
+      {
+        "id": "seed_video_038",
+        "localFile": "seed-images-generated/videos/seed_video_038.png",
+        "r2Path": "seed-images/videos/seed_video_038.png"
+      },
+      {
+        "id": "seed_video_039",
+        "localFile": "seed-images-generated/videos/seed_video_039.png",
+        "r2Path": "seed-images/videos/seed_video_039.png"
+      },
+      {
+        "id": "seed_video_040",
+        "localFile": "seed-images-generated/videos/seed_video_040.png",
+        "r2Path": "seed-images/videos/seed_video_040.png"
+      },
+      {
+        "id": "seed_video_041",
+        "localFile": "seed-images-generated/videos/seed_video_041.png",
+        "r2Path": "seed-images/videos/seed_video_041.png"
+      },
+      {
+        "id": "seed_video_042",
+        "localFile": "seed-images-generated/videos/seed_video_042.png",
+        "r2Path": "seed-images/videos/seed_video_042.png"
+      },
+      {
+        "id": "seed_video_043",
+        "localFile": "seed-images-generated/videos/seed_video_043.png",
+        "r2Path": "seed-images/videos/seed_video_043.png"
+      },
+      {
+        "id": "seed_video_044",
+        "localFile": "seed-images-generated/videos/seed_video_044.png",
+        "r2Path": "seed-images/videos/seed_video_044.png"
+      },
+      {
+        "id": "seed_video_045",
+        "localFile": "seed-images-generated/videos/seed_video_045.png",
+        "r2Path": "seed-images/videos/seed_video_045.png"
+      },
+      {
+        "id": "seed_video_046",
+        "localFile": "seed-images-generated/videos/seed_video_046.png",
+        "r2Path": "seed-images/videos/seed_video_046.png"
+      },
+      {
+        "id": "seed_video_047",
+        "localFile": "seed-images-generated/videos/seed_video_047.png",
+        "r2Path": "seed-images/videos/seed_video_047.png"
+      },
+      {
+        "id": "seed_video_048",
+        "localFile": "seed-images-generated/videos/seed_video_048.png",
+        "r2Path": "seed-images/videos/seed_video_048.png"
+      },
+      {
+        "id": "seed_video_049",
+        "localFile": "seed-images-generated/videos/seed_video_049.png",
+        "r2Path": "seed-images/videos/seed_video_049.png"
+      },
+      {
+        "id": "seed_video_050",
+        "localFile": "seed-images-generated/videos/seed_video_050.png",
+        "r2Path": "seed-images/videos/seed_video_050.png"
+      },
+      {
+        "id": "seed_video_051",
+        "localFile": "seed-images-generated/videos/seed_video_051.png",
+        "r2Path": "seed-images/videos/seed_video_051.png"
+      },
+      {
+        "id": "seed_video_052",
+        "localFile": "seed-images-generated/videos/seed_video_052.png",
+        "r2Path": "seed-images/videos/seed_video_052.png"
+      },
+      {
+        "id": "seed_video_053",
+        "localFile": "seed-images-generated/videos/seed_video_053.png",
+        "r2Path": "seed-images/videos/seed_video_053.png"
+      },
+      {
+        "id": "seed_video_054",
+        "localFile": "seed-images-generated/videos/seed_video_054.png",
+        "r2Path": "seed-images/videos/seed_video_054.png"
+      },
+      {
+        "id": "seed_video_055",
+        "localFile": "seed-images-generated/videos/seed_video_055.png",
+        "r2Path": "seed-images/videos/seed_video_055.png"
+      },
+      {
+        "id": "seed_video_056",
+        "localFile": "seed-images-generated/videos/seed_video_056.png",
+        "r2Path": "seed-images/videos/seed_video_056.png"
+      },
+      {
+        "id": "seed_video_057",
+        "localFile": "seed-images-generated/videos/seed_video_057.png",
+        "r2Path": "seed-images/videos/seed_video_057.png"
+      },
+      {
+        "id": "seed_video_058",
+        "localFile": "seed-images-generated/videos/seed_video_058.png",
+        "r2Path": "seed-images/videos/seed_video_058.png"
+      },
+      {
+        "id": "seed_video_059",
+        "localFile": "seed-images-generated/videos/seed_video_059.png",
+        "r2Path": "seed-images/videos/seed_video_059.png"
+      },
+      {
+        "id": "seed_video_060",
+        "localFile": "seed-images-generated/videos/seed_video_060.png",
+        "r2Path": "seed-images/videos/seed_video_060.png"
+      }
+    ],
+    "castProfileBg": [
+      {
+        "id": "seed_cast_001",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_001-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_001-bg.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_002-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_002-bg.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_003-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_003-bg.png"
+      },
+      {
+        "id": "seed_cast_004",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_004-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_004-bg.png"
+      },
+      {
+        "id": "seed_cast_005",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_005-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_005-bg.png"
+      },
+      {
+        "id": "seed_cast_006",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_006-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_006-bg.png"
+      },
+      {
+        "id": "seed_cast_007",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_007-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_007-bg.png"
+      },
+      {
+        "id": "seed_cast_008",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_008-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_008-bg.png"
+      },
+      {
+        "id": "seed_cast_009",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_009-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_009-bg.png"
+      },
+      {
+        "id": "seed_cast_010",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_010-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_010-bg.png"
+      }
+    ],
+    "sns": {
+      "seed_cast_001": [
+        {
+          "type": "x",
+          "url": "https://x.com/milkyway_idol"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/milkyway.idol"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@milkyway_idol"
+        }
+      ],
+      "seed_cast_002": [
+        {
+          "type": "x",
+          "url": "https://x.com/sakura_stars"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/sakura_stars_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@sakura.stars"
+        }
+      ],
+      "seed_cast_003": [
+        {
+          "type": "x",
+          "url": "https://x.com/luna_project"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/luna_project_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@luna_project_"
+        }
+      ],
+      "seed_cast_004": [
+        {
+          "type": "x",
+          "url": "https://x.com/cosmic_beats"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/cosmic_beats_jp"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@cosmic.beats"
+        }
+      ],
+      "seed_cast_005": [
+        {
+          "type": "x",
+          "url": "https://x.com/dream_girls"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/dream_girls_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@dream.girls"
+        }
+      ],
+      "seed_cast_006": [
+        {
+          "type": "x",
+          "url": "https://x.com/stellar_voice"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/stellar_voice_jp"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@stellar.voice"
+        }
+      ],
+      "seed_cast_007": [
+        {
+          "type": "x",
+          "url": "https://x.com/melody_plus"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/melody_plus_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@melody_plus_"
+        }
+      ],
+      "seed_cast_008": [
+        {
+          "type": "x",
+          "url": "https://x.com/star_light_jp"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/star_light_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@star_light_jp"
+        }
+      ],
+      "seed_cast_009": [
+        {
+          "type": "x",
+          "url": "https://x.com/aurora_ent"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/aurora_entertainment"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@aurora_ent_"
+        }
+      ],
+      "seed_cast_010": [
+        {
+          "type": "x",
+          "url": "https://x.com/phoenix_music"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/phoenix_music_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@phoenix.music"
+        }
+      ]
+    }
+  },
+  "uploadedUrls": {
+    "seed_work_001": "https://assets.oshidra.com/8c4a0287-2028-4e91-9866-0c2ae4e79f75",
+    "seed_work_002": "https://assets.oshidra.com/442b4c8d-1db5-42eb-ac3a-715b1dff008d",
+    "seed_work_003": "https://assets.oshidra.com/cf2fd69b-efb1-4f34-ac29-fab22134ef57",
+    "seed_cast_001": "https://assets.oshidra.com/8dcccfce-ea85-4116-9350-067e9d50e119",
+    "seed_cast_002": "https://assets.oshidra.com/008886d0-4bc2-40c5-8fb5-77d18efd311d",
+    "seed_cast_003": "https://assets.oshidra.com/c9a0250c-ef1e-482c-a1c4-1a43fecf8364",
+    "seed_video_001": "https://assets.oshidra.com/116f9a2f-0617-49b8-a7a5-3ee10b9fbfb5",
+    "seed_video_002": "https://assets.oshidra.com/5dfc1a65-6583-446e-a0ce-4cb9d8740ebd",
+    "seed_video_003": "https://assets.oshidra.com/278f7108-b92b-4abc-ab45-dd78e9e5386a",
+    "seed_video_004": "https://assets.oshidra.com/acf3c3e3-0072-4e2e-a1cd-2eefa3feaccc",
+    "seed_video_005": "https://assets.oshidra.com/0e23977e-7ac3-4296-ba3a-fd20deefadb0",
+    "seed_video_006": "https://assets.oshidra.com/6137d36b-2431-49c0-bbd4-8d5dceb307fd",
+    "seed_video_007": "https://assets.oshidra.com/1040b4ba-bbd1-4822-8dd4-d6255e09d5eb",
+    "seed_video_008": "https://assets.oshidra.com/2415465a-aea4-4aaa-9d4a-79e1f6da381d",
+    "seed_video_009": "https://assets.oshidra.com/d3a63816-f6eb-4bb7-80fc-1ef20665d045",
+    "seed_video_010": "https://assets.oshidra.com/c1bd4f8c-768b-4307-98c2-0a0b8433ab13",
+    "seed_cast_004": "https://assets.oshidra.com/02381068-e6e5-4040-9d9c-56dc37863488",
+    "seed_cast_005": "https://assets.oshidra.com/5ce57286-8946-4723-b8fc-d3ae64c036fd",
+    "seed_cast_006": "https://assets.oshidra.com/deaf6a9f-b362-4cc4-81e7-dce2aaa9b144",
+    "seed_cast_008": "https://assets.oshidra.com/80a502e8-fa0b-4820-a952-ed49c2b33fc5",
+    "seed_cast_007": "https://assets.oshidra.com/87b9aa3e-6d63-4736-9a08-89b157a84095",
+    "seed_cast_009": "https://assets.oshidra.com/a3ece619-9761-4f0f-a118-91e0cdab3b34",
+    "seed_cast_010": "https://assets.oshidra.com/72120ee2-a29b-4038-9555-a4317054d1dd",
+    "seed_cast_001-1": "https://assets.oshidra.com/a5bf4bc6-76e0-452c-b9c0-64057507c6c7",
+    "seed_cast_001-2": "https://assets.oshidra.com/d3e7f9d9-5dd2-41ba-b806-cab758f11677",
+    "seed_cast_002-2": "https://assets.oshidra.com/1e5e92c9-9e7b-493f-8e19-4d01f525b8ae",
+    "seed_cast_003-1": "https://assets.oshidra.com/0c3775c4-579a-4b7d-84b3-eb9f24772d5d",
+    "seed_cast_003-2": "https://assets.oshidra.com/5b319faa-3dc2-4f29-a891-24ed52e51e41",
+    "seed_cast_002-1": "https://assets.oshidra.com/f555e10a-41d5-40c0-a4a1-e26232b46bfc",
+    "seed_cast_004-1": "https://assets.oshidra.com/d1be885d-b3f7-4c15-beee-63d92bd7bace",
+    "seed_cast_004-2": "https://assets.oshidra.com/6e5f66a3-401a-4882-96b2-226a0e3489d2",
+    "seed_cast_005-1": "https://assets.oshidra.com/40344faf-3e56-4874-879c-87aaac1ec487",
+    "seed_cast_005-2": "https://assets.oshidra.com/1b533d17-5785-4295-81ff-70bc41843c0d",
+    "seed_cast_006-1": "https://assets.oshidra.com/25be92ef-e2b1-4fff-ae9c-bd264dedaafc",
+    "seed_cast_006-2": "https://assets.oshidra.com/825bf2a8-4a32-4f39-9bab-5fded8eb4b29",
+    "seed_cast_007-1": "https://assets.oshidra.com/acaca83e-e019-4555-bc6e-a548d81be8fb",
+    "seed_cast_008-1": "https://assets.oshidra.com/3df9be67-eba3-4fe1-aa97-b1c29f9d1aed",
+    "seed_cast_007-2": "https://assets.oshidra.com/342aecbd-f31a-4c3f-9e0c-22091dd186dd",
+    "seed_cast_008-2": "https://assets.oshidra.com/c1c1f7fa-225a-49ea-b7c8-cfabb18ea79c",
+    "seed_cast_009-1": "https://assets.oshidra.com/353e05f6-5fdd-4da6-acd7-397714e173ee",
+    "seed_cast_009-2": "https://assets.oshidra.com/98ea4a00-f913-45d9-9c2b-f39f267fa9b9",
+    "seed_cast_010-2": "https://assets.oshidra.com/ef4677eb-924d-44d4-8d67-0a5200420449",
+    "seed_cast_010-1": "https://assets.oshidra.com/df63d0ab-6edd-4b66-b1b6-2526896f5013",
+    "seed_video_011": "https://assets.oshidra.com/dfab4af7-92f6-42dc-98da-b823f4405c66",
+    "seed_video_013": "https://assets.oshidra.com/0657ff85-f717-4352-a5ac-93e028d3e40c",
+    "seed_video_012": "https://assets.oshidra.com/886e5229-0635-4475-a2ec-62b3ad6c3993",
+    "seed_video_014": "https://assets.oshidra.com/f3fee8a5-5448-4834-88fa-31cba3758ef1",
+    "seed_video_015": "https://assets.oshidra.com/69c0a177-f30f-423a-b0ca-7ece6d441fdd",
+    "seed_video_016": "https://assets.oshidra.com/90dca8e6-2dd4-48b1-8226-7897a45cca84",
+    "seed_video_017": "https://assets.oshidra.com/6de39d4c-cd1f-405b-b834-f342c842594d",
+    "seed_video_018": "https://assets.oshidra.com/0d575264-159a-486b-a914-6e8465a8f910",
+    "seed_video_020": "https://assets.oshidra.com/2cf6663d-cc3e-4aa7-bf6e-edcc853d7298",
+    "seed_video_021": "https://assets.oshidra.com/2313b1bc-a81b-4b46-a2b9-89c8e8dbeeb4",
+    "seed_video_019": "https://assets.oshidra.com/99185475-89f5-4204-ab46-114a25268b09",
+    "seed_video_022": "https://assets.oshidra.com/22b07191-12bb-479b-a845-52a7a2e2ae90",
+    "seed_video_023": "https://assets.oshidra.com/dc8538cd-ca30-485d-924c-ce1d79dc2926",
+    "seed_video_024": "https://assets.oshidra.com/f932dbc5-db91-4bcd-b27e-811e48fde2e0",
+    "seed_video_025": "https://assets.oshidra.com/eab7a49b-685d-4fc2-b6e5-d63bcb44a916",
+    "seed_video_026": "https://assets.oshidra.com/30517e9e-4953-43e3-bd1e-f3c8658623ce",
+    "seed_video_027": "https://assets.oshidra.com/64fa38a2-9274-45cd-8760-bea6a80e7fae",
+    "seed_video_028": "https://assets.oshidra.com/0fe21b91-f494-4640-bbb0-0e6bf51fe0be",
+    "seed_video_029": "https://assets.oshidra.com/8875ea7e-ac7e-4663-b91f-18750489609d",
+    "seed_video_030": "https://assets.oshidra.com/37fcc4d9-53ef-4a96-85d1-2f2c7ba88bfe",
+    "seed_video_031": "https://assets.oshidra.com/e3c82486-dcc2-42a5-92f1-8c8ff576dbc9",
+    "seed_video_032": "https://assets.oshidra.com/d2d5b9a2-74ab-4aae-a6d9-dbece095b79b",
+    "seed_video_033": "https://assets.oshidra.com/903296a4-cb45-4b6b-ad5a-fa9a0e818f90",
+    "seed_video_034": "https://assets.oshidra.com/61e50954-6426-4d4b-88b2-c2658364c4c3",
+    "seed_video_035": "https://assets.oshidra.com/7b059bab-403e-47a9-b98f-06e1dcfa758e",
+    "seed_video_036": "https://assets.oshidra.com/c20d8760-5890-4509-89c2-ee8b1157975e",
+    "seed_video_037": "https://assets.oshidra.com/177a3b5d-b19e-4fc8-9098-3efb407e9eb9",
+    "seed_video_038": "https://assets.oshidra.com/3ecbe301-098a-4fd7-b7e1-4043e82db8b5",
+    "seed_video_039": "https://assets.oshidra.com/0cadd4b8-8f5b-454d-8afb-1413880dfdc5",
+    "seed_video_040": "https://assets.oshidra.com/fba344b0-7b6c-4afc-87fb-5e2ab677511e",
+    "seed_video_041": "https://assets.oshidra.com/e12a1e99-962c-4e82-990d-0e0e0dc9d116",
+    "seed_video_042": "https://assets.oshidra.com/4469815f-175f-4d7f-9012-32eee8a0bc21",
+    "seed_video_043": "https://assets.oshidra.com/0f4cb925-da8a-41c1-9ef9-a1a12081efce",
+    "seed_video_044": "https://assets.oshidra.com/1643905e-b2f4-4c8c-9a9d-2e91821869ab",
+    "seed_video_045": "https://assets.oshidra.com/a6b8678e-c223-41f3-a9f9-d5dd6d8699a1",
+    "seed_video_046": "https://assets.oshidra.com/f00a40d9-74b9-41cf-8408-8df3dc2716ff",
+    "seed_video_047": "https://assets.oshidra.com/d5bdbfe2-31f9-4669-a4d4-77bd3d2a7236",
+    "seed_video_048": "https://assets.oshidra.com/2f8c8614-d7d6-44c3-a71d-5f6c390cdbae",
+    "seed_video_049": "https://assets.oshidra.com/ce19a7bd-12bc-421e-866d-6b3dfd146dbe",
+    "seed_video_050": "https://assets.oshidra.com/7aeefd80-8b3f-4da5-b987-5cc0f6ecef4a",
+    "seed_video_052": "https://assets.oshidra.com/ba23f18c-ce2e-4b12-b078-e54aa33afc83",
+    "seed_video_051": "https://assets.oshidra.com/57e7edb2-6a49-4c4a-b36f-f68f44da79bb",
+    "seed_video_053": "https://assets.oshidra.com/5da05c10-17a2-4e69-abfa-1328cc9465c0",
+    "seed_video_054": "https://assets.oshidra.com/76a78ac4-58d9-4b57-9a5c-da05cddd46c9",
+    "seed_video_055": "https://assets.oshidra.com/b3a5b70e-d822-4ce2-89b0-34564fb5a0ff",
+    "seed_video_056": "https://assets.oshidra.com/1923628b-230a-437f-8fbc-36be8e1c9e16",
+    "seed_video_057": "https://assets.oshidra.com/96e146fd-8ccf-43d4-98fa-fcbef61ceaad",
+    "seed_video_059": "https://assets.oshidra.com/82fc390e-2621-4996-95da-3998b764710b",
+    "seed_video_058": "https://assets.oshidra.com/d1891aa7-eb39-40f7-b1c8-583ed76d58ab",
+    "seed_video_060": "https://assets.oshidra.com/bff6d7d7-c5f5-4c78-85b4-d1dd5077e73b",
+    "seed_cast_011": "https://assets.oshidra.com/dcbab24a-db86-4da9-af7f-664a197df188",
+    "seed_cast_012": "https://assets.oshidra.com/8749d1b7-1877-402e-8b70-6f507d47623e",
+    "seed_cast_013": "https://assets.oshidra.com/458b0493-5fed-4a00-b060-9d8123e604d3",
+    "seed_cast_014": "https://assets.oshidra.com/3ca258cf-5952-43de-a8ba-d8f06ac1cf39",
+    "seed_cast_015": "https://assets.oshidra.com/1cccd1bd-5f3c-4baa-a47a-86eb03982e88",
+    "seed_cast_016": "https://assets.oshidra.com/b1ba7f32-d6f7-4f37-bbdd-94926d1c35a9",
+    "seed_cast_017": "https://assets.oshidra.com/b3d4f8ff-194f-4b6d-8dab-919e3c88a0bc",
+    "seed_cast_019": "https://assets.oshidra.com/e2936c38-63c0-49c5-a9e0-d4b3a625f2c3",
+    "seed_cast_020": "https://assets.oshidra.com/8fd0bf46-563b-4856-b400-0cb3a29f53df",
+    "seed_cast_018": "https://assets.oshidra.com/a78f756e-f2b8-4818-9f35-cad1a2a3712b",
+    "seed_cast_021": "https://assets.oshidra.com/c78f5a6a-ce71-4ebb-a86f-1d35e7cf3b0e",
+    "seed_cast_022": "https://assets.oshidra.com/be3bc132-9d33-49c7-a9bb-f681e0a58638",
+    "seed_cast_023": "https://assets.oshidra.com/43a4cf34-88c4-4f3f-a19f-ffdda57ce02a",
+    "seed_cast_024": "https://assets.oshidra.com/ece36f00-1fca-4e2e-9a7f-a8fba4a36dbc",
+    "seed_cast_001-4": "https://assets.oshidra.com/d6a343be-7565-4ec4-b358-aaf0add4aa60",
+    "seed_cast_001-8": "https://assets.oshidra.com/2f9aaa1a-dd5e-4781-8cd3-89ee3d931d90",
+    "seed_cast_001-5": "https://assets.oshidra.com/5f5edd64-7fa3-4d19-be7f-d1130b7ee546",
+    "seed_cast_001-6": "https://assets.oshidra.com/d3d5eb0a-0f57-4cf8-a989-6a6df3ec6710",
+    "seed_cast_001-9": "https://assets.oshidra.com/6b5f2ef0-f957-4dcd-9bac-86bc011e9572",
+    "seed_cast_001-10": "https://assets.oshidra.com/228d0296-1421-4611-b50d-c3dfd3eace88",
+    "seed_cast_002-3": "https://assets.oshidra.com/9c353298-2cf5-48a8-8ec7-59de07560811",
+    "seed_cast_002-6": "https://assets.oshidra.com/ede7f913-c1b4-4690-a541-6bfe4b88c836",
+    "seed_cast_002-5": "https://assets.oshidra.com/3ce393c8-fc39-4928-b589-ac97fd88eb23",
+    "seed_cast_002-4": "https://assets.oshidra.com/1f1db7cc-4ed4-4242-b34a-83530da258ff",
+    "seed_cast_002-7": "https://assets.oshidra.com/01fe7d17-c3b6-4099-82b1-e362dc5fb951",
+    "seed_cast_002-8": "https://assets.oshidra.com/e9294da0-a26c-4d86-94cb-599889c05c4c",
+    "seed_cast_002-9": "https://assets.oshidra.com/c2af9e99-a886-438f-bc20-796ec18e5567",
+    "seed_cast_003-3": "https://assets.oshidra.com/9ddf2299-e6c6-41d4-8db6-8bedf15fa219"
+  },
+  "timestamp": "2026-01-29T20:04:27.500Z",
+  "uploaderBase": "https://oshidra-uploader-open.kousuke-c62.workers.dev",
+  "errors": []
+}

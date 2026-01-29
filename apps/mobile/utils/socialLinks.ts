@@ -12,6 +12,47 @@ export type SocialServiceMeta = {
   iconText: string
 }
 
+export type SocialIconKey =
+  | 'x'
+  | 'instagram'
+  | 'threads'
+  | 'tiktok'
+  | 'youtube'
+  | 'line'
+  | 'facebook'
+  | 'note'
+  | 'linkedin'
+  | 'discord'
+  | 'spotify'
+  | 'twitch'
+
+export function detectSocialIconKey(url: string): SocialIconKey | null {
+  const normalized = normalizeUrl(url)
+  try {
+    const u = new URL(normalized)
+    const host = String(u.hostname || '').toLowerCase().replace(/^www\./, '')
+
+    const match = (h: string, ...domains: string[]) => domains.some((d) => h === d || h.endsWith(`.${d}`))
+
+    if (match(host, 'x.com', 'twitter.com', 't.co')) return 'x'
+    if (match(host, 'instagram.com')) return 'instagram'
+    if (match(host, 'threads.net')) return 'threads'
+    if (match(host, 'tiktok.com')) return 'tiktok'
+    if (match(host, 'youtube.com', 'youtu.be')) return 'youtube'
+    if (match(host, 'line.me')) return 'line'
+    if (match(host, 'facebook.com', 'fb.com')) return 'facebook'
+    if (match(host, 'note.com')) return 'note'
+    if (match(host, 'linkedin.com')) return 'linkedin'
+    if (match(host, 'discord.com', 'discord.gg', 'discordapp.com')) return 'discord'
+    if (match(host, 'spotify.com', 'open.spotify.com')) return 'spotify'
+    if (match(host, 'twitch.tv')) return 'twitch'
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 export function detectSocialService(url: string): SocialServiceMeta {
   const normalized = normalizeUrl(url)
   try {
@@ -30,6 +71,9 @@ export function detectSocialService(url: string): SocialServiceMeta {
     if (match(host, 'note.com')) return { label: 'note', host, iconText: 'n' }
     if (match(host, 'ameblo.jp')) return { label: 'Ameba', host, iconText: 'A' }
     if (match(host, 'linkedin.com')) return { label: 'LinkedIn', host, iconText: 'in' }
+    if (match(host, 'discord.com', 'discord.gg', 'discordapp.com')) return { label: 'Discord', host, iconText: 'Dc' }
+    if (match(host, 'spotify.com', 'open.spotify.com')) return { label: 'Spotify', host, iconText: 'Sp' }
+    if (match(host, 'twitch.tv')) return { label: 'Twitch', host, iconText: 'Tw' }
     if (match(host, 'github.com')) return { label: 'GitHub', host, iconText: 'GH' }
 
     return { label: host || 'リンク', host, iconText: 'LINK' }

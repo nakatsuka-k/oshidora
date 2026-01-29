@@ -67,7 +67,6 @@ export function TagsListScreen({
             <Pressable key={r.id} onPress={() => onOpenEdit(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{r.name}</Text>
-                <Text style={styles.tableDetail}>{r.id}</Text>
               </View>
             </Pressable>
           ))}
@@ -178,12 +177,6 @@ export function TagEditScreen({
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
-        {id ? (
-          <View style={styles.field}>
-            <Text style={styles.label}>ID</Text>
-            <Text style={styles.readonlyText}>{id}</Text>
-          </View>
-        ) : null}
         <View style={styles.field}>
           <Text style={styles.label}>タグ名</Text>
           <TextInput value={name} onChangeText={setName} style={styles.input} />

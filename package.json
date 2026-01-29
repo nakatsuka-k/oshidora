@@ -12,6 +12,6 @@
     "db:migrate:remote": "npm --prefix apps/api run db:migrate:remote",
     "build:web": "npm -w apps/mobile run export:web",
     "build:admin": "npm --prefix apps/admin run export:web",
-    "deploy:admin": "./apps/api/node_modules/.bin/wrangler pages deploy apps/admin/dist --project-name oshidora-admin --branch main --commit-dirty=true --commit-message \"Deploy admin\""
+    "deploy:admin": "./node_modules/.bin/wrangler pages deploy apps/admin/dist --project-name oshidora-admin --branch main --commit-dirty=true --commit-message \"Deploy admin\""
   }
 }

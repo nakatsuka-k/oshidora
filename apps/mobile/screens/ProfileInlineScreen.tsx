@@ -1,6 +1,8 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
+  Image,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -15,6 +17,7 @@ import {
   ScreenContainer,
   SecondaryButton,
   THEME,
+  useSubscriptionUpsell,
 } from '../components'
 
 import IconFavoriteOff from '../assets/icon_favorite_off.svg'
@@ -24,8 +27,55 @@ import IconShare from '../assets/icon_share.svg'
 import IconStarEmpty from '../assets/none-start.svg'
 import IconStarYellow from '../assets/star-yellow.svg'
 
-import { detectSocialService } from '../utils/socialLinks'
+import IconSnsDiscord from '../assets/icon_sns/icon_sns_discord.svg'
+import IconSnsFacebook from '../assets/icon_sns/icon_sns_facebook.svg'
+import IconSnsInstagram from '../assets/icon_sns/icon_sns_instagram.svg'
+import IconSnsLine from '../assets/icon_sns/icon_sns_line.svg'
+import IconSnsLinkedin from '../assets/icon_sns/icon_sns_linkedin.svg'
+import IconSnsNote from '../assets/icon_sns/icon_sns_note.svg'
+import IconSnsSpotify from '../assets/icon_sns/icon_sns_spotify.svg'
+import IconSnsThreads from '../assets/icon_sns/icon_sns_threads.svg'
+import IconSnsTiktok from '../assets/icon_sns/icon_sns_tiktok.svg'
+import IconSnsTwitch from '../assets/icon_sns/icon_sns_twitch.svg'
+import IconSnsX from '../assets/icon_sns/icon_sns_x.svg'
+import IconSnsYoutube from '../assets/icon_sns/icon_sns_youtube.svg'
+
+import { detectSocialIconKey, detectSocialService, type SocialIconKey } from '../utils/socialLinks'
 import { apiFetch } from '../utils/api'
+
+const SNS_ICONS: Record<SocialIconKey, any> = {
+  x: IconSnsX,
+  instagram: IconSnsInstagram,
+  threads: IconSnsThreads,
+  tiktok: IconSnsTiktok,
+  youtube: IconSnsYoutube,
+  line: IconSnsLine,
+  facebook: IconSnsFacebook,
+  note: IconSnsNote,
+  linkedin: IconSnsLinkedin,
+  discord: IconSnsDiscord,
+  spotify: IconSnsSpotify,
+  twitch: IconSnsTwitch,
+}
+
+function extractUrls(text: string): string[] {
+  const s = String(text || '')
+  const hits = s.match(/https?:\/\/[^\s)\]}>,"']+/g) || []
+  const cleaned = hits
+    .map((u) => u.replace(/[),\].>"']+$/g, ''))
+    .map((u) => u.trim())
+    .filter(Boolean)
+  return Array.from(new Set(cleaned)).slice(0, 10)
+}
+
+async function openExternalUrl(url: string) {
+  const raw = String(url || '').trim()
+  if (!raw) return
+  const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+  const can = await Linking.canOpenURL(normalized)
+  if (!can) throw new Error('リンクを開けませんでした')
+  await Linking.openURL(normalized)
+}
 
 type Props = {
   styles: any
@@ -33,6 +83,8 @@ type Props = {
   apiBaseUrl: string
 
   selectedCast: any
+
+  isSubscribed: boolean
 
   castProfileSlideIndex: number
   setCastProfileSlideIndex: (next: number) => void
@@ -76,8 +128,48 @@ type Props = {
   setCastLocalComments: React.Dispatch<React.SetStateAction<any[]>>
 }
 
+function splitParagraphs(text: string): string[] {
+  const raw = String(text || '')
+  const lines = raw.replace(/\r\n/g, '\n').split('\n')
+
+  const out: string[] = []
+  let buf: string[] = []
+  const flush = () => {
+    const s = buf.join('\n').trimEnd()
+    if (s) out.push(s)
+    buf = []
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trimEnd()
+    if (!trimmed.trim()) {
+      flush()
+      continue
+    }
+    buf.push(trimmed)
+  }
+  flush()
+  return out
+}
+
+function isAngleBracketHeading(text: string): boolean {
+  const s = String(text || '').trim()
+  return /^<[^<>]{1,80}>$/.test(s)
+}
+
+function ProfileRow(props: { styles: any; label: string; value: string }) {
+  const { styles, label, value } = props
+  return (
+    <View style={styles.profileRow}>
+      <Text style={styles.profileRowLabel}>{label}</Text>
+      <Text style={styles.profileRowValue}>{value || '—'}</Text>
+    </View>
+  )
+}
+
 export function ProfileInlineScreen(props: Props) {
   const styles = props.styles
+  const { open: openSubscriptionUpsell } = useSubscriptionUpsell()
 
   if (!props.selectedCast?.id) {
     return (
@@ -92,6 +184,128 @@ export function ProfileInlineScreen(props: Props) {
 
   const castName = String(props.selectedCast?.name ?? '').trim() || '—'
   const castId = String(props.selectedCast?.id ?? '').trim()
+
+  const [remote, setRemote] = useState<{
+    loading: boolean
+    error: string
+    profileImages: string[]
+    faceImageUrl: string
+    nameKana: string
+    nameEn: string
+    birthDate: string
+    birthplace: string
+    bloodType: string
+    hobbies: string
+    specialSkills: string
+    qualifications: string
+    sns: { label: string; url: string }[]
+    bio: string
+    career: string
+    achievementImages: string[]
+  }>({
+    loading: false,
+    error: '',
+    profileImages: [],
+    faceImageUrl: '',
+    nameKana: '',
+    nameEn: '',
+    birthDate: '',
+    birthplace: '',
+    bloodType: '',
+    hobbies: '',
+    specialSkills: '',
+    qualifications: '',
+    sns: [],
+    bio: '',
+    career: '',
+    achievementImages: [],
+  })
+
+  useEffect(() => {
+    let mounted = true
+
+    const run = async () => {
+      const base = String(props.apiBaseUrl || '').trim().replace(/\/+$/, '')
+      if (!base || !castId) return
+
+      setRemote((prev) => ({ ...prev, loading: true, error: '' }))
+      try {
+        const res = await apiFetch(`${base}/v1/cast/${encodeURIComponent(castId)}`)
+        if (!res.ok) {
+          const msg = await res.text().catch(() => '')
+          throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+        }
+        const json = (await res.json().catch(() => ({}))) as any
+        const item = json?.item ?? {}
+        const rawImages: unknown = item?.profileImages
+        const profileImages: string[] = Array.isArray(rawImages) ? rawImages.filter((x) => typeof x === 'string' && x.trim()) : []
+        const faceImageUrl = typeof item?.faceImageUrl === 'string' ? item.faceImageUrl.trim() : ''
+
+        const nameKana = typeof item?.nameKana === 'string' ? item.nameKana.trim() : ''
+        const nameEn = typeof item?.nameEn === 'string' ? item.nameEn.trim() : ''
+        const birthDate = typeof item?.birthDate === 'string' ? item.birthDate.trim() : ''
+        const birthplace = typeof item?.birthplace === 'string' ? item.birthplace.trim() : ''
+        const bloodType = typeof item?.bloodType === 'string' ? item.bloodType.trim() : ''
+        const hobbies = typeof item?.hobbies === 'string' ? item.hobbies.trim() : ''
+        const specialSkills = typeof item?.specialSkills === 'string' ? item.specialSkills.trim() : ''
+        const qualifications = typeof item?.qualifications === 'string' ? item.qualifications.trim() : ''
+        const bio = typeof item?.bio === 'string' ? item.bio.trim() : ''
+        const career = typeof item?.career === 'string' ? item.career.trim() : ''
+
+        const rawAchievementImages: unknown = item?.achievementImages
+        const achievementImages: string[] = Array.isArray(rawAchievementImages)
+          ? rawAchievementImages
+              .filter((x) => typeof x === 'string')
+              .map((x) => String(x).trim())
+              .filter(Boolean)
+              .slice(0, 30)
+          : []
+
+        const rawSns: unknown = item?.sns
+        const sns: { label: string; url: string }[] = Array.isArray(rawSns)
+          ? rawSns
+              .map((x) => {
+                const label = typeof (x as any)?.label === 'string' ? String((x as any).label).trim() : ''
+                const url = typeof (x as any)?.url === 'string' ? String((x as any).url).trim() : ''
+                return { label, url }
+              })
+              .filter((v) => v.label || v.url)
+              .slice(0, 20)
+          : []
+
+        if (!mounted) return
+        setRemote({
+          loading: false,
+          error: '',
+          profileImages: profileImages.slice(0, 10),
+          faceImageUrl,
+          nameKana,
+          nameEn,
+          birthDate,
+          birthplace,
+          bloodType,
+          hobbies,
+          specialSkills,
+          qualifications,
+          sns,
+          bio,
+          career,
+          achievementImages,
+        })
+      } catch (e) {
+        if (!mounted) return
+        setRemote((prev) => ({ ...prev, loading: false, error: e instanceof Error ? e.message : String(e) }))
+      }
+    }
+
+    void run()
+    return () => {
+      mounted = false
+    }
+  }, [castId, props.apiBaseUrl])
+
+  const carouselImages = remote.profileImages
+  const carouselCount = Math.max(1, carouselImages.length)
 
   const ratingText = useMemo(() => {
     const rating = props.castReviewSummary
@@ -190,21 +404,29 @@ export function ProfileInlineScreen(props: Props) {
             const x = e.nativeEvent.contentOffset.x
             const step = 210 + 12
             const next = Math.round(x / step)
-            props.setCastProfileSlideIndex(Math.max(0, Math.min(next, 4)))
+            props.setCastProfileSlideIndex(Math.max(0, Math.min(next, carouselCount - 1)))
           }}
         >
-          {Array.from({ length: 5 }).map((_, i) => (
+          {(carouselImages.length ? carouselImages : ['']).map((uri, i, arr) => (
             <View
               key={i}
-              style={[styles.castCarouselCard, i === 4 ? null : { marginRight: 12 }]}
+              style={[styles.castCarouselCard, i === arr.length - 1 ? null : { marginRight: 12 }]}
             >
-              <View style={styles.castCarouselCardInner} />
+              {uri ? (
+                <Image
+                  source={{ uri }}
+                  style={styles.castCarouselCardInner}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.castCarouselCardInner} />
+              )}
             </View>
           ))}
         </ScrollView>
 
         <PaginationDots
-          count={5}
+          count={carouselCount}
           index={props.castProfileSlideIndex}
           style={styles.castCarouselDots}
           variant="plain"
@@ -213,13 +435,20 @@ export function ProfileInlineScreen(props: Props) {
           inactiveColor={THEME.outline}
           onChange={(idx) => props.setCastProfileSlideIndex(idx)}
         />
+
+        {remote.loading ? (
+          <Text style={[styles.bodyText, { marginTop: 8 }]}>読み込み中...</Text>
+        ) : remote.error ? (
+          <Text style={[styles.bodyText, { marginTop: 8 }]}>読み込み失敗: {remote.error}</Text>
+        ) : !remote.profileImages.length ? (
+          <Text style={[styles.bodyText, { marginTop: 8 }]}>プロフィール画像がありません</Text>
+        ) : null}
       </View>
 
       <View style={styles.castTitleBlock}>
         <Text style={styles.castNameMain}>{castName}</Text>
-        <Text style={styles.castNameSub}>
-          {String(props.selectedCast?.roleLabel ?? '') || '—'}
-        </Text>
+        {remote.nameKana ? <Text style={styles.castNameSub}>{remote.nameKana}</Text> : null}
+        {remote.nameEn ? <Text style={styles.castNameSub}>{remote.nameEn}</Text> : null}
         <View style={styles.castRatingRow}>
           <IconStarYellow width={14} height={14} />
           <Text style={styles.castRatingText}>{ratingText}</Text>
@@ -230,6 +459,13 @@ export function ProfileInlineScreen(props: Props) {
         label="推しポイント付与"
         onPress={() => {
           if (!props.requireLogin('coinGrant')) return
+
+          if (!props.isSubscribed) {
+            const thumb = remote.profileImages?.[0] || remote.faceImageUrl || null
+            openSubscriptionUpsell({ workTitle: castName, thumbnailUrl: thumb })
+            return
+          }
+
           props.setCoinGrantTarget({ id: castId, name: castName, roleLabel: props.selectedCast?.roleLabel })
           props.setCoinGrantPrimaryReturnTo('profile')
           props.setCoinGrantPrimaryLabel('プロフィールへ戻る')
@@ -261,26 +497,191 @@ export function ProfileInlineScreen(props: Props) {
         </Pressable>
       </View>
 
-      <View style={styles.profileCard}>
+      <View style={{ marginTop: 18 }}>
         <Text style={styles.sectionTitle}>プロフィール</Text>
-        <Text style={styles.bodyText}>プロフィール情報は準備中です。</Text>
+        <ProfileRow styles={styles} label="ジャンル" value={String(props.selectedCast?.role ?? '').trim()} />
+        <ProfileRow styles={styles} label="所属" value={String(props.selectedCast?.roleLabel ?? '').trim()} />
+        <ProfileRow styles={styles} label="生年月日" value={remote.birthDate} />
+        <ProfileRow styles={styles} label="出身地" value={remote.birthplace} />
+        <ProfileRow styles={styles} label="血液型" value={remote.bloodType} />
+        <ProfileRow styles={styles} label="趣味" value={remote.hobbies} />
+        <ProfileRow styles={styles} label="特技" value={remote.specialSkills} />
+        <ProfileRow styles={styles} label="資格" value={remote.qualifications} />
+
+        {remote.faceImageUrl ? (
+          <View style={{ marginTop: 14 }}>
+            <Text style={styles.subSectionTitle}>顔画像</Text>
+            <View style={{ width: 96, height: 96, borderRadius: 10, overflow: 'hidden', backgroundColor: THEME.placeholder }}>
+              <Image source={{ uri: remote.faceImageUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            </View>
+          </View>
+        ) : null}
       </View>
 
-      <View style={styles.commentsBox}>
-        <View style={styles.commentItem}>
-          <Text style={styles.sectionTitle}>コメント（{props.castReviewSummary ? props.castReviewSummary.reviewCount : props.castLocalComments.length}件）</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
-            {Array.from({ length: 5 }).map((_, idx) => (
-              <IconStarYellow key={idx} width={16} height={16} />
+      <View style={styles.profileSectionDivider} />
+
+      <View>
+        <Text style={styles.sectionTitle}>カテゴリ</Text>
+        <View style={styles.profileTagWrap}>
+          {(Array.isArray(props.selectedCast?.genres) ? props.selectedCast.genres : [String(props.selectedCast?.role ?? '')])
+            .map((x: any) => String(x ?? '').trim())
+            .filter(Boolean)
+            .slice(0, 20)
+            .map((label: string) => (
+              <View key={label} style={styles.profileTag}>
+                <Text style={styles.profileTagText}>{label}</Text>
+              </View>
             ))}
-            <Text style={[styles.metaTextBase, { color: '#E4A227', fontWeight: '900' }]}> {ratingText} </Text>
+        </View>
+        {(!props.selectedCast?.genres || props.selectedCast.genres.length === 0) && !String(props.selectedCast?.role ?? '').trim() ? (
+          <Text style={styles.profileBodyText}>—</Text>
+        ) : null}
+      </View>
+
+      <View style={styles.profileSectionDivider} />
+
+      <View>
+        <Text style={styles.sectionTitle}>SNSリンク</Text>
+        {remote.sns.length ? (
+          remote.sns.map((item, idx) => {
+            const url = String(item.url || '').trim()
+            const meta = detectSocialService(url)
+            const iconKey = detectSocialIconKey(url)
+            const IconComp = iconKey ? SNS_ICONS[iconKey] : null
+            const label = String(item.label || '').trim() || meta.label
+
+            return (
+              <Pressable
+                key={`${label}:${url}:${idx}`}
+                style={[styles.castSnsRow, idx === remote.sns.length - 1 ? styles.castSnsRowLast : null]}
+                onPress={async () => {
+                  try {
+                    await openExternalUrl(url)
+                  } catch (e) {
+                    Alert.alert('エラー', e instanceof Error ? e.message : String(e))
+                  }
+                }}
+              >
+                <View style={[styles.castSnsIcon, { alignItems: 'center', justifyContent: 'center' }]}>
+                  {IconComp ? (
+                    <IconComp width={28} height={28} />
+                  ) : (
+                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={styles.castSnsIconText}>{meta.iconText}</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.castSnsLabel}>{label}</Text>
+                  <Text style={styles.castSnsUrl} numberOfLines={1}>
+                    {url || '—'}
+                  </Text>
+                </View>
+              </Pressable>
+            )
+          })
+        ) : (
+          <Text style={styles.profileBodyText}>—</Text>
+        )}
+      </View>
+
+      <View style={styles.profileSectionDivider} />
+
+      <View>
+        <Text style={styles.sectionTitle}>自己PR</Text>
+        {(remote.bio ? splitParagraphs(remote.bio) : ['—']).map((p, i) => (
+          <View key={`bio-${i}`} style={{ marginBottom: 12 }}>
+            <Text style={styles.profileBodyText}>{p}</Text>
+            {i === 0 && extractUrls(remote.bio).length ? (
+              <View style={{ marginTop: 10, gap: 6 }}>
+                {extractUrls(remote.bio).map((u) => (
+                  <Pressable
+                    key={u}
+                    onPress={async () => {
+                      try {
+                        await openExternalUrl(u)
+                      } catch (e) {
+                        Alert.alert('エラー', e instanceof Error ? e.message : String(e))
+                      }
+                    }}
+                  >
+                    <Text style={styles.profileLinkText} numberOfLines={1}>
+                      {u}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.profileSectionDivider} />
+
+      <View>
+        <Text style={styles.sectionTitle}>経歴・出演実績</Text>
+        {(remote.career ? splitParagraphs(remote.career) : ['—']).map((p, i) => {
+          const heading = isAngleBracketHeading(p)
+          return (
+            <View key={`career-${i}`} style={{ marginBottom: 12 }}>
+              <Text style={heading ? styles.profileSubHeadingText : styles.profileBodyText}>{p}</Text>
+            </View>
+          )
+        })}
+        {extractUrls(remote.career).length ? (
+          <View style={{ marginTop: 4, gap: 6 }}>
+            {extractUrls(remote.career).map((u) => (
+              <Pressable
+                key={u}
+                onPress={async () => {
+                  try {
+                    await openExternalUrl(u)
+                  } catch (e) {
+                    Alert.alert('エラー', e instanceof Error ? e.message : String(e))
+                  }
+                }}
+              >
+                <Text style={styles.profileLinkText} numberOfLines={1}>
+                  {u}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </View>
+
+      {remote.achievementImages.length ? (
+        <>
+          <View style={styles.profileSectionDivider} />
+          <View>
+            <Text style={styles.sectionTitle}>実績画像</Text>
+            <View style={styles.profileGrid}>
+              {remote.achievementImages.map((uri, idx) => (
+                <View key={`${uri}:${idx}`} style={styles.profileGridItem}>
+                  <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                </View>
+              ))}
+            </View>
+          </View>
+        </>
+      ) : null}
+
+      <View style={styles.profileSectionDivider} />
+
+
+      <View>
+        <View style={styles.profileCommentsHeaderRow}>
+          <Text style={styles.sectionTitle}>コメント（{props.castReviewSummary ? props.castReviewSummary.reviewCount : props.castLocalComments.length}件）</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <IconStarYellow width={14} height={14} />
+            <Text style={styles.profileCommentsHeaderRating}>{ratingText}</Text>
           </View>
         </View>
 
         {(props.castCommentsExpanded ? props.castLocalComments : props.castLocalComments.slice(0, 3)).map((c: any) => {
           const stars = props.commentStarRating(c)
           return (
-            <View key={c.id} style={styles.commentItem}>
+            <View key={c.id} style={styles.profileCommentItem}>
               <Text style={styles.commentAuthor}>{c.author}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
                 {Array.from({ length: 5 }).map((_, idx) => {
@@ -298,14 +699,16 @@ export function ProfileInlineScreen(props: Props) {
         })}
 
         {!props.castCommentsExpanded && props.castLocalComments.length > 3 ? (
-          <Pressable style={styles.moreRow} onPress={() => props.setCastCommentsExpanded(true)}>
+          <Pressable style={styles.profileMoreRow} onPress={() => props.setCastCommentsExpanded(true)}>
             <Text style={styles.moreLink}>さらに表示</Text>
-            <Text style={styles.moreLink}>›</Text>
+            <Text style={styles.moreLink}>▼</Text>
           </Pressable>
         ) : null}
       </View>
 
-      <View style={styles.profileCard}>
+      <View style={styles.profileSectionDivider} />
+
+      <View>
         <Text style={styles.sectionTitle}>コメント投稿</Text>
         <View style={styles.commentCtaWrap}>
           <View style={styles.commentRatingRow}>
@@ -325,7 +728,7 @@ export function ProfileInlineScreen(props: Props) {
             placeholder="コメントを記入する"
             placeholderTextColor={THEME.textMuted}
             multiline
-            style={styles.commentInput}
+            style={styles.profileCommentInput}
           />
 
           <PrimaryButton label="コメントを投稿する" onPress={onSubmitComment} />

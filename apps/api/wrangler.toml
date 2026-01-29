@@ -16,9 +16,9 @@ R2_PUBLIC_BASE_URL = "https://pub-a2d549876dd24a08aebc65d95ed4ff91.r2.dev"
 
 # Stripe subscription (set secrets via `wrangler secret put STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`)
 STRIPE_SUBSCRIPTION_PRICE_ID = ""
-STRIPE_CHECKOUT_SUCCESS_URL = ""
-STRIPE_CHECKOUT_CANCEL_URL = ""
-STRIPE_PORTAL_RETURN_URL = ""
+STRIPE_CHECKOUT_SUCCESS_URL = "https://oshidra.com/subscription/success"
+STRIPE_CHECKOUT_CANCEL_URL = "https://oshidra.com/subscription/cancel"
+STRIPE_PORTAL_RETURN_URL = "https://oshidra.com/subscription"
 
 [[r2_buckets]]
 binding = "BUCKET"
@@ -44,9 +44,9 @@ R2_PUBLIC_BASE_URL = "https://pub-a2d549876dd24a08aebc65d95ed4ff91.r2.dev"
 
 # Stripe subscription (set secrets via `wrangler secret put STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`)
 STRIPE_SUBSCRIPTION_PRICE_ID = ""
-STRIPE_CHECKOUT_SUCCESS_URL = ""
-STRIPE_CHECKOUT_CANCEL_URL = ""
-STRIPE_PORTAL_RETURN_URL = ""
+STRIPE_CHECKOUT_SUCCESS_URL = "https://oshidra.com/subscription/success"
+STRIPE_CHECKOUT_CANCEL_URL = "https://oshidra.com/subscription/cancel"
+STRIPE_PORTAL_RETURN_URL = "https://oshidra.com/subscription"
 
 [[env.production.r2_buckets]]
 binding = "BUCKET"

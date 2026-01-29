@@ -162,12 +162,13 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
     setBanner('アップロードを中止しました')
   }, [setBanner])
 
-  const uploadThumbnail = useCallback(() => {
+  const uploadThumbnail = useCallback((file?: File | null) => {
     if (Platform.OS !== 'web') {
       setBanner('サムネイル画像アップロードはWeb版管理画面のみ対応です')
       return
     }
-    if (!thumbnailFile) {
+    const f = file ?? thumbnailFile
+    if (!f) {
       setBanner('画像ファイルを選択してください')
       return
     }
@@ -183,9 +184,9 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           {
             method: 'PUT',
             headers: {
-              'content-type': thumbnailFile.type || 'application/octet-stream',
+              'content-type': f.type || 'application/octet-stream',
             },
-            body: thumbnailFile,
+            body: f,
           }
         )
 
@@ -203,13 +204,14 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
     })()
   }, [cfg, setBanner, thumbnailFile])
 
-  const startStreamUpload = useCallback(() => {
+  const startStreamUpload = useCallback((file?: File | null) => {
     if (Platform.OS !== 'web') {
       setUploadState('error')
       setBanner('アップロードはWeb版管理画面のみ対応です')
       return
     }
-    if (!uploadFile) {
+    const f = file ?? uploadFile
+    if (!f) {
       setUploadState('error')
       setBanner('動画ファイルを選択してください')
       return
@@ -221,7 +223,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
     }
 
     const maxBytes = 30 * 1024 * 1024 * 1024
-    if (typeof uploadFile.size === 'number' && uploadFile.size > maxBytes) {
+    if (typeof f.size === 'number' && f.size > maxBytes) {
       setUploadState('error')
       setBanner('ファイルが大きすぎます（最大30GB）')
       return
@@ -240,13 +242,13 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
         setUploadState('uploading')
         setBanner('アップロード開始中…')
 
-        const uploader = new tus.Upload(uploadFile, {
+        const uploader = new tus.Upload(f, {
           endpoint: tusEndpoint,
           retryDelays: [0, 3000, 5000, 10000, 20000],
           chunkSize: 50 * 1024 * 1024,
           metadata: {
-            filename: uploadFile.name,
-            filetype: uploadFile.type || 'application/octet-stream',
+            filename: f.name,
+            filetype: f.type || 'application/octet-stream',
           },
           onBeforeRequest: (req: any) => {
             // Only attach CMS token when calling our uploader Worker. Do not leak it to upload.cloudflarestream.com.
@@ -412,6 +414,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
                     setUploadPct(0)
                     setUploadState('idle')
                     setBanner('')
+                    startStreamUpload(f)
                   }}
                 />
               </View>
@@ -427,7 +430,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
               <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
                 <Pressable
                   disabled={!canStartUpload}
-                  onPress={startStreamUpload}
+                  onPress={() => startStreamUpload()}
                   style={[styles.btnSecondary, !canStartUpload ? styles.btnDisabled : null]}
                 >
                   <Text style={styles.btnSecondaryText}>
@@ -513,15 +516,16 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
                   if (!f) return
                   setThumbnailFile(f)
                   setBanner('')
+                    uploadThumbnail(f)
                 }}
               />
               <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
                 <Pressable
                   disabled={thumbnailUploading || !thumbnailFile}
-                  onPress={uploadThumbnail}
+                    onPress={() => uploadThumbnail()}
                   style={[styles.btnSecondary, (thumbnailUploading || !thumbnailFile) ? styles.btnDisabled : null]}
                 >
-                  <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : '画像をアップロードしてURLに反映'}</Text>
+                    <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : '再アップロード'}</Text>
                 </Pressable>
               </View>
             </View>

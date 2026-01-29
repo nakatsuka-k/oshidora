@@ -14,10 +14,21 @@ export type TopScreenProps = {
 }
 
 export type VideoItem = {
+  kind?: 'video'
   id: string
   title: string
   thumbnailUrl?: string
 }
+
+export type PickupLinkItem = {
+  kind: 'link'
+  id: string
+  title: string
+  thumbnailUrl?: string
+  url: string
+}
+
+export type PickupItem = (VideoItem & { kind: 'video' }) | PickupLinkItem
 
 export type CastItem = {
   id: string
@@ -26,7 +37,7 @@ export type CastItem = {
 }
 
 export type TopData = {
-  pickup: VideoItem[]
+  pickup: PickupItem[]
   recommended: VideoItem[]
   rankings: {
     byViews: VideoItem[]

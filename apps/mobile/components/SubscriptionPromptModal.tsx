@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useMemo } from 'react'
-import { Image, ImageBackground, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ImageBackground, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { THEME } from './theme'
 
 type Props = {
@@ -15,68 +15,71 @@ type Props = {
 export function SubscriptionPromptModal({ visible, thumbnailUrl, workTitle, onClose, onStartTrial }: Props) {
   const title = useMemo(() => (workTitle?.trim() ? workTitle.trim() : '作品詳細'), [workTitle])
 
+  const heroSource = useMemo(() => {
+    const t = String(thumbnailUrl ?? '').trim()
+    if (t) return { uri: t }
+    // Fallback: use the same top background image to keep visual consistency.
+    return require('../../img/app_top_01.png')
+  }, [thumbnailUrl])
+
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
       <Pressable
         style={styles.backdrop}
-        onPress={onClose}
+        onPress={() => {
+          // Don't close on backdrop tap (誤タップ防止)
+        }}
         {...(Platform.OS === 'web'
           ? ({
-              role: 'button',
-              'aria-label': 'close subscription prompt',
+              role: 'presentation',
+              'aria-label': `subscription prompt: ${title}`,
             } as any)
           : null)}
       >
         <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={styles.backdropDim} />
 
-        <Pressable
-          onPress={() => {
-            // Prevent backdrop close when tapping inside.
-          }}
-          style={styles.card}
-        >
+        <View style={styles.panel}>
           <View style={styles.heroWrap}>
             <ImageBackground
-              source={thumbnailUrl ? { uri: thumbnailUrl } : undefined}
+              source={heroSource}
               resizeMode="cover"
               style={styles.hero}
               imageStyle={styles.heroImage}
             >
               <LinearGradient
-                colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']}
-                locations={[0, 0.55, 1]}
+                pointerEvents="none"
+                colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.85)', 'rgba(0,0,0,1)']}
+                locations={[0, 0.45, 0.82, 1]}
                 style={StyleSheet.absoluteFill}
               />
 
               <Pressable
                 onPress={onClose}
-                hitSlop={10}
+                hitSlop={12}
                 style={styles.closeBtn}
                 accessibilityRole="button"
                 accessibilityLabel="閉じる"
               >
                 <Text style={styles.closeText}>×</Text>
               </Pressable>
-
-              <View style={styles.heroCenter}>
-                <Image source={require('../assets/oshidora_logo.png')} style={styles.logo} resizeMode="contain" />
-                <Text style={styles.heroTitle} numberOfLines={1}>
-                  {title}
-                </Text>
-              </View>
             </ImageBackground>
           </View>
 
           <View style={styles.body}>
-            <Text style={styles.headline}>推しポイントを送って、{`\n`}あなたの推しを応援しよう！</Text>
+            <Text style={styles.headline}>
+              推しポイントを送って、{`\n`}あなたの推しを応援しよう！
+            </Text>
 
             <View style={styles.bullets}>
               <Bullet>毎月、推しポイントを付与</Bullet>
               <Bullet>全ての動画が見放題</Bullet>
             </View>
 
-            <Text style={styles.subHeadline}>新規登録なら1カ月無料！{`\n`}解約はいつでも可能。</Text>
+            <Text style={styles.subHeadline}>
+              <Text style={styles.subHeadlineStrong}>新規登録なら1カ月無料！</Text>
+              {`\n`}解約はいつでも可能。
+            </Text>
 
             <Pressable style={styles.ctaButton} onPress={onStartTrial} accessibilityRole="button" accessibilityLabel="まずは無料トライアル">
               <Text style={styles.ctaText}>まずは無料トライアル</Text>
@@ -84,7 +87,7 @@ export function SubscriptionPromptModal({ visible, thumbnailUrl, workTitle, onCl
 
             <Text style={styles.finePrint}>無料期間終了後は、¥2,000/月で自動更新。{`\n`}更新前に解約することも可能です。</Text>
           </View>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   )
@@ -108,23 +111,24 @@ const styles = StyleSheet.create({
   },
   backdropDim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
   },
-  card: {
-    width: '100%',
+  panel: {
+    width: '88%',
     maxWidth: 460,
     alignSelf: 'center',
-    borderRadius: 22,
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: THEME.card,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#0E0E0E',
   },
   heroWrap: {
     width: '100%',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    overflow: 'hidden',
   },
   hero: {
-    height: 190,
+    height: 210,
     width: '100%',
     justifyContent: 'flex-end',
   },
@@ -138,53 +142,32 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   closeText: {
     color: THEME.text,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '800',
     marginTop: -1,
-  },
-  heroCenter: {
-    alignItems: 'center',
-    paddingBottom: 14,
-    paddingHorizontal: 16,
-  },
-  logo: {
-    width: 120,
-    height: 28,
-    marginBottom: 8,
-    opacity: 0.95,
-  },
-  heroTitle: {
-    color: '#E7D3A2',
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: 0.2,
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
   },
   body: {
     paddingHorizontal: 18,
     paddingTop: 16,
-    paddingBottom: 18,
+    paddingBottom: 20,
   },
   headline: {
     color: THEME.text,
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 20,
+    fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 28,
   },
   bullets: {
     marginTop: 12,
-    alignItems: 'center',
+    alignSelf: 'center',
+    alignItems: 'flex-start',
     gap: 6,
   },
   bulletRow: {
@@ -193,35 +176,39 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   bulletMark: {
-    color: THEME.text,
-    fontSize: 12,
-    fontWeight: '900',
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 14,
+    fontWeight: '800',
     width: 14,
     textAlign: 'center',
     opacity: 0.9,
   },
   bulletText: {
-    color: THEME.textMuted,
+    color: 'rgba(255,255,255,0.92)',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   subHeadline: {
     marginTop: 14,
     color: THEME.text,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '600',
     textAlign: 'center',
     lineHeight: 18,
+  },
+  subHeadlineStrong: {
+    fontWeight: '800',
+    color: THEME.text,
   },
   ctaButton: {
     marginTop: 12,
     backgroundColor: THEME.accent,
     borderRadius: 999,
-    paddingVertical: 13,
+    height: 48,
+    width: '100%',
     paddingHorizontal: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
   },
   ctaText: {
     color: '#0B0B0B',
@@ -232,8 +219,8 @@ const styles = StyleSheet.create({
   finePrint: {
     marginTop: 10,
     color: 'rgba(230,230,230,0.55)',
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '600',
     textAlign: 'center',
     lineHeight: 14,
   },

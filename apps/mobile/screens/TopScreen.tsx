@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { Image, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch } from '../utils/api'
 import { getString, setString } from '../utils/storage'
+import { useWebDragToScroll } from '../utils/useWebDragToScroll'
 import {
   type TabKey,
   type TopScreenProps,
   type VideoItem,
+  type PickupItem,
   type CastItem,
   type TopData,
   type NoticeListItem,
@@ -29,6 +31,11 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
   const [pickupIndex, setPickupIndex] = useState(0)
   const [hasUnreadNotice, setHasUnreadNotice] = useState(false)
   const [latestNoticeAt, setLatestNoticeAt] = useState<string>('')
+
+  const pickupDrag = useWebDragToScroll({ suppressPressMs: 250 })
+  const viewsRankingDrag = useWebDragToScroll({ suppressPressMs: 250 })
+  const castRankingDrag = useWebDragToScroll({ suppressPressMs: 250 })
+  const ratingRankingDrag = useWebDragToScroll({ suppressPressMs: 250 })
 
   const pickupCardWidth = Math.min(340, Math.max(260, Math.round(width - 32)))
   const pickupSnap = pickupCardWidth + 12
@@ -104,7 +111,7 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="検索"
-            onPress={() => onPressTab('search')}
+            onPress={() => onPressTab('cast')}
             style={styles.headerIconButton}
           >
             <IconSearch width={22} height={22} />
@@ -129,6 +136,12 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.pickupList}
+              style={Platform.OS === 'web' ? styles.webDragScroll : null}
+              ref={pickupDrag.scrollRef}
+              onStartShouldSetResponderCapture={() => Platform.OS === 'web'}
+              onResponderGrant={pickupDrag.onResponderGrant}
+              onScroll={pickupDrag.onScroll}
+              scrollEventThrottle={16}
               snapToInterval={pickupSnap}
               decelerationRate="fast"
               onMomentumScrollEnd={(e) => {
@@ -137,11 +150,22 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
                 setPickupIndex(Math.max(0, Math.min(next, data.pickup.length - 1)))
               }}
             >
-              {data.pickup.slice(0, 6).map((v) => (
+              {data.pickup.slice(0, 6).map((v: PickupItem) => (
                 <Pressable
                   key={v.id}
                   style={[styles.pickupCard, { width: pickupCardWidth }]}
-                  onPress={() => onOpenVideo(v.id)}
+                  onPress={() => {
+                    if (!pickupDrag.allowPress()) return
+                    if (v.kind === 'link') {
+                      const url = String(v.url ?? '').trim()
+                      if (!url) return
+                      void Linking.openURL(url).catch(() => {
+                        // ignore
+                      })
+                      return
+                    }
+                    onOpenVideo(v.id)
+                  }}
                 >
                   <View style={styles.pickupThumbWrap}>
                     <Image
@@ -189,9 +213,26 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
                 <Text style={styles.sectionActionText}>›</Text>
               </Pressable>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.hList}
+              style={Platform.OS === 'web' ? styles.webDragScroll : null}
+              ref={viewsRankingDrag.scrollRef}
+              onStartShouldSetResponderCapture={() => Platform.OS === 'web'}
+              onResponderGrant={viewsRankingDrag.onResponderGrant}
+              onScroll={viewsRankingDrag.onScroll}
+              scrollEventThrottle={16}
+            >
               {data.rankings.byViews.slice(0, 5).map((v, idx) => (
-                <Pressable key={v.id} style={styles.rankCard} onPress={() => onOpenVideo(v.id)}>
+                <Pressable
+                  key={v.id}
+                  style={styles.rankCard}
+                  onPress={() => {
+                    if (!viewsRankingDrag.allowPress()) return
+                    onOpenVideo(v.id)
+                  }}
+                >
                   <View style={styles.rankThumbWrap}>
                     <Text style={styles.rankNumber}>{idx + 1}</Text>
                     <View style={styles.rankThumbClip}>
@@ -224,9 +265,26 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
                 <Text style={styles.sectionActionText}>›</Text>
               </Pressable>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.castList}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.castList}
+              style={Platform.OS === 'web' ? styles.webDragScroll : null}
+              ref={castRankingDrag.scrollRef}
+              onStartShouldSetResponderCapture={() => Platform.OS === 'web'}
+              onResponderGrant={castRankingDrag.onResponderGrant}
+              onScroll={castRankingDrag.onScroll}
+              scrollEventThrottle={16}
+            >
               {data.popularCasts.slice(0, 5).map((c, idx) => (
-                <Pressable key={c.id} style={styles.castCard} onPress={onOpenRanking}>
+                <Pressable
+                  key={c.id}
+                  style={styles.castCard}
+                  onPress={() => {
+                    if (!castRankingDrag.allowPress()) return
+                    onOpenRanking()
+                  }}
+                >
                   <View style={styles.castThumbWrap}>
                     <View style={styles.castThumbClip}>
                       <Image
@@ -236,8 +294,7 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
                       />
                     </View>
                     <View style={styles.castRankWrap}>
-                      <Text style={styles.castRankNumberStroke}>{idx + 1}</Text>
-                      <Text style={styles.castRankNumberFill}>{idx + 1}</Text>
+                      <Text style={styles.castRankNumber}>{idx + 1}</Text>
                     </View>
                   </View>
                   <Text style={styles.castName} numberOfLines={1}>
@@ -256,9 +313,26 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
                 <Text style={styles.sectionActionText}>›</Text>
               </Pressable>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.hList}
+              style={Platform.OS === 'web' ? styles.webDragScroll : null}
+              ref={ratingRankingDrag.scrollRef}
+              onStartShouldSetResponderCapture={() => Platform.OS === 'web'}
+              onResponderGrant={ratingRankingDrag.onResponderGrant}
+              onScroll={ratingRankingDrag.onScroll}
+              scrollEventThrottle={16}
+            >
               {data.rankings.byRating.slice(0, 5).map((v, idx) => (
-                <Pressable key={v.id} style={styles.rankCard} onPress={() => onOpenVideo(v.id)}>
+                <Pressable
+                  key={v.id}
+                  style={styles.rankCard}
+                  onPress={() => {
+                    if (!ratingRankingDrag.allowPress()) return
+                    onOpenVideo(v.id)
+                  }}
+                >
                   <View style={styles.rankThumbWrap}>
                     <Image
                       source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
@@ -337,22 +411,29 @@ const styles = StyleSheet.create({
     color: THEME.textMuted,
     fontSize: 10,
   },
+  sectionActionText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  webDragScroll: {
+    ...(Platform.OS === 'web' ? ({ cursor: 'grab' } as any) : null),
+  },
   sectionAction: {
     marginLeft: 'auto',
     width: 28,
     height: 28,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 999,
+    minWidth: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionActionText: {
-    color: THEME.textMuted,
-    fontSize: 20,
-    fontWeight: '700',
-  },
   hList: {
-    gap: 36,
-    paddingLeft: 32,
-    paddingRight: 32,
+    gap: 12,
+    paddingLeft: 16,
+    paddingRight: 16,
   },
   pickupList: {
     gap: 12,
@@ -360,9 +441,19 @@ const styles = StyleSheet.create({
     paddingRight: 16,
   },
   pickupCard: {
-    borderRadius: 18,
-    overflow: 'hidden',
+    borderRadius: 14,
     backgroundColor: THEME.card,
+    borderWidth: 1,
+    borderColor: THEME.outline,
+    overflow: 'hidden',
+  },
+  castRankNumber: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   pickupThumbWrap: {
     width: '100%',

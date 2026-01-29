@@ -35,6 +35,7 @@ import {
   Section,
   Slideshow,
   SubscriptionPromptModal,
+  SubscriptionUpsellProvider,
   TabBar,
   THEME,
 } from './components'
@@ -71,6 +72,7 @@ import {
   StaffCastReviewScreen,
   WorkReviewScreen,
   CastSearchScreen,
+  CastRankingScreen,
   VideoSearchScreen,
   CastSearchResultScreen,
   WorkSearchScreen,
@@ -131,6 +133,7 @@ import {
 import {
   getTutorialSlideCount,
   parseTutorialIndexFromPathname,
+  profileToWebUrl,
   screenToWebPath,
   splitPathname,
   tutorialIndexToWebPath,
@@ -138,6 +141,7 @@ import {
   videoPlayerToWebUrl,
   webPathnameToScreen,
 } from './utils/webRoutes'
+import { isLoginRequiredScreen } from './utils/screenAccess'
 import {
   screenToDocumentTitle,
   isValidEmail,
@@ -189,6 +193,7 @@ export type Screen =
   | 'registerComplete'
   | 'videoList'
   | 'cast'
+  | 'castRanking'
   | 'castSearchResult'
   | 'search'
   | 'work'
@@ -618,19 +623,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    // Guard for direct navigation (e.g. web hash) to login-required screens.
+    // Guard for direct navigation (e.g. web URL) to login-required screens.
     if (loggedIn) return
-    if (
-      screen !== 'cast' &&
-      screen !== 'castSearchResult' &&
-      screen !== 'profile' &&
-      screen !== 'castReview' &&
-      screen !== 'favorites' &&
-      screen !== 'favoriteVideos' &&
-      screen !== 'favoriteCasts' &&
-      screen !== 'favoriteCastsEdit'
-    )
-      return
+    if (!isLoginRequiredScreen(screen)) return
 
     setPostLoginTarget(screen)
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -788,9 +783,8 @@ export default function App() {
                 ? 'search'
                 : 'mypage'
 
-    // Access control: videos are public; cast/staff search/list is login-required (AXCMS-CS-001).
-
-    if (next === 'cast' && !requireLogin('cast')) return
+    // Access control for tabs.
+    if (isLoginRequiredScreen(next) && !requireLogin(next)) return
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       pushWebUrl(screenToWebPath(next))
@@ -946,10 +940,7 @@ export default function App() {
   const shareUrlForCast = useCallback((castId: string, castName: string) => {
     const appBase = resolveShareAppBaseUrl(apiBaseUrl)
     if (!appBase) return ''
-    const params = new URLSearchParams()
-    params.set('castId', castId)
-    params.set('title', castName)
-    return `${appBase}/profile?${params.toString()}`
+    return `${appBase}${profileToWebUrl({ castId, title: castName })}`
   }, [apiBaseUrl])
 
   const [commentTarget, setCommentTarget] = useState<
@@ -1623,7 +1614,16 @@ export default function App() {
         }
       }
       if (next === 'profile') {
-        const castId = (params.get('castId') || '').trim()
+        const decode = (v: string) => {
+          try {
+            return decodeURIComponent(v)
+          } catch {
+            return v
+          }
+        }
+
+        const pathCastId = pathSegments[0] === 'profile' && pathSegments.length >= 2 ? decode(pathSegments[1] ?? '') : ''
+        const castId = (params.get('castId') || pathCastId || '').trim()
         if (castId) {
           const title = (params.get('title') || '').trim()
           setSelectedCast({ id: castId, name: title || castId, roleLabel: '出演者' })
@@ -1954,8 +1954,9 @@ export default function App() {
       workId: workIdForDetail,
       workTitle: workForDetail.title,
     })
+    if (!requireLogin('comment')) return
     goTo('comment')
-  }, [goTo, workForDetail.title, workIdForDetail])
+  }, [goTo, requireLogin, workForDetail.title, workIdForDetail])
 
   const onWorkDetailShare = useCallback(async () => {
     const shareEpisode = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
@@ -2091,16 +2092,44 @@ export default function App() {
     [goTo, requireLogin]
   )
 
+  const onStartTrialFromCoinGrantUpsell = useCallback(() => {
+    if (!loggedIn) {
+      setSubscriptionNote('推しポイント付与にはログインが必要です。')
+      requireLogin('subscription')
+      return
+    }
+
+    setSubscriptionNote('推しポイント付与にはサブスク会員への加入が必要です。')
+    goTo('subscription')
+  }, [goTo, loggedIn, requireLogin])
+
   const onWorkDetailOpenProfileForStaff = useCallback(
     ({ id, name, roleLabel }: { id: string; name: string; roleLabel: string }) => {
-      if (!requireLogin('profile')) return
       setSelectedCast({ id, name, roleLabel })
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        pushWebUrl(profileToWebUrl({ castId: id, title: name }))
+        return
+      }
       goTo('profile')
     },
-    [goTo, requireLogin]
+    [goTo, pushWebUrl]
   )
 
   const onWorkDetailSubmitInlineComment = useCallback(async () => {
+    if (!loggedIn) {
+      Alert.alert('ログインが必要です', 'コメント投稿にはログインが必要です。', [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: 'ログイン',
+          onPress: () => {
+            setPostLoginTarget('workDetail')
+            goTo('login')
+          },
+        },
+      ])
+      return
+    }
+
     const trimmed = commentDraft.trim()
     if (!trimmed) return
     setCommentJustSubmitted(false)
@@ -2108,7 +2137,10 @@ export default function App() {
       const safeAuthor = (userProfile.displayName || '').trim().slice(0, 50) || '匿名'
       const res = await apiFetch(`${apiBaseUrl}/v1/comments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { authorization: `Bearer ${authToken}` } : null),
+        },
         body: JSON.stringify({ contentId: workIdForDetail, episodeId: '', author: safeAuthor, body: trimmed, rating: commentRating }),
       })
       if (!res.ok) {
@@ -2121,7 +2153,7 @@ export default function App() {
     } catch {
       setCommentJustSubmitted(true)
     }
-  }, [apiBaseUrl, commentDraft, commentRating, userProfile.displayName, workIdForDetail])
+  }, [apiBaseUrl, authToken, commentDraft, commentRating, goTo, loggedIn, userProfile.displayName, workIdForDetail])
 
   const onRegisterCompleteGoVideos = useCallback(() => {
     setLoggedIn(true)
@@ -2132,11 +2164,14 @@ export default function App() {
 
   const onCastOpenProfile = useCallback(
     (cast: { id: string; name: string; role: string }) => {
-      if (!requireLogin('profile')) return
       setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        pushWebUrl(profileToWebUrl({ castId: cast.id, title: cast.name }))
+        return
+      }
       goTo('profile')
     },
-    [goTo, requireLogin]
+    [goTo, pushWebUrl]
   )
 
   const onCastSearchOpenResults = useCallback(
@@ -2246,7 +2281,10 @@ export default function App() {
           setAuthToken(token)
           setLoggedIn(true)
           setHistory([])
-          setScreen('home')
+
+          // トークンがあっても起動直後にホームへ自動遷移しない。
+          // ただしスプラッシュ中は次画面として welcome を表示する。
+          if (screen === 'splash') goTo('welcome')
           return
         }
 
@@ -2268,7 +2306,7 @@ export default function App() {
         goTo('welcome')
       }
     })()
-  }, [goTo])
+  }, [goTo, screen])
 
   const onSubscriptionBack = useCallback(() => {
     setSubscriptionNote(null)
@@ -2404,18 +2442,32 @@ export default function App() {
   )
 
   const onStaffCastReviewDone = useCallback(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const castId = String(selectedCast?.id ?? '').trim()
+      const title = String(selectedCast?.name ?? '').trim()
+      pushWebUrl(profileToWebUrl({ castId: castId || null, title: title || null }))
+      return
+    }
     goTo('profile')
-  }, [goTo])
+  }, [goTo, pushWebUrl, selectedCast])
 
   const onCommentPostSubmitted = useCallback(
     async ({ workId, body }: { workId: string; body: string }) => {
+      if (!loggedIn) {
+        requireLogin('comment')
+        throw new Error('ログインが必要です')
+      }
+
       const trimmed = body.trim()
       if (!trimmed) throw new Error('コメントを入力してください')
 
       const safeAuthor = (userProfile.displayName || '').trim().slice(0, 50) || '匿名'
       const res = await apiFetch(`${apiBaseUrl}/v1/comments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { authorization: `Bearer ${authToken}` } : null),
+        },
         body: JSON.stringify({ contentId: workId, episodeId: '', author: safeAuthor, body: trimmed }),
       })
       if (!res.ok) {
@@ -2423,7 +2475,7 @@ export default function App() {
         throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
       }
     },
-    [apiBaseUrl, userProfile.displayName]
+    [apiBaseUrl, authToken, loggedIn, requireLogin, userProfile.displayName]
   )
 
   const onCommentPostDone = useCallback(() => {
@@ -2601,19 +2653,29 @@ export default function App() {
 
   return (
     <View style={styles.appRoot}>
+      <SubscriptionUpsellProvider onStartTrial={onStartTrialFromCoinGrantUpsell}>
       <SafeAreaView style={styles.safeArea}>
         {screen === 'splash' ? (
           <WelcomeTopScreen
             onLogin={() => goTo('login')}
             onStart={() => {
+              if (loggedIn) {
+                setHistory([])
+                setScreen('home')
+                return
+              }
               setTermsReadOnly(false)
               goTo('terms')
             }}
-            onContinueAsGuest={() => {
-              setLoggedIn(false)
-              setHistory([])
-              setScreen('home')
-            }}
+            onContinueAsGuest={
+              loggedIn
+                ? undefined
+                : () => {
+                    setLoggedIn(false)
+                    setHistory([])
+                    setScreen('home')
+                  }
+            }
           />
         ) : null}
 
@@ -2621,14 +2683,23 @@ export default function App() {
         <WelcomeTopScreen
           onLogin={() => goTo('login')}
           onStart={() => {
+            if (loggedIn) {
+              setHistory([])
+              setScreen('home')
+              return
+            }
             setTermsReadOnly(false)
             goTo('terms')
           }}
-          onContinueAsGuest={() => {
-            setLoggedIn(false)
-            setHistory([])
-            setScreen('home')
-          }}
+          onContinueAsGuest={
+            loggedIn
+              ? undefined
+              : () => {
+                  setLoggedIn(false)
+                  setHistory([])
+                  setScreen('home')
+                }
+          }
         />
       ) : null}
 
@@ -2906,6 +2977,20 @@ export default function App() {
           onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
           onOpenProfile={onCastOpenProfile}
           onOpenResults={onCastSearchOpenResults}
+          onOpenCastRanking={() => {
+            if (!requireLogin('castRanking')) return
+            goTo('castRanking')
+          }}
+        />
+      ) : null}
+
+      {screen === 'castRanking' ? (
+        <CastRankingScreen
+          apiBaseUrl={apiBaseUrl}
+          onPressTab={switchTab}
+          onBack={goBack}
+          onOpenNotice={loggedIn ? () => goTo('notice') : undefined}
+          onOpenProfile={onCastOpenProfile}
         />
       ) : null}
 
@@ -3005,6 +3090,8 @@ export default function App() {
           apiBaseUrl={apiBaseUrl}
           authToken={authToken}
           onBack={goBack}
+          activeTab="cast"
+          onPressTab={(tabKey) => switchTab(tabKey as any)}
         />
       ) : null}
 
@@ -3146,7 +3233,6 @@ export default function App() {
           onBack={goBack}
           onEdit={() => goTo('favoriteCastsEdit')}
           onOpenProfile={(cast) => {
-            if (!requireLogin('profile')) return
             setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
             goTo('profile')
           }}
@@ -3260,6 +3346,7 @@ export default function App() {
           styles={styles}
           apiBaseUrl={apiBaseUrl}
           selectedCast={selectedCast}
+          isSubscribed={isSubscribed}
           castProfileSlideIndex={castProfileSlideIndex}
           setCastProfileSlideIndex={setCastProfileSlideIndex}
           castReviewSummary={castReviewSummary}
@@ -3333,7 +3420,7 @@ export default function App() {
           onBack={goBack}
           onGoHome={() => goTo('home')}
           onOpenNotice={() => goTo('notice')}
-          onOpenSearch={() => switchTab('search')}
+          onOpenSearch={() => switchTab('cast')}
           onPressTab={(tabKey) => switchTab(tabKey as any)}
           onPlayMain={onWorkDetailPlayMain}
           onPressComment={onWorkDetailPressComment}
@@ -3476,6 +3563,7 @@ export default function App() {
           onDone={onSplashDone}
         />
       ) : null}
+      </SubscriptionUpsellProvider>
     </View>
   )
 }
@@ -3972,6 +4060,116 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
   },
+
+  profileSectionDivider: {
+    width: '100%',
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginTop: 18,
+    marginBottom: 18,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  profileRowLabel: {
+    width: 96,
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  profileRowValue: {
+    flex: 1,
+    flexShrink: 1,
+    color: '#E6E6E6',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  profileTagWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  profileTag: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'transparent',
+  },
+  profileTagText: {
+    color: '#E6E6E6',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  profileBodyText: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  profileSubHeadingText: {
+    color: '#E6E6E6',
+    fontSize: 12,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  profileLinkText: {
+    color: THEME.accent,
+    fontSize: 12,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  profileGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+  },
+  profileGridItem: {
+    width: '31%',
+    aspectRatio: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: THEME.placeholder,
+  },
+  profileCommentsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  profileCommentsHeaderRating: {
+    color: '#E4A227',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  profileCommentItem: {
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  profileMoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  profileCommentInput: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#E6E6E6',
+    fontSize: 12,
+    minHeight: 44,
+  },
   profileCard: {
     width: '100%',
     borderRadius: 16,
@@ -4007,7 +4205,7 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.divider,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
   },
   castSnsRowLast: {
     borderBottomWidth: 0,
@@ -4015,8 +4213,13 @@ const styles = StyleSheet.create({
   castSnsIcon: {
     width: 28,
     height: 28,
-    borderRadius: 14,
-    backgroundColor: THEME.placeholder,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
+  },
+  castSnsIconText: {
+    color: '#E6E6E6',
+    fontSize: 11,
+    fontWeight: '900',
   },
   castSnsLabel: {
     color: '#E6E6E6',

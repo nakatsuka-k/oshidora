@@ -162,7 +162,7 @@ export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNot
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="検索"
-            onPress={() => onPressTab('search')}
+            onPress={() => onPressTab('cast')}
             style={styles.headerIconButton}
           >
             <IconSearch width={22} height={22} />

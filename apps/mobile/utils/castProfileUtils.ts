@@ -36,20 +36,23 @@ export type CastProfileRegisterScreenProps = {
   apiBaseUrl: string
   authToken?: string
   onBack: () => void
+  activeTab?: 'home' | 'video' | 'cast' | 'search' | 'mypage'
+  onPressTab?: (tabKey: 'home' | 'video' | 'cast' | 'search' | 'mypage') => void
 }
 
 export const STORAGE_KEY = 'cast_profile_me_v1'
 export const GENRE_OPTIONS = ['女優', '俳優', '脚本', '演出', '制作', 'その他']
-export const CATEGORY_OPTIONS = [
-  'コメディ・ライ',
+export const STANDARD_CATEGORY_OPTIONS = ['感情・人間ドラマ', 'コメディ・ライト']
+export const GENRE_TAG_OPTIONS = [
   'アクション',
   'アドベンチャー',
+  'SF',
   'ファンタジー',
   'ミステリー',
   'サスペンス',
   'スリラー',
   'ホラー',
-  'パニット',
+  'パニック',
   'クライム（犯罪）',
   'スパイ・諜報もの',
 ]

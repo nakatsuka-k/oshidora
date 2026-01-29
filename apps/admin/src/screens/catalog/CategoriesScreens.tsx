@@ -73,7 +73,7 @@ export function CategoriesListScreen({
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{r.name}</Text>
-                <Text style={styles.tableDetail}>{`${r.id} / ${r.enabled ? '有効' : '無効'}`}</Text>
+                <Text style={styles.tableDetail}>{r.enabled ? '有効' : '無効'}</Text>
               </View>
             </Pressable>
           ))}

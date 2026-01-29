@@ -3,20 +3,21 @@ import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-nati
 
 import { styles } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
-import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
+import { cmsFetchJson, type CmsApiConfig } from '../../lib/cmsApi'
 import { isValidEmail } from '../../lib/validation'
 import { SelectField } from '../../ui/fields'
 
 type AdminRow = { id: string; name: string; email: string; role: string; disabled: boolean }
 
 export function AdminsListScreen({
+  cfg,
   onOpenDetail,
   onNew,
 }: {
+  cfg: CmsApiConfig
   onOpenDetail: (id: string) => void
   onNew: () => void
 }) {
-  const cfg = useCmsApi()
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<AdminRow[]>([])
@@ -88,15 +89,16 @@ export function AdminsListScreen({
 }
 
 export function AdminEditScreen({
+  cfg,
   title,
   id,
   onBack,
 }: {
+  cfg: CmsApiConfig
   title: string
   id: string
   onBack: () => void
 }) {
-  const cfg = useCmsApi()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('Admin')

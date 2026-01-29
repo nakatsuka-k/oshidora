@@ -18,6 +18,7 @@ import {
   TabBar,
   THEME,
   ScreenContainer,
+  useSubscriptionUpsell,
 } from '../components'
 
 import {
@@ -44,6 +45,7 @@ import IconDown from '../assets/icon_down.svg'
 type Props = WorkDetailScreenProps
 
 export function WorkDetailScreen(props: Props) {
+  const { open: openSubscriptionUpsell } = useSubscriptionUpsell()
   const commentList = useMemo(() => props.approvedComments, [props.approvedComments])
 
   const slicedComments = useMemo(
@@ -282,6 +284,12 @@ export function WorkDetailScreen(props: Props) {
                           const accountId = props.resolveCastAccountIdByName(s.name)
                           if (!accountId) return
                           if (!props.requireLogin('coinGrant')) return
+
+                          if (!props.isSubscribed) {
+                            openSubscriptionUpsell({ workTitle: props.workForDetail.title, thumbnailUrl: props.workDetailHeroThumbnailUrl })
+                            return
+                          }
+
                           props.onGoCoinGrantForCast({ accountId, name: s.name, roleLabel: s.role })
                         }}
                       >

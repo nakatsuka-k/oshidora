@@ -93,9 +93,9 @@ async function runScheduledVideoPublishing(env: Env['Bindings']) {
          WHERE published = 0
            AND scheduled_at IS NOT NULL
            AND scheduled_status = 'scheduled'
-           AND scheduled_at <= ?
+           AND datetime(scheduled_at) <= datetime(?)
            AND COALESCE(approval_status, 'approved') = 'approved'
-         ORDER BY scheduled_at ASC
+         ORDER BY datetime(scheduled_at) ASC
          LIMIT 100`
       )
       .bind(now)
@@ -402,6 +402,15 @@ app.use('*', async (c, next) => {
     c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key, X-Mock')
     c.res.headers.set('Access-Control-Max-Age', '86400')
   }
+})
+
+// CMS (admin) responses must never be cached. Otherwise, querystring-based filters/search
+// can appear "stuck" due to intermediary/browser caching.
+app.use('/cms/*', async (c, next) => {
+  await next()
+  c.res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+  c.res.headers.set('Pragma', 'no-cache')
+  c.res.headers.set('Expires', '0')
 })
 
 app.get('/health', (c) => c.text('ok'))
@@ -873,7 +882,7 @@ app.get('/cms/videos/scheduled', async (c) => {
       `SELECT v.id, v.title, v.scheduled_at, v.scheduled_status
        FROM videos v
        WHERE v.scheduled_at IS NOT NULL
-       ORDER BY v.scheduled_at ASC
+       ORDER BY datetime(v.scheduled_at) ASC
        LIMIT 200`
     )
     return c.json({
@@ -3978,7 +3987,7 @@ app.get('/cms/videos', async (c) => {
   const limitParsed = limitRaw ? Number.parseInt(limitRaw, 10) : 200
   const limit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 500) : 200
 
-  const where: string[] = ['1=1']
+  const where: string[] = ['COALESCE(v.deleted, 0) = 0']
   const binds: any[] = []
 
   if (q) {
@@ -4030,10 +4039,11 @@ app.get('/cms/videos', async (c) => {
     rows = await d1All(
       db,
       `SELECT
-         v.id, v.work_id, COALESCE(w.title, '') AS work_title,
-         v.title, v.description,
-         v.stream_video_id, COALESCE(v.stream_video_id_clean, '') AS stream_video_id_clean, COALESCE(v.stream_video_id_subtitled, '') AS stream_video_id_subtitled,
-         v.thumbnail_url,
+        v.id, v.work_id, COALESCE(w.title, '') AS work_title,
+        v.title, v.description,
+        v.stream_video_id, COALESCE(v.stream_video_id_clean, '') AS stream_video_id_clean, COALESCE(v.stream_video_id_subtitled, '') AS stream_video_id_subtitled,
+        COALESCE(v.subtitle_url, '') AS subtitle_url,
+        v.thumbnail_url,
          v.published,
          v.scheduled_at,
          v.episode_no,
@@ -4077,6 +4087,7 @@ app.get('/cms/videos', async (c) => {
     streamVideoId: String(r.stream_video_id ?? ''),
     streamVideoIdClean: String(r.stream_video_id_clean ?? ''),
     streamVideoIdSubtitled: String(r.stream_video_id_subtitled ?? ''),
+    subtitleUrl: String((r as any).subtitle_url ?? ''),
     thumbnailUrl: String(r.thumbnail_url ?? ''),
     published: Number(r.published ?? 0) === 1,
     scheduledAt: r.scheduled_at === null || r.scheduled_at === undefined ? null : String(r.scheduled_at ?? ''),
@@ -4133,7 +4144,7 @@ app.get('/cms/videos/:id', async (c) => {
   try {
     row = await d1First(
       db,
-      'SELECT v.id, v.work_id, w.title AS work_title, v.title, v.description, v.stream_video_id, COALESCE(v.stream_video_id_clean, \'\') AS stream_video_id_clean, COALESCE(v.stream_video_id_subtitled, \'\') AS stream_video_id_subtitled, v.thumbnail_url, v.published, v.scheduled_at, v.episode_no, COALESCE(v.rating_avg, 0) AS rating_avg, COALESCE(v.review_count, 0) AS review_count, v.created_at, v.updated_at FROM videos v LEFT JOIN works w ON w.id = v.work_id WHERE v.id = ?',
+      'SELECT v.id, v.work_id, w.title AS work_title, v.title, v.description, v.stream_video_id, COALESCE(v.stream_video_id_clean, \'\') AS stream_video_id_clean, COALESCE(v.stream_video_id_subtitled, \'\') AS stream_video_id_subtitled, COALESCE(v.subtitle_url, \'\') AS subtitle_url, v.thumbnail_url, v.published, v.scheduled_at, v.episode_no, COALESCE(v.rating_avg, 0) AS rating_avg, COALESCE(v.review_count, 0) AS review_count, v.created_at, v.updated_at FROM videos v LEFT JOIN works w ON w.id = v.work_id WHERE v.id = ? AND COALESCE(v.deleted, 0) = 0',
       [id]
     )
   } catch (err) {
@@ -4175,6 +4186,7 @@ app.get('/cms/videos/:id', async (c) => {
       streamVideoId: String(row.stream_video_id ?? ''),
       streamVideoIdClean: String((row as any).stream_video_id_clean ?? ''),
       streamVideoIdSubtitled: String((row as any).stream_video_id_subtitled ?? ''),
+      subtitleUrl: String((row as any).subtitle_url ?? ''),
       thumbnailUrl: String(row.thumbnail_url ?? ''),
       published: Number(row.published ?? 0) === 1,
       scheduledAt: row.scheduled_at === null || row.scheduled_at === undefined ? null : String(row.scheduled_at ?? ''),
@@ -4209,6 +4221,7 @@ app.post('/cms/videos', async (c) => {
     streamVideoId?: unknown
     streamVideoIdClean?: unknown
     streamVideoIdSubtitled?: unknown
+    subtitleUrl?: unknown
     thumbnailUrl?: unknown
     published?: unknown
     scheduledAt?: unknown
@@ -4225,6 +4238,7 @@ app.post('/cms/videos', async (c) => {
   const streamVideoId = clampText(body.streamVideoId, 120)
   const streamVideoIdClean = clampText(body.streamVideoIdClean, 120)
   const streamVideoIdSubtitled = clampText(body.streamVideoIdSubtitled, 120)
+  const subtitleUrl = clampText(body.subtitleUrl, 500)
   const thumbnailUrl = clampText(body.thumbnailUrl, 500)
   const published = body.published === undefined ? 0 : parseBool01(body.published)
   const scheduledAtRaw = body.scheduledAt === undefined ? undefined : String(body.scheduledAt ?? '').trim()
@@ -4242,8 +4256,8 @@ app.post('/cms/videos', async (c) => {
   const id = uuidOrFallback('vid')
   try {
     await db
-      .prepare('INSERT INTO videos (id, work_id, title, description, stream_video_id, stream_video_id_clean, stream_video_id_subtitled, thumbnail_url, published, scheduled_at, episode_no, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(id, workId, title, description, streamVideoId, streamVideoIdClean, streamVideoIdSubtitled, thumbnailUrl, published, scheduledAt, Number.isFinite(episodeNo as any) ? episodeNo : null, createdAt, createdAt)
+      .prepare('INSERT INTO videos (id, work_id, title, description, stream_video_id, stream_video_id_clean, stream_video_id_subtitled, subtitle_url, thumbnail_url, published, scheduled_at, episode_no, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, workId, title, description, streamVideoId, streamVideoIdClean, streamVideoIdSubtitled, subtitleUrl, thumbnailUrl, published, scheduledAt, Number.isFinite(episodeNo as any) ? episodeNo : null, createdAt, createdAt)
       .run()
 
     await replaceLinks(db, { table: 'video_categories', leftKey: 'video_id', leftId: id, rightKey: 'category_id', rightIds: categoryIds })
@@ -4277,6 +4291,7 @@ app.put('/cms/videos/:id', async (c) => {
     streamVideoId?: unknown
     streamVideoIdClean?: unknown
     streamVideoIdSubtitled?: unknown
+    subtitleUrl?: unknown
     thumbnailUrl?: unknown
     published?: unknown
     scheduledAt?: unknown
@@ -4285,6 +4300,7 @@ app.put('/cms/videos/:id', async (c) => {
     tagIds?: unknown
     castIds?: unknown
     genreIds?: unknown
+    deleted?: unknown
   }
   const body = (await c.req.json().catch(() => ({}))) as Body
 
@@ -4320,6 +4336,10 @@ app.put('/cms/videos/:id', async (c) => {
     sets.push('stream_video_id_subtitled = ?')
     binds.push(clampText(body.streamVideoIdSubtitled, 120))
   }
+  if (body.subtitleUrl !== undefined) {
+    sets.push('subtitle_url = ?')
+    binds.push(clampText(body.subtitleUrl, 500))
+  }
   if (body.thumbnailUrl !== undefined) {
     sets.push('thumbnail_url = ?')
     binds.push(clampText(body.thumbnailUrl, 500))
@@ -4327,6 +4347,10 @@ app.put('/cms/videos/:id', async (c) => {
   if (body.published !== undefined) {
     sets.push('published = ?')
     binds.push(parseBool01(body.published))
+  }
+  if (body.deleted !== undefined) {
+    sets.push('deleted = ?')
+    binds.push(parseBool01(body.deleted))
   }
   if (body.scheduledAt !== undefined) {
     const scheduledAtRaw = String(body.scheduledAt ?? '').trim()
@@ -4571,6 +4595,158 @@ app.post('/cms/featured/videos', async (c) => {
   }
 
   return c.json({ ok: true, slot, count: videoIds.length })
+})
+
+// ---- CMS: Pickup items (video or external link) ----
+
+type CmsPickupItemKind = 'video' | 'link'
+
+function isValidPickupItemKind(kind: string): kind is CmsPickupItemKind {
+  return kind === 'video' || kind === 'link'
+}
+
+app.get('/cms/pickup/items', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  let rows: any[] = []
+  try {
+    rows = await d1All(
+      db,
+      `
+      SELECT
+        p.id AS id,
+        p.kind AS kind,
+        p.video_id AS video_id,
+        p.url AS url,
+        p.title AS link_title,
+        p.thumbnail_url AS link_thumbnail_url,
+        p.sort_order AS sort_order,
+        v.work_id AS work_id,
+        COALESCE(w.title, '') AS work_title,
+        COALESCE(v.title, '') AS video_title,
+        COALESCE(v.thumbnail_url, '') AS video_thumbnail_url,
+        COALESCE((SELECT group_concat(DISTINCT c.name)
+                  FROM video_casts vc
+                  JOIN casts c ON c.id = vc.cast_id
+                  WHERE vc.video_id = v.id), '') AS cast_names,
+        COALESCE((SELECT group_concat(DISTINCT cat.name)
+                  FROM video_categories vcat
+                  JOIN categories cat ON cat.id = vcat.category_id
+                  WHERE vcat.video_id = v.id), '') AS category_names,
+        COALESCE((SELECT group_concat(DISTINCT t.name)
+                  FROM video_tags vt
+                  JOIN tags t ON t.id = vt.tag_id
+                  WHERE vt.video_id = v.id), '') AS tag_names
+      FROM cms_pickup_items p
+      LEFT JOIN videos v ON v.id = p.video_id
+      LEFT JOIN works w ON w.id = v.work_id
+      ORDER BY p.sort_order ASC, p.created_at ASC
+    `
+    )
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  const items = rows
+    .map((r) => {
+      const kind = String(r.kind ?? '')
+      if (!isValidPickupItemKind(kind)) return null
+      if (kind === 'video') {
+        return {
+          kind,
+          id: String(r.video_id ?? r.id ?? ''),
+          videoId: String(r.video_id ?? ''),
+          sortOrder: Number(r.sort_order ?? 0),
+          workId: String(r.work_id ?? ''),
+          workTitle: String(r.work_title ?? ''),
+          title: String(r.video_title ?? ''),
+          thumbnailUrl: String(r.video_thumbnail_url ?? ''),
+          castNames: String(r.cast_names ?? ''),
+          categoryNames: String(r.category_names ?? ''),
+          tagNames: String(r.tag_names ?? ''),
+        }
+      }
+      return {
+        kind,
+        id: String(r.id ?? ''),
+        sortOrder: Number(r.sort_order ?? 0),
+        title: String(r.link_title ?? ''),
+        url: String(r.url ?? ''),
+        thumbnailUrl: String(r.link_thumbnail_url ?? ''),
+      }
+    })
+    .filter(Boolean)
+
+  return c.json({ items })
+})
+
+app.post('/cms/pickup/items', async (c) => {
+  const admin = await requireCmsAdmin(c)
+  if (!admin.ok) return c.json({ error: admin.error }, admin.status)
+  if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
+  const db = c.env.DB as D1Database
+
+  type Body = { items?: unknown }
+  const body = (await c.req.json().catch(() => ({}))) as Body
+  if (!Array.isArray(body.items)) return c.json({ error: 'items must be an array' }, 400)
+  if (body.items.length > 200) return c.json({ error: 'too_many_items' }, 400)
+
+  const parsed = body.items
+    .map((x) => (x && typeof x === 'object' ? (x as any) : null))
+    .filter(Boolean)
+    .map((x) => {
+      const kind = String(x.kind ?? '').trim()
+      if (!isValidPickupItemKind(kind)) return null
+      if (kind === 'video') {
+        const videoId = String(x.videoId ?? x.id ?? '').trim()
+        if (!videoId) return null
+        return { kind, id: videoId, videoId }
+      }
+
+      const url = String(x.url ?? '').trim()
+      if (!url) return null
+      if (!/^https?:\/\//i.test(url)) return null
+      const id = String(x.id ?? '').trim() || uuidOrFallback('pickup_link')
+      const title = String(x.title ?? '').trim() || url
+      const thumbnailUrl = String(x.thumbnailUrl ?? '').trim()
+      return { kind, id, url, title, thumbnailUrl }
+    })
+    .filter(Boolean) as Array<
+    | { kind: 'video'; id: string; videoId: string }
+    | { kind: 'link'; id: string; url: string; title: string; thumbnailUrl: string }
+  >
+
+  const createdAt = nowIso()
+  try {
+    await db.prepare('DELETE FROM cms_pickup_items').run()
+    for (let i = 0; i < parsed.length; i++) {
+      const it = parsed[i]
+      if (it.kind === 'video') {
+        await db
+          .prepare(
+            'INSERT INTO cms_pickup_items (id, kind, video_id, url, title, thumbnail_url, sort_order, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)'
+          )
+          .bind(it.id, it.kind, it.videoId, '', '', i, createdAt)
+          .run()
+        continue
+      }
+      await db
+        .prepare(
+          'INSERT INTO cms_pickup_items (id, kind, video_id, url, title, thumbnail_url, sort_order, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)'
+        )
+        .bind(it.id, it.kind, it.url, it.title, it.thumbnailUrl, i, createdAt)
+        .run()
+    }
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+
+  return c.json({ ok: true, count: parsed.length })
 })
 
 // Search videos by title / cast / category / tag
@@ -5049,6 +5225,13 @@ function getStripeCheckoutUrls(env: Env['Bindings']) {
 function getStripePortalReturnUrl(env: Env['Bindings']) {
   const u = String(env.STRIPE_PORTAL_RETURN_URL ?? '').trim()
   return u || null
+}
+
+function getStripeSubscriptionFallbackUrl(env: Env['Bindings']) {
+  const returnUrl = getStripePortalReturnUrl(env)
+  const { successUrl, cancelUrl } = getStripeCheckoutUrls(env)
+  const fallback = String(returnUrl ?? successUrl ?? cancelUrl ?? 'https://oshidra.com/subscription').trim()
+  return fallback || 'https://oshidra.com/subscription'
 }
 
 async function stripePostForm<T>(secretKey: string, path: string, params: URLSearchParams, opts?: { idempotencyKey?: string }) {
@@ -6466,6 +6649,7 @@ app.post('/v1/stream/direct-upload', async (c) => {
 app.get('/v1/top', async (c) => {
   if (isClientMockRequest(c) || !c.env.DB) {
     const toItem = (w: MockWork) => ({
+      kind: 'video',
       id: w.id,
       title: w.title,
       thumbnailUrl: w.thumbnailUrl ?? '',
@@ -6514,6 +6698,7 @@ app.get('/v1/top', async (c) => {
   // IMPORTANT: The mobile/web app expects these items to be *works* (content).
   // The home screen opens work detail with the returned `id`.
   const toWorkItem = (r: any) => ({
+    kind: 'video',
     id: String(r.id ?? ''),
     title: String(r.title ?? ''),
     thumbnailUrl: String(r.thumbnail_url ?? ''),
@@ -6526,25 +6711,90 @@ app.get('/v1/top', async (c) => {
   })
 
   try {
-    const pickupRows = await d1All(
-      db,
+    // Pickup: can be mixed items (video/link) via cms_pickup_items.
+    // Fallback to legacy cms_featured_videos when not configured.
+    let pickup: any[] = []
+
+    let pickupItemRows: any[] | null = null
+    try {
+      pickupItemRows = await d1All(
+        db,
+        `
+        SELECT id, kind, video_id, url, title, thumbnail_url, sort_order, created_at
+        FROM cms_pickup_items
+        ORDER BY sort_order ASC, created_at ASC
+        LIMIT 50
       `
-      SELECT
-        w.id,
-        w.title,
-        MAX(CASE WHEN w.thumbnail_url != '' THEN w.thumbnail_url ELSE v.thumbnail_url END) AS thumbnail_url,
-        MIN(fv.sort_order) AS sort_order,
-        MIN(fv.created_at) AS created_at
-      FROM cms_featured_videos fv
-      JOIN videos v ON v.id = fv.video_id
-      JOIN works w ON w.id = v.work_id
-      WHERE fv.slot = ? AND v.published = 1
-      GROUP BY w.id, w.title
-      ORDER BY sort_order ASC, created_at ASC
-      LIMIT 6
-    `,
-      ['pickup']
-    )
+      )
+    } catch {
+      pickupItemRows = null
+    }
+
+    if (pickupItemRows && pickupItemRows.length > 0) {
+      const seenWorkIds = new Set<string>()
+      for (const r of pickupItemRows) {
+        if (pickup.length >= 6) break
+        const kind = String(r.kind ?? '')
+        if (kind === 'link') {
+          const url = String(r.url ?? '').trim()
+          if (!url) continue
+          pickup.push({
+            kind: 'link',
+            id: String(r.id ?? ''),
+            title: String(r.title ?? '').trim() || url,
+            thumbnailUrl: String(r.thumbnail_url ?? ''),
+            url,
+          })
+          continue
+        }
+        if (kind !== 'video') continue
+        const videoId = String(r.video_id ?? '').trim()
+        if (!videoId) continue
+
+        const w = await d1First(
+          db,
+          `
+          SELECT
+            w.id,
+            w.title,
+            MAX(CASE WHEN w.thumbnail_url != '' THEN w.thumbnail_url ELSE v.thumbnail_url END) AS thumbnail_url
+          FROM videos v
+          JOIN works w ON w.id = v.work_id
+          WHERE v.id = ? AND v.published = 1
+          GROUP BY w.id, w.title
+          LIMIT 1
+        `,
+          [videoId]
+        )
+        const workId = String((w as any)?.id ?? '').trim()
+        if (!workId) continue
+        if (seenWorkIds.has(workId)) continue
+        seenWorkIds.add(workId)
+        pickup.push(toWorkItem(w))
+      }
+    } else {
+      const pickupRows = await d1All(
+        db,
+        `
+        SELECT
+          w.id,
+          w.title,
+          MAX(CASE WHEN w.thumbnail_url != '' THEN w.thumbnail_url ELSE v.thumbnail_url END) AS thumbnail_url,
+          MIN(fv.sort_order) AS sort_order,
+          MIN(fv.created_at) AS created_at
+        FROM cms_featured_videos fv
+        JOIN videos v ON v.id = fv.video_id
+        JOIN works w ON w.id = v.work_id
+        WHERE fv.slot = ? AND v.published = 1
+        GROUP BY w.id, w.title
+        ORDER BY sort_order ASC, created_at ASC
+        LIMIT 6
+      `,
+        ['pickup']
+      )
+
+      pickup = pickupRows.length ? pickupRows.map(toWorkItem) : []
+    }
 
     const recommendRows = await d1All(
       db,
@@ -6578,7 +6828,7 @@ app.get('/v1/top', async (c) => {
     `
     )
 
-    const pickup = pickupRows.length ? pickupRows.map(toWorkItem) : latestRows.slice(0, 6).map(toWorkItem)
+    const pickupFinal = pickup.length ? pickup : latestRows.slice(0, 6).map(toWorkItem)
     const recommended = recommendRows.length ? recommendRows.map(toWorkItem) : latestRows.slice(0, 6).map(toWorkItem)
     const rankings = latestRows.slice(0, 5).map(toWorkItem)
 
@@ -6609,7 +6859,7 @@ app.get('/v1/top', async (c) => {
         ).map(toCastItem)
 
     return c.json({
-      pickup,
+      pickup: pickupFinal,
       recommended,
       rankings: {
         byViews: rankings,
@@ -6617,6 +6867,121 @@ app.get('/v1/top', async (c) => {
         overall: rankings,
       },
       popularCasts,
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Cast rankings (public)
+// Backed by cms_rankings computed by the daily job.
+// Falls back to favorites/recency when rankings are not available.
+app.get('/v1/rankings/casts', async (c) => {
+  const type = String(c.req.query('type') ?? 'actors').trim() || 'actors'
+  const allowed = new Set(['actors', 'directors', 'writers'])
+  if (!allowed.has(type)) return c.json({ error: 'invalid_type' }, 400)
+
+  const limitRaw = Number(c.req.query('limit') ?? 10)
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(30, Math.trunc(limitRaw))) : 10
+
+  if (isClientMockRequest(c) || !c.env.DB) {
+    const base = (MOCK_CASTS ?? []) as any[]
+    const items = base.slice(0, limit).map((x, idx) => ({
+      rank: idx + 1,
+      cast: {
+        id: String(x?.id ?? ''),
+        name: String(x?.name ?? ''),
+        role: String(x?.role ?? ''),
+        thumbnailUrl: String(x?.thumbnailUrl ?? ''),
+      },
+    }))
+    return c.json({ asOf: '2026-01-12T00:00:00.000Z', items })
+  }
+
+  const db = c.env.DB as D1Database
+
+  const toCast = (r: any) => ({
+    id: String(r?.id ?? ''),
+    name: String(r?.name ?? ''),
+    role: String(r?.role ?? ''),
+    thumbnailUrl: String(r?.thumbnail_url ?? ''),
+  })
+
+  try {
+    const asOfRow = await d1First(db, 'SELECT MAX(as_of) AS as_of FROM cms_rankings WHERE type = ?', [type])
+    const asOf = String((asOfRow as any)?.as_of ?? '')
+    if (asOf) {
+      const rows = await d1All(
+        db,
+        'SELECT rank, entity_id, label FROM cms_rankings WHERE type = ? AND as_of = ? ORDER BY rank ASC LIMIT ?',
+        [type, asOf, limit]
+      )
+
+      const entityIds = Array.from(
+        new Set(
+          (rows as any[])
+            .map((r: any) => String(r?.entity_id ?? '').trim())
+            .filter((id: string) => Boolean(id))
+        )
+      )
+
+      const castById = new Map<string, { id: string; name: string; role: string; thumbnailUrl: string }>()
+      if (entityIds.length) {
+        const placeholders = entityIds.map(() => '?').join(',')
+        const casts = await d1All(db, `SELECT id, name, role, thumbnail_url FROM casts WHERE id IN (${placeholders})`, entityIds)
+        for (const v of casts as any[]) {
+          const id = String((v as any)?.id ?? '').trim()
+          if (!id) continue
+          castById.set(id, {
+            id,
+            name: String((v as any)?.name ?? ''),
+            role: String((v as any)?.role ?? ''),
+            thumbnailUrl: String((v as any)?.thumbnail_url ?? ''),
+          })
+        }
+      }
+
+      return c.json({
+        asOf,
+        items: (rows as any[]).map((r: any) => {
+          const entityId = String(r?.entity_id ?? '').trim()
+          const cast = castById.get(entityId)
+          return {
+            rank: Number(r?.rank ?? 0) || 0,
+            cast:
+              cast ??
+              ({
+                id: entityId,
+                name: String(r?.label ?? ''),
+                role: '',
+                thumbnailUrl: '',
+              } as any),
+          }
+        }),
+      })
+    }
+
+    // Fallback: favorites-based ranking (still D1-backed)
+    const rows = await d1All(
+      db,
+      `
+      SELECT c.id, c.name, c.role, c.thumbnail_url, COUNT(fc.cast_id) AS fav_count
+      FROM casts c
+      LEFT JOIN favorite_casts fc ON fc.cast_id = c.id
+      GROUP BY c.id
+      ORDER BY fav_count DESC, c.updated_at DESC
+      LIMIT ?
+    `,
+      [limit]
+    )
+
+    return c.json({
+      asOf: '',
+      items: (rows as any[]).map((r: any, idx: number) => ({
+        rank: idx + 1,
+        cast: toCast(r),
+      })),
     })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
@@ -7236,6 +7601,101 @@ app.get('/v1/cast', async (c) => {
         genres: [String(r.role ?? '')].filter(Boolean),
         thumbnailUrl: String(r.thumbnail_url ?? ''),
       })),
+    })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+app.get('/v1/cast/:id', async (c) => {
+  const castId = String(c.req.param('id') ?? '').trim()
+  if (!castId) return c.json({ error: 'id is required' }, 400)
+
+  if (isMockRequest(c) || !c.env.DB) {
+    const hit = (MOCK_CASTS as any[]).find((x) => String(x?.id ?? '').trim() === castId)
+    if (!hit) return c.json({ error: 'not_found' }, 404)
+    return c.json({
+      item: {
+        id: String(hit.id ?? ''),
+        name: String(hit.name ?? ''),
+        role: String(hit.role ?? ''),
+        thumbnailUrl: String(hit.thumbnailUrl ?? hit.thumbnail_url ?? ''),
+        nameKana: '',
+        nameEn: '',
+        birthDate: '',
+        birthplace: '',
+        bloodType: '',
+        hobbies: '',
+        specialSkills: '',
+        qualifications: '',
+        sns: [],
+        bio: '',
+        career: '',
+        faceImageUrl: '',
+        profileImages: [],
+      },
+    })
+  }
+
+  const db = c.env.DB as D1Database
+
+  try {
+    const row = await d1First(
+      db,
+      `SELECT c.id, c.name, c.role, c.thumbnail_url,
+              p.face_image_url, p.profile_images_json,
+              p.name_kana, p.name_en,
+              p.sns_json,
+              p.hobbies, p.special_skills, p.bio, p.career,
+              p.private_birth_date, p.blood_type, p.birthplace,
+              p.qualifications,
+              u.birth_date AS user_birth_date
+         FROM casts c
+         LEFT JOIN cast_staff_profiles p ON p.cast_id = c.id
+         LEFT JOIN users u ON u.id = p.user_id
+        WHERE c.id = ?
+        LIMIT 1`,
+      [castId]
+    )
+    if (!row) return c.json({ error: 'not_found' }, 404)
+
+    const profileImages = safeJsonParseArray<string>(
+      String((row as any).profile_images_json ?? '[]'),
+      (v) => String(v ?? '').trim(),
+      10
+    ).filter(Boolean)
+
+    const sns = safeJsonParseArray<{ label: string; url: string }>(
+      String((row as any).sns_json ?? '[]'),
+      (v) => ({ label: String((v as any)?.label ?? '').trim(), url: String((v as any)?.url ?? '').trim() }),
+      20
+    ).filter((v) => v.label || v.url)
+
+    const privateBirthDate = String((row as any).private_birth_date ?? '').trim()
+    const userBirthDate = String((row as any).user_birth_date ?? '').trim()
+    const birthDate = privateBirthDate || userBirthDate
+
+    return c.json({
+      item: {
+        id: String((row as any).id ?? ''),
+        name: String((row as any).name ?? ''),
+        role: String((row as any).role ?? ''),
+        thumbnailUrl: String((row as any).thumbnail_url ?? ''),
+        nameKana: String((row as any).name_kana ?? ''),
+        nameEn: String((row as any).name_en ?? ''),
+        birthDate,
+        birthplace: String((row as any).birthplace ?? ''),
+        bloodType: String((row as any).blood_type ?? ''),
+        hobbies: String((row as any).hobbies ?? ''),
+        specialSkills: String((row as any).special_skills ?? ''),
+        qualifications: String((row as any).qualifications ?? ''),
+        sns,
+        bio: String((row as any).bio ?? ''),
+        career: String((row as any).career ?? ''),
+        faceImageUrl: String((row as any).face_image_url ?? ''),
+        profileImages,
+      },
     })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
@@ -8680,12 +9140,24 @@ app.post('/api/stripe/checkout/subscription', async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
 
+  const fallbackUrl = getStripeSubscriptionFallbackUrl(c.env)
+
   const secretKey = getStripeSecretKey(c.env)
-  if (!secretKey) return c.json({ error: 'STRIPE_SECRET_KEY is not configured' }, 500)
   const priceId = getStripePriceId(c.env)
-  if (!priceId) return c.json({ error: 'STRIPE_SUBSCRIPTION_PRICE_ID is not configured' }, 500)
   const { successUrl, cancelUrl } = getStripeCheckoutUrls(c.env)
-  if (!successUrl || !cancelUrl) return c.json({ error: 'STRIPE_CHECKOUT_SUCCESS_URL / STRIPE_CHECKOUT_CANCEL_URL is not configured' }, 500)
+  if (!secretKey || !priceId || !successUrl || !cancelUrl) {
+    return c.json({
+      checkoutUrl: fallbackUrl,
+      mocked: true,
+      warning: 'stripe_not_configured',
+      missing: {
+        STRIPE_SECRET_KEY: !secretKey,
+        STRIPE_SUBSCRIPTION_PRICE_ID: !priceId,
+        STRIPE_CHECKOUT_SUCCESS_URL: !successUrl,
+        STRIPE_CHECKOUT_CANCEL_URL: !cancelUrl,
+      },
+    })
+  }
 
   const user = await c.env.DB
     .prepare('SELECT id, email, stripe_customer_id FROM users WHERE id = ? LIMIT 1')
@@ -8733,10 +9205,21 @@ app.post('/api/stripe/portal', async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status as any)
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
 
+  const fallbackUrl = getStripeSubscriptionFallbackUrl(c.env)
+
   const secretKey = getStripeSecretKey(c.env)
-  if (!secretKey) return c.json({ error: 'STRIPE_SECRET_KEY is not configured' }, 500)
   const returnUrl = getStripePortalReturnUrl(c.env)
-  if (!returnUrl) return c.json({ error: 'STRIPE_PORTAL_RETURN_URL is not configured' }, 500)
+  if (!secretKey || !returnUrl) {
+    return c.json({
+      url: fallbackUrl,
+      mocked: true,
+      warning: 'stripe_not_configured',
+      missing: {
+        STRIPE_SECRET_KEY: !secretKey,
+        STRIPE_PORTAL_RETURN_URL: !returnUrl,
+      },
+    })
+  }
 
   const user = await c.env.DB
     .prepare('SELECT stripe_customer_id FROM users WHERE id = ? LIMIT 1')

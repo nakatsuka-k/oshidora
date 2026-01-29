@@ -1,0 +1,713 @@
+{
+  "generatedAt": "2026-01-29T19:53:54.613Z",
+  "outDir": "./seed-images-generated",
+  "files": {
+    "works": [
+      {
+        "id": "seed_work_001",
+        "localFile": "seed-images-generated/works/seed_work_001.png",
+        "r2Path": "seed-images/works/seed_work_001.png"
+      },
+      {
+        "id": "seed_work_002",
+        "localFile": "seed-images-generated/works/seed_work_002.png",
+        "r2Path": "seed-images/works/seed_work_002.png"
+      },
+      {
+        "id": "seed_work_003",
+        "localFile": "seed-images-generated/works/seed_work_003.png",
+        "r2Path": "seed-images/works/seed_work_003.png"
+      }
+    ],
+    "castProfiles": [
+      {
+        "id": "seed_cast_001",
+        "index": 1,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-1.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-1.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 2,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-2.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-2.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 4,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-4.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-4.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 5,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-5.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-5.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 6,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-6.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-6.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 8,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-8.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-8.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 9,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-9.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-9.png"
+      },
+      {
+        "id": "seed_cast_001",
+        "index": 10,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_001-10.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_001-10.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 1,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-1.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-1.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 2,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-2.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-2.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 3,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-3.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-3.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 4,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-4.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-4.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 5,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-5.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-5.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 6,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-6.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-6.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 7,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-7.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-7.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 8,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-8.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-8.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "index": 9,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_002-9.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_002-9.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "index": 1,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_003-1.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_003-1.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "index": 2,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_003-2.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_003-2.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "index": 3,
+        "localFile": "seed-images-generated/cast-profiles/seed_cast_003-3.png",
+        "r2Path": "seed-images/cast-profiles/seed_cast_003-3.png"
+      }
+    ],
+    "castFaces": [
+      {
+        "id": "seed_cast_001",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_001.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_001.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_002.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_002.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_003.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_003.png"
+      },
+      {
+        "id": "seed_cast_004",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_004.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_004.png"
+      },
+      {
+        "id": "seed_cast_005",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_005.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_005.png"
+      },
+      {
+        "id": "seed_cast_006",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_006.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_006.png"
+      },
+      {
+        "id": "seed_cast_007",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_007.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_007.png"
+      },
+      {
+        "id": "seed_cast_008",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_008.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_008.png"
+      },
+      {
+        "id": "seed_cast_009",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_009.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_009.png"
+      },
+      {
+        "id": "seed_cast_010",
+        "localFile": "seed-images-generated/cast-faces/seed_cast_010.png",
+        "r2Path": "seed-images/cast-faces/seed_cast_010.png"
+      }
+    ],
+    "videos": [
+      {
+        "id": "seed_video_001",
+        "localFile": "seed-images-generated/videos/seed_video_001.png",
+        "r2Path": "seed-images/videos/seed_video_001.png"
+      },
+      {
+        "id": "seed_video_002",
+        "localFile": "seed-images-generated/videos/seed_video_002.png",
+        "r2Path": "seed-images/videos/seed_video_002.png"
+      },
+      {
+        "id": "seed_video_003",
+        "localFile": "seed-images-generated/videos/seed_video_003.png",
+        "r2Path": "seed-images/videos/seed_video_003.png"
+      },
+      {
+        "id": "seed_video_004",
+        "localFile": "seed-images-generated/videos/seed_video_004.png",
+        "r2Path": "seed-images/videos/seed_video_004.png"
+      },
+      {
+        "id": "seed_video_005",
+        "localFile": "seed-images-generated/videos/seed_video_005.png",
+        "r2Path": "seed-images/videos/seed_video_005.png"
+      },
+      {
+        "id": "seed_video_006",
+        "localFile": "seed-images-generated/videos/seed_video_006.png",
+        "r2Path": "seed-images/videos/seed_video_006.png"
+      },
+      {
+        "id": "seed_video_007",
+        "localFile": "seed-images-generated/videos/seed_video_007.png",
+        "r2Path": "seed-images/videos/seed_video_007.png"
+      },
+      {
+        "id": "seed_video_008",
+        "localFile": "seed-images-generated/videos/seed_video_008.png",
+        "r2Path": "seed-images/videos/seed_video_008.png"
+      },
+      {
+        "id": "seed_video_009",
+        "localFile": "seed-images-generated/videos/seed_video_009.png",
+        "r2Path": "seed-images/videos/seed_video_009.png"
+      },
+      {
+        "id": "seed_video_010",
+        "localFile": "seed-images-generated/videos/seed_video_010.png",
+        "r2Path": "seed-images/videos/seed_video_010.png"
+      },
+      {
+        "id": "seed_video_011",
+        "localFile": "seed-images-generated/videos/seed_video_011.png",
+        "r2Path": "seed-images/videos/seed_video_011.png"
+      },
+      {
+        "id": "seed_video_012",
+        "localFile": "seed-images-generated/videos/seed_video_012.png",
+        "r2Path": "seed-images/videos/seed_video_012.png"
+      },
+      {
+        "id": "seed_video_013",
+        "localFile": "seed-images-generated/videos/seed_video_013.png",
+        "r2Path": "seed-images/videos/seed_video_013.png"
+      },
+      {
+        "id": "seed_video_014",
+        "localFile": "seed-images-generated/videos/seed_video_014.png",
+        "r2Path": "seed-images/videos/seed_video_014.png"
+      },
+      {
+        "id": "seed_video_015",
+        "localFile": "seed-images-generated/videos/seed_video_015.png",
+        "r2Path": "seed-images/videos/seed_video_015.png"
+      },
+      {
+        "id": "seed_video_016",
+        "localFile": "seed-images-generated/videos/seed_video_016.png",
+        "r2Path": "seed-images/videos/seed_video_016.png"
+      },
+      {
+        "id": "seed_video_017",
+        "localFile": "seed-images-generated/videos/seed_video_017.png",
+        "r2Path": "seed-images/videos/seed_video_017.png"
+      },
+      {
+        "id": "seed_video_018",
+        "localFile": "seed-images-generated/videos/seed_video_018.png",
+        "r2Path": "seed-images/videos/seed_video_018.png"
+      },
+      {
+        "id": "seed_video_019",
+        "localFile": "seed-images-generated/videos/seed_video_019.png",
+        "r2Path": "seed-images/videos/seed_video_019.png"
+      },
+      {
+        "id": "seed_video_020",
+        "localFile": "seed-images-generated/videos/seed_video_020.png",
+        "r2Path": "seed-images/videos/seed_video_020.png"
+      },
+      {
+        "id": "seed_video_021",
+        "localFile": "seed-images-generated/videos/seed_video_021.png",
+        "r2Path": "seed-images/videos/seed_video_021.png"
+      },
+      {
+        "id": "seed_video_022",
+        "localFile": "seed-images-generated/videos/seed_video_022.png",
+        "r2Path": "seed-images/videos/seed_video_022.png"
+      },
+      {
+        "id": "seed_video_023",
+        "localFile": "seed-images-generated/videos/seed_video_023.png",
+        "r2Path": "seed-images/videos/seed_video_023.png"
+      },
+      {
+        "id": "seed_video_024",
+        "localFile": "seed-images-generated/videos/seed_video_024.png",
+        "r2Path": "seed-images/videos/seed_video_024.png"
+      },
+      {
+        "id": "seed_video_025",
+        "localFile": "seed-images-generated/videos/seed_video_025.png",
+        "r2Path": "seed-images/videos/seed_video_025.png"
+      },
+      {
+        "id": "seed_video_026",
+        "localFile": "seed-images-generated/videos/seed_video_026.png",
+        "r2Path": "seed-images/videos/seed_video_026.png"
+      },
+      {
+        "id": "seed_video_027",
+        "localFile": "seed-images-generated/videos/seed_video_027.png",
+        "r2Path": "seed-images/videos/seed_video_027.png"
+      },
+      {
+        "id": "seed_video_028",
+        "localFile": "seed-images-generated/videos/seed_video_028.png",
+        "r2Path": "seed-images/videos/seed_video_028.png"
+      },
+      {
+        "id": "seed_video_029",
+        "localFile": "seed-images-generated/videos/seed_video_029.png",
+        "r2Path": "seed-images/videos/seed_video_029.png"
+      },
+      {
+        "id": "seed_video_030",
+        "localFile": "seed-images-generated/videos/seed_video_030.png",
+        "r2Path": "seed-images/videos/seed_video_030.png"
+      },
+      {
+        "id": "seed_video_031",
+        "localFile": "seed-images-generated/videos/seed_video_031.png",
+        "r2Path": "seed-images/videos/seed_video_031.png"
+      },
+      {
+        "id": "seed_video_032",
+        "localFile": "seed-images-generated/videos/seed_video_032.png",
+        "r2Path": "seed-images/videos/seed_video_032.png"
+      },
+      {
+        "id": "seed_video_033",
+        "localFile": "seed-images-generated/videos/seed_video_033.png",
+        "r2Path": "seed-images/videos/seed_video_033.png"
+      },
+      {
+        "id": "seed_video_034",
+        "localFile": "seed-images-generated/videos/seed_video_034.png",
+        "r2Path": "seed-images/videos/seed_video_034.png"
+      },
+      {
+        "id": "seed_video_035",
+        "localFile": "seed-images-generated/videos/seed_video_035.png",
+        "r2Path": "seed-images/videos/seed_video_035.png"
+      },
+      {
+        "id": "seed_video_036",
+        "localFile": "seed-images-generated/videos/seed_video_036.png",
+        "r2Path": "seed-images/videos/seed_video_036.png"
+      },
+      {
+        "id": "seed_video_037",
+        "localFile": "seed-images-generated/videos/seed_video_037.png",
+        "r2Path": "seed-images/videos/seed_video_037.png"
+      },
+      {
+        "id": "seed_video_038",
+        "localFile": "seed-images-generated/videos/seed_video_038.png",
+        "r2Path": "seed-images/videos/seed_video_038.png"
+      },
+      {
+        "id": "seed_video_039",
+        "localFile": "seed-images-generated/videos/seed_video_039.png",
+        "r2Path": "seed-images/videos/seed_video_039.png"
+      },
+      {
+        "id": "seed_video_040",
+        "localFile": "seed-images-generated/videos/seed_video_040.png",
+        "r2Path": "seed-images/videos/seed_video_040.png"
+      },
+      {
+        "id": "seed_video_041",
+        "localFile": "seed-images-generated/videos/seed_video_041.png",
+        "r2Path": "seed-images/videos/seed_video_041.png"
+      },
+      {
+        "id": "seed_video_042",
+        "localFile": "seed-images-generated/videos/seed_video_042.png",
+        "r2Path": "seed-images/videos/seed_video_042.png"
+      },
+      {
+        "id": "seed_video_043",
+        "localFile": "seed-images-generated/videos/seed_video_043.png",
+        "r2Path": "seed-images/videos/seed_video_043.png"
+      },
+      {
+        "id": "seed_video_044",
+        "localFile": "seed-images-generated/videos/seed_video_044.png",
+        "r2Path": "seed-images/videos/seed_video_044.png"
+      },
+      {
+        "id": "seed_video_045",
+        "localFile": "seed-images-generated/videos/seed_video_045.png",
+        "r2Path": "seed-images/videos/seed_video_045.png"
+      },
+      {
+        "id": "seed_video_046",
+        "localFile": "seed-images-generated/videos/seed_video_046.png",
+        "r2Path": "seed-images/videos/seed_video_046.png"
+      },
+      {
+        "id": "seed_video_047",
+        "localFile": "seed-images-generated/videos/seed_video_047.png",
+        "r2Path": "seed-images/videos/seed_video_047.png"
+      },
+      {
+        "id": "seed_video_048",
+        "localFile": "seed-images-generated/videos/seed_video_048.png",
+        "r2Path": "seed-images/videos/seed_video_048.png"
+      },
+      {
+        "id": "seed_video_049",
+        "localFile": "seed-images-generated/videos/seed_video_049.png",
+        "r2Path": "seed-images/videos/seed_video_049.png"
+      },
+      {
+        "id": "seed_video_050",
+        "localFile": "seed-images-generated/videos/seed_video_050.png",
+        "r2Path": "seed-images/videos/seed_video_050.png"
+      },
+      {
+        "id": "seed_video_051",
+        "localFile": "seed-images-generated/videos/seed_video_051.png",
+        "r2Path": "seed-images/videos/seed_video_051.png"
+      },
+      {
+        "id": "seed_video_052",
+        "localFile": "seed-images-generated/videos/seed_video_052.png",
+        "r2Path": "seed-images/videos/seed_video_052.png"
+      },
+      {
+        "id": "seed_video_053",
+        "localFile": "seed-images-generated/videos/seed_video_053.png",
+        "r2Path": "seed-images/videos/seed_video_053.png"
+      },
+      {
+        "id": "seed_video_054",
+        "localFile": "seed-images-generated/videos/seed_video_054.png",
+        "r2Path": "seed-images/videos/seed_video_054.png"
+      },
+      {
+        "id": "seed_video_055",
+        "localFile": "seed-images-generated/videos/seed_video_055.png",
+        "r2Path": "seed-images/videos/seed_video_055.png"
+      },
+      {
+        "id": "seed_video_056",
+        "localFile": "seed-images-generated/videos/seed_video_056.png",
+        "r2Path": "seed-images/videos/seed_video_056.png"
+      },
+      {
+        "id": "seed_video_057",
+        "localFile": "seed-images-generated/videos/seed_video_057.png",
+        "r2Path": "seed-images/videos/seed_video_057.png"
+      },
+      {
+        "id": "seed_video_058",
+        "localFile": "seed-images-generated/videos/seed_video_058.png",
+        "r2Path": "seed-images/videos/seed_video_058.png"
+      },
+      {
+        "id": "seed_video_059",
+        "localFile": "seed-images-generated/videos/seed_video_059.png",
+        "r2Path": "seed-images/videos/seed_video_059.png"
+      },
+      {
+        "id": "seed_video_060",
+        "localFile": "seed-images-generated/videos/seed_video_060.png",
+        "r2Path": "seed-images/videos/seed_video_060.png"
+      }
+    ],
+    "castProfileBg": [
+      {
+        "id": "seed_cast_001",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_001-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_001-bg.png"
+      },
+      {
+        "id": "seed_cast_002",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_002-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_002-bg.png"
+      },
+      {
+        "id": "seed_cast_003",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_003-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_003-bg.png"
+      },
+      {
+        "id": "seed_cast_004",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_004-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_004-bg.png"
+      },
+      {
+        "id": "seed_cast_005",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_005-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_005-bg.png"
+      },
+      {
+        "id": "seed_cast_006",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_006-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_006-bg.png"
+      },
+      {
+        "id": "seed_cast_007",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_007-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_007-bg.png"
+      },
+      {
+        "id": "seed_cast_008",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_008-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_008-bg.png"
+      },
+      {
+        "id": "seed_cast_009",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_009-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_009-bg.png"
+      },
+      {
+        "id": "seed_cast_010",
+        "localFile": "seed-images-generated/cast-profile-bg/seed_cast_010-bg.png",
+        "r2Path": "seed-images/cast-profile-bg/seed_cast_010-bg.png"
+      }
+    ],
+    "sns": {
+      "seed_cast_001": [
+        {
+          "type": "x",
+          "url": "https://x.com/milkyway_idol"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/milkyway.idol"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@milkyway_idol"
+        }
+      ],
+      "seed_cast_002": [
+        {
+          "type": "x",
+          "url": "https://x.com/sakura_stars"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/sakura_stars_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@sakura.stars"
+        }
+      ],
+      "seed_cast_003": [
+        {
+          "type": "x",
+          "url": "https://x.com/luna_project"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/luna_project_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@luna_project_"
+        }
+      ],
+      "seed_cast_004": [
+        {
+          "type": "x",
+          "url": "https://x.com/cosmic_beats"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/cosmic_beats_jp"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@cosmic.beats"
+        }
+      ],
+      "seed_cast_005": [
+        {
+          "type": "x",
+          "url": "https://x.com/dream_girls"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/dream_girls_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@dream.girls"
+        }
+      ],
+      "seed_cast_006": [
+        {
+          "type": "x",
+          "url": "https://x.com/stellar_voice"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/stellar_voice_jp"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@stellar.voice"
+        }
+      ],
+      "seed_cast_007": [
+        {
+          "type": "x",
+          "url": "https://x.com/melody_plus"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/melody_plus_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@melody_plus_"
+        }
+      ],
+      "seed_cast_008": [
+        {
+          "type": "x",
+          "url": "https://x.com/star_light_jp"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/star_light_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@star_light_jp"
+        }
+      ],
+      "seed_cast_009": [
+        {
+          "type": "x",
+          "url": "https://x.com/aurora_ent"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/aurora_entertainment"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@aurora_ent_"
+        }
+      ],
+      "seed_cast_010": [
+        {
+          "type": "x",
+          "url": "https://x.com/phoenix_music"
+        },
+        {
+          "type": "instagram",
+          "url": "https://instagram.com/phoenix_music_official"
+        },
+        {
+          "type": "tiktok",
+          "url": "https://tiktok.com/@phoenix.music"
+        }
+      ]
+    }
+  },
+  "uploadedUrls": {
+    "seed_work_001": "https://assets-uploader.oshidora.com/images/work-001-abc123",
+    "seed_work_002": "https://assets-uploader.oshidora.com/images/work-002-def456",
+    "seed_work_003": "https://assets-uploader.oshidora.com/images/work-003-ghi789",
+    "seed_cast_001": "https://assets-uploader.oshidora.com/images/cast-001-jkl012",
+    "seed_cast_002": "https://assets-uploader.oshidora.com/images/cast-002-mno345",
+    "seed_cast_003": "https://assets-uploader.oshidora.com/images/cast-003-pqr678",
+    "seed_video_001": "https://assets-uploader.oshidora.com/images/video-001-xyz999",
+    "seed_video_002": "https://assets-uploader.oshidora.com/images/video-002-xyz998",
+    "seed_video_003": "https://assets-uploader.oshidora.com/images/video-003-xyz997",
+    "seed_video_004": "https://assets-uploader.oshidora.com/images/video-004-xyz996",
+    "seed_video_005": "https://assets-uploader.oshidora.com/images/video-005-xyz995",
+    "seed_video_006": "https://assets-uploader.oshidora.com/images/video-006-xyz994",
+    "seed_video_007": "https://assets-uploader.oshidora.com/images/video-007-xyz993",
+    "seed_video_008": "https://assets-uploader.oshidora.com/images/video-008-xyz992",
+    "seed_video_009": "https://assets-uploader.oshidora.com/images/video-009-xyz991",
+    "seed_video_010": "https://assets-uploader.oshidora.com/images/video-010-xyz990"
+  },
+  "timestamp": "2026-01-30T18:00:00.000Z",
+  "uploaderBase": "https://assets-uploader.oshidora.com"
+}

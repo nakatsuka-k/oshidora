@@ -40,7 +40,14 @@ ADMIN_DIR="$PROJECT_ROOT/apps/admin"
 WEB_DIR="$PROJECT_ROOT/apps/mobile"
 UPLOADER_DIR="$PROJECT_ROOT/apps/uploader"
 
-WRANGLER_BIN="$API_DIR/node_modules/.bin/wrangler"
+WRANGLER_BIN_ROOT="$PROJECT_ROOT/node_modules/.bin/wrangler"
+WRANGLER_BIN_API="$API_DIR/node_modules/.bin/wrangler"
+
+# Wrangler is typically hoisted to the workspace root with npm workspaces.
+WRANGLER_BIN="$WRANGLER_BIN_ROOT"
+if [ ! -x "$WRANGLER_BIN" ]; then
+  WRANGLER_BIN="$WRANGLER_BIN_API"
+fi
 
 # D1 migration target
 D1_DB_NAME="${D1_DB_NAME:-oshidora-db}"
@@ -87,6 +94,32 @@ install_if_missing() {
   fi
 }
 
+ensure_wrangler() {
+  if [ -x "$WRANGLER_BIN_ROOT" ]; then
+    WRANGLER_BIN="$WRANGLER_BIN_ROOT"
+    return 0
+  fi
+  if [ -x "$WRANGLER_BIN_API" ]; then
+    WRANGLER_BIN="$WRANGLER_BIN_API"
+    return 0
+  fi
+
+  # As a fallback, try installing workspace dependencies at the repo root.
+  log "wrangler not found locally; installing workspace dependencies (npm install at repo root)..."
+  (cd "$PROJECT_ROOT" && npm install)
+
+  if [ -x "$WRANGLER_BIN_ROOT" ]; then
+    WRANGLER_BIN="$WRANGLER_BIN_ROOT"
+    return 0
+  fi
+  if [ -x "$WRANGLER_BIN_API" ]; then
+    WRANGLER_BIN="$WRANGLER_BIN_API"
+    return 0
+  fi
+
+  die "wrangler not found. Expected at $WRANGLER_BIN_ROOT (workspace root) or $WRANGLER_BIN_API (apps/api)."
+}
+
 log "Preparing deploy (migrations + api + uploader + web + admin)"
 log "deploy.sh version: 2026-01-28"
 
@@ -104,9 +137,7 @@ install_if_missing "$ADMIN_DIR" "Admin"
 install_if_missing "$WEB_DIR" "Web"
 
 if [ "$SKIP_MIGRATIONS" != "1" ]; then
-  if [ ! -x "$WRANGLER_BIN" ]; then
-    die "wrangler not found at $WRANGLER_BIN (try reinstalling in apps/api)"
-  fi
+  ensure_wrangler
 
   log "Running D1 migrations (remote, non-interactive)..."
   # Wrangler skips the confirmation prompt in CI mode.
@@ -124,9 +155,7 @@ else
 fi
 
 if [ "$SKIP_API_DEPLOY" != "1" ]; then
-  if [ ! -x "$WRANGLER_BIN" ]; then
-    die "wrangler not found at $WRANGLER_BIN (try reinstalling in apps/api)"
-  fi
+  ensure_wrangler
 
   log "Deploying API (Cloudflare Workers)..."
   if [ -n "$WRANGLER_ENV" ]; then
@@ -156,9 +185,7 @@ else
 fi
 
 if [ "$SKIP_WEB_DEPLOY" != "1" ]; then
-  if [ ! -x "$WRANGLER_BIN" ]; then
-    die "wrangler not found at $WRANGLER_BIN (try reinstalling in apps/api)"
-  fi
+  ensure_wrangler
 
   log "Deploying web app to Cloudflare Pages..."
   log "  project: $WEB_PAGES_PROJECT_NAME"
@@ -184,9 +211,7 @@ else
 fi
 
 if [ "$SKIP_ADMIN_DEPLOY" != "1" ]; then
-  if [ ! -x "$WRANGLER_BIN" ]; then
-    die "wrangler not found at $WRANGLER_BIN (try reinstalling in apps/api)"
-  fi
+  ensure_wrangler
 
   log "Deploying admin to Cloudflare Pages..."
   log "  project: $ADMIN_PAGES_PROJECT_NAME"

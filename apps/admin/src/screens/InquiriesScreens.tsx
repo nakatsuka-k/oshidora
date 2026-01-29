@@ -4,10 +4,9 @@ import { Pressable, ScrollView, Text, View } from 'react-native'
 import { SelectField } from '../app/components/SelectField'
 import { styles } from '../app/styles'
 import { useBanner } from '../lib/banner'
-import { cmsFetchJson, useCmsApi } from '../lib/cmsApi'
+import { cmsFetchJson, type CmsApiConfig } from '../lib/cmsApi'
 
-export function InquiriesListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
-  const cfg = useCmsApi()
+export function InquiriesListScreen({ cfg, onOpenDetail }: { cfg: CmsApiConfig; onOpenDetail: (id: string) => void }) {
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<Array<{ id: string; subject: string; status: string; createdAt?: string }>>([])
@@ -84,8 +83,7 @@ export function InquiriesListScreen({ onOpenDetail }: { onOpenDetail: (id: strin
   )
 }
 
-export function InquiryDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
-  const cfg = useCmsApi()
+export function InquiryDetailScreen({ cfg, id, onBack }: { cfg: CmsApiConfig; id: string; onBack: () => void }) {
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [subject, setSubject] = useState('')
