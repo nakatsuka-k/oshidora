@@ -1,24 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type StaffCastReviewScreenProps = {
-  onBack: () => void
-  cast: {
-    id: string
-    name: string
-    roleLabel?: string
-    profileImageUrl?: string | null
-  }
-  initial?: {
-    rating?: number | null
-    comment?: string | null
-  }
-  onSubmit: (opts: { castId: string; rating: number; comment: string }) => Promise<void>
-  onDone: () => void
-}
-
-const MAX_COMMENT_LEN = 500
+import { type StaffCastReviewScreenProps, MAX_COMMENT_LEN } from '../types/staffCastReviewTypes'
 
 function StarRow({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (

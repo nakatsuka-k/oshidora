@@ -2,16 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { PrimaryButton, ScreenContainer, THEME } from '../components'
-
-type Props = {
-  phoneNumber: string
-  onChangePhoneNumber: (value: string) => void
-  fieldError: string
-  bannerError: string
-  canNext: boolean
-  onBack: () => void
-  onNext: () => void
-}
+import { type Props } from '../types/phoneScreenTypes'
 
 export function PhoneScreen(props: Props) {
   return (

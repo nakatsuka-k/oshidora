@@ -1,26 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, TabBar, THEME } from '../components'
-
-type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
-
-type RankingScreenProps = {
-  onBack: () => void
-  onPressTab: (key: TabKey) => void
-  onOpenVideo: (id: string) => void
-}
-
-type RankingItem = {
-  id: string
-  title: string
-  ratingAvg: number
-  reviewCount: number
-  description: string
-  badge?: '新着' | 'おすすめ' | 'プレミア'
-  thumbnailUrl?: string
-}
-
-type RankingTab = 'views' | 'rating' | 'total'
+import { type TabKey, type RankingScreenProps, type RankingItem, type RankingTab } from '../types/rankingTypes'
 
 const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
 

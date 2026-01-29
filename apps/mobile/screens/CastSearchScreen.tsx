@@ -13,68 +13,23 @@ import {
 } from 'react-native'
 import { Chip, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch, isDebugMockEnabled } from '../utils/api'
+import {
+  type TabKey,
+  type CastSearchScreenProps,
+  type Cast,
+  type CastResponse,
+  type HistoryItem,
+  type Work,
+  HISTORY_KEY,
+  HISTORY_MAX,
+  normalize,
+  uniqueHistory,
+} from '../types/castSearchTypes'
 
 import IconNotification from '../assets/icon_notification.svg'
 import IconSearch from '../assets/icon_search.svg'
 
 const LOGO_IMAGE = require('../assets/oshidora_logo.png')
-
-type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
-
-type CastSearchScreenProps = {
-  apiBaseUrl: string
-  onPressTab: (key: TabKey) => void
-  onOpenProfile: (cast: { id: string; name: string; role: string }) => void
-  onOpenResults: (keyword: string) => void
-  onOpenNotice?: () => void
-}
-
-type Cast = {
-  id: string
-  name: string
-  role: string
-  genres?: string[]
-  thumbnailUrl?: string
-}
-
-type CastResponse = { items: Cast[] }
-
-type HistoryItem = {
-  type: 'name' | 'content'
-  keyword: string
-  targetId?: string
-  savedAt: string
-}
-
-const HISTORY_KEY = 'cast_search_history_v1'
-const HISTORY_MAX = 20
-
-function normalize(value: string) {
-  return value.trim().toLowerCase()
-}
-
-function uniqueHistory(items: HistoryItem[]): HistoryItem[] {
-  const seen = new Set<string>()
-  const out: HistoryItem[] = []
-  for (const it of items) {
-    const key =
-      it.type === 'content'
-        ? `${it.type}:${String(it.targetId || '').trim() || normalize(it.keyword)}`
-        : `${it.type}:${normalize(it.keyword)}`
-    if (!it.keyword.trim()) continue
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(it)
-    if (out.length >= HISTORY_MAX) break
-  }
-  return out
-}
-
-type Work = {
-  id: string
-  title: string
-  participantIds: string[]
-}
 
 export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpenResults, onOpenNotice }: CastSearchScreenProps) {
   const [tab, setTab] = useState<'name' | 'content'>('name')

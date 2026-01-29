@@ -117,6 +117,18 @@ import { getBoolean, setBoolean, getString, setString } from './utils/storage'
 import { useIpAddress } from './utils/useIpAddress'
 import { upsertWatchHistory } from './utils/watchHistory'
 import {
+  useAppNavigation,
+  useAuthState,
+  AUTH_TOKEN_KEY,
+  DEBUG_AUTH_AUTOFILL_KEY,
+  DEBUG_USER_TYPE_KEY,
+  DEBUG_PAYPAY_LINKED_KEY,
+  useUserState,
+  useDebugOverlay,
+  usePlayerState,
+  useAppUIState,
+} from './hooks'
+import {
   getTutorialSlideCount,
   parseTutorialIndexFromPathname,
   screenToWebPath,
@@ -139,10 +151,6 @@ const FALLBACK_ALLOWED_IPS = [
 const CAST_PROFILE_CAROUSEL_CARD_WIDTH = 210
 const CAST_PROFILE_CAROUSEL_GAP = 12
 
-const AUTH_TOKEN_KEY = 'auth_token'
-const DEBUG_AUTH_AUTOFILL_KEY = 'debug_auth_autofill'
-const DEBUG_USER_TYPE_KEY = 'debug_user_type_v1'
-const DEBUG_PAYPAY_LINKED_KEY = 'debug_paypay_linked_v1'
 const SUBSCRIPTION_KEY = 'user_is_subscribed_v1'
 
 const MOCK_LOGIN_EMAIL = 'demo@oshidora.jp'
@@ -220,7 +228,7 @@ function resolveWorkKeyById(id: string): WorkKey {
   return 'doutcall'
 }
 
-type Screen =
+export type Screen =
   | 'splash'
   | 'home'
   | 'welcome'

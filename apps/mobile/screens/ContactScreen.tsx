@@ -2,26 +2,7 @@ import { useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, TextLink, THEME } from '../components'
 import { apiFetch } from '../utils/api'
-
-type ContactTypeKey = 'service' | 'video' | 'billing' | 'cast' | 'bug' | 'other'
-
-const CONTACT_TYPES: Array<{ key: ContactTypeKey; label: string }> = [
-  { key: 'service', label: 'サービスについて' },
-  { key: 'video', label: '動画・視聴に関する問題' },
-  { key: 'billing', label: '課金・コインについて' },
-  { key: 'cast', label: 'キャスト・スタッフについて' },
-  { key: 'bug', label: '不具合の報告' },
-  { key: 'other', label: 'その他' },
-]
-
-type ContactScreenProps = {
-  apiBaseUrl: string
-  displayName: string
-  email: string
-  onBack: () => void
-  onGoFaq: () => void
-  onDone: () => void
-}
+import { type ContactTypeKey, CONTACT_TYPES, type ContactScreenProps } from '../types/contactTypes'
 
 export function ContactScreen({ apiBaseUrl, displayName, email, onBack, onGoFaq, onDone }: ContactScreenProps) {
   const [typeKey, setTypeKey] = useState<ContactTypeKey>('service')

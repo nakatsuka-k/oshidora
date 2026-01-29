@@ -3,71 +3,24 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensio
 import { ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch, isDebugMockEnabled } from '../utils/api'
 import { getString, setString } from '../utils/storage'
+import {
+  type TabKey,
+  type TopScreenProps,
+  type VideoItem,
+  type CastItem,
+  type TopData,
+  type NoticeListItem,
+  type NoticeListResponse,
+  EMPTY_TOP_DATA,
+  parseNoticeTime,
+} from '../types/topScreenTypes'
 
 import IconNotification from '../assets/icon_notification.svg'
 import IconSearch from '../assets/icon_search.svg'
 
 const LOGO_IMAGE = require('../assets/oshidora_logo.png')
-const NOTICE_LAST_READ_AT_KEY = 'notice_last_read_at'
-
-type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
-
-type TopScreenProps = {
-  apiBaseUrl: string
-  onPressTab: (key: TabKey) => void
-  onOpenVideo: (id: string) => void
-  onOpenRanking: () => void
-  onOpenFavorites: () => void
-  onOpenNotice: () => void
-}
-
-type VideoItem = {
-  id: string
-  title: string
-  thumbnailUrl?: string
-}
-
-type CastItem = {
-  id: string
-  name: string
-  thumbnailUrl?: string
-}
-
-type TopData = {
-  pickup: VideoItem[]
-  recommended: VideoItem[]
-  rankings: {
-    byViews: VideoItem[]
-    byRating: VideoItem[]
-  }
-  popularCasts: CastItem[]
-}
-
-type NoticeListItem = {
-  id: string
-  publishedAt: string
-}
-
-type NoticeListResponse = {
-  items: NoticeListItem[]
-}
-
-const EMPTY_TOP_DATA: TopData = {
-  pickup: [],
-  recommended: [],
-  rankings: { byViews: [], byRating: [] },
-  popularCasts: [],
-}
-
 const FALLBACK_IMAGE = require('../assets/thumbnail-sample.png')
-
-function parseNoticeTime(value: string): number {
-  const trimmed = String(value || '').trim()
-  if (!trimmed) return 0
-  const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T')
-  const millis = Date.parse(normalized)
-  return Number.isFinite(millis) ? millis : 0
-}
+const NOTICE_LAST_READ_AT_KEY = 'notice_last_read_at'
 
 export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, onOpenFavorites, onOpenNotice }: TopScreenProps) {
   const { width } = useWindowDimensions()

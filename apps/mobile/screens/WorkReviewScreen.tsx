@@ -1,23 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type WorkReviewScreenProps = {
-  onBack: () => void
-  work: {
-    id: string
-    title: string
-    subtitle?: string
-  }
-  initial?: {
-    rating?: number | null
-    comment?: string | null
-  }
-  onSubmit: (opts: { contentId: string; rating: number; comment: string }) => Promise<void>
-  onDone: () => void
-}
-
-const MAX_COMMENT_LEN = 500
+import { type WorkReviewScreenProps, MAX_COMMENT_LEN } from '../types/workReviewTypes'
 
 function StarRow({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (

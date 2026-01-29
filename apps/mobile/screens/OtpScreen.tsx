@@ -1,20 +1,7 @@
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type Props = {
-  otpDigits: string[]
-  otpRefs: React.MutableRefObject<Array<TextInput | null>>
-  bannerError: string
-  fieldError: string
-  busy: boolean
-  canNext: boolean
-  onBack: () => void
-  onCancel: () => void
-  onNext: () => void
-  onChangeDigit: (index: number, value: string) => void
-  onKeyPress: (index: number, key: string) => void
-}
+import { type Props } from '../types/otpScreenTypes'
 
 export function OtpScreen(props: Props) {
   return (

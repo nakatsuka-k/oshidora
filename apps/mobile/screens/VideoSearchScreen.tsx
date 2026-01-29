@@ -11,43 +11,9 @@ import {
 } from 'react-native'
 import { IconButton, NoticeBellButton, ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch } from '../utils/api'
-
-type TabKey = 'home' | 'video' | 'cast' | 'search' | 'mypage'
-
-type VideoSearchScreenProps = {
-  apiBaseUrl: string
-  onPressTab: (key: TabKey) => void
-  onOpenVideo: (id: string) => void
-  onOpenProfile: (cast: { id: string; name: string; role: string }) => void
-  onOpenNotice?: () => void
-}
-
-type Video = {
-  id: string
-  title: string
-  ratingAvg: number
-  reviewCount: number
-  priceCoin?: number
-  thumbnailUrl?: string
-}
-
-type Cast = {
-  id: string
-  name: string
-  role: string
-  thumbnailUrl?: string
-}
-
-type SearchResponse = {
-  videos: Video[]
-  casts: Cast[]
-}
+import { type TabKey, type VideoSearchScreenProps, type Video, type Cast, type SearchResponse, normalize } from '../types/videoSearchTypes'
 
 const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
-
-function normalize(value: string) {
-  return value.trim()
-}
 
 export function VideoSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenProfile, onOpenNotice }: VideoSearchScreenProps) {
   const [keyword, setKeyword] = useState('')

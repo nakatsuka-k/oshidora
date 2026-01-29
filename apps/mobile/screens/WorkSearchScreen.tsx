@@ -13,54 +13,9 @@ import {
 } from 'react-native'
 import { NoticeBellButton, RowItem, ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch, isDebugMockEnabled } from '../utils/api'
-
-type TabKey = 'home' | 'video' | 'cast' | 'work' | 'search' | 'mypage'
-
-type WorkSearchScreenProps = {
-  apiBaseUrl: string
-  onPressTab: (key: TabKey) => void
-  onOpenVideo: (id: string) => void
-  onOpenNotice?: () => void
-}
-
-type Work = {
-  id: string
-  title: string
-  ratingAvg: number
-  reviewCount: number
-  priceCoin?: number
-  thumbnailUrl?: string
-}
-
-type WorkResponse = { items: Work[] }
-
-type HistoryItem = {
-  type: 'title'
-  keyword: string
-  savedAt: string
-}
+import { type TabKey, type WorkSearchScreenProps, type Work, type WorkResponse, type HistoryItem, HISTORY_KEY, HISTORY_MAX, normalize, uniqueHistory } from '../types/workSearchTypes'
 
 const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
-const HISTORY_KEY = 'work_search_history_v1'
-const HISTORY_MAX = 20
-
-function normalize(value: string) {
-  return value.trim().toLowerCase()
-}
-
-function uniqueHistory(items: HistoryItem[]): HistoryItem[] {
-  const seen = new Set<string>()
-  const out: HistoryItem[] = []
-  for (const it of items) {
-    const key = `${it.type}:${normalize(it.keyword)}`
-    if (!it.keyword.trim()) continue
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(it)
-    if (out.length >= HISTORY_MAX) break
-  }
-  return out
-}
 
 export function WorkSearchScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNotice }: WorkSearchScreenProps) {
   const [keyword, setKeyword] = useState('')

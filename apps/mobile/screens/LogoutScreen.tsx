@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type Props = {
-  onCancel: () => void
-  onLogout: () => Promise<void> | void
-  onGoLogin: () => void
-}
+import { type Props } from '../types/logoutScreenTypes'
 
 export function LogoutScreen({ onCancel, onLogout, onGoLogin }: Props) {
   const [phase, setPhase] = useState<'confirm' | 'done'>('confirm')

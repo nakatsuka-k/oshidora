@@ -2,13 +2,7 @@ import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, SecondaryButton, TextField, THEME } from '../components'
 import { isValidEmail } from '../utils/validators'
-
-type EmailChangeStartScreenProps = {
-  initialEmail?: string
-  onBack: () => void
-  onSendCode: (email: string) => Promise<string | void>
-  onSent: (email: string, initialCode?: string) => void
-}
+import { type EmailChangeStartScreenProps } from '../types/emailChangeStartTypes'
 
 export function EmailChangeStartScreen({ initialEmail = '', onBack, onSendCode, onSent }: EmailChangeStartScreenProps) {
   const [email, setEmail] = useState(initialEmail)

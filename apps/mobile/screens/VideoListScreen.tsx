@@ -2,43 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch, isDebugMockEnabled } from '../utils/api'
+import { type VideoListScreenProps, type Video, type Category, type VideosResponse, type CategoriesResponse, PAGE_SIZE, normalizeText } from '../types/videoListTypes'
 
 import IconNotification from '../assets/icon_notification.svg'
 import IconSearch from '../assets/icon_search.svg'
 
 const LOGO_IMAGE = require('../assets/oshidora_logo.png')
 
-type VideoListScreenProps = {
-  apiBaseUrl: string
-  onPressTab: (key: 'home' | 'video' | 'cast' | 'search' | 'mypage') => void
-  onOpenVideo: (id: string) => void
-  onOpenNotice?: () => void
-  tag?: string | null
-  onChangeTag?: (tag: string | null) => void
-}
-
-type Video = {
-  id: string
-  title: string
-  ratingAvg: number
-  reviewCount: number
-  priceCoin?: number
-  thumbnailUrl?: string
-  tags?: string[]
-}
-
-type Category = { id: string; name: string }
-
-type VideosResponse = { items: Video[]; nextCursor?: string | null }
-type CategoriesResponse = { items: Category[] }
-
 const FALLBACK_VIDEO_IMAGE = require('../assets/thumbnail-sample.png')
-
-const PAGE_SIZE = 20
-
-function normalizeText(value: string) {
-  return value.trim().toLowerCase()
-}
 
 export function VideoListScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenNotice, tag, onChangeTag }: VideoListScreenProps) {
   const mockCategories = useMemo<Category[]>(

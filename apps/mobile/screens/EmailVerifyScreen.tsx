@@ -5,14 +5,7 @@ import Svg, { Path } from 'react-native-svg'
 import { LinearGradient } from 'expo-linear-gradient'
 import { digitsOnly } from '../utils/validators'
 import { THEME } from '../components'
-
-type EmailVerifyScreenProps = {
-  email: string
-  onResend: () => Promise<void>
-  onVerify: (code: string) => Promise<void>
-  onBack: () => void
-  initialCode?: string
-}
+import { type EmailVerifyScreenProps } from '../types/emailVerifyTypes'
 
 export function EmailVerifyScreen({ email, onResend, onVerify, onBack, initialCode }: EmailVerifyScreenProps) {
   const [code, setCode] = useState('')

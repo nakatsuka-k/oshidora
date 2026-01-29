@@ -1,23 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { ConfirmDialog, PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
-
-type CoinExchangeDestScreenProps = {
-  ownedCoins: number
-  exchangeableCoins: number
-  paypayLinked: boolean
-  paypayMaskedLabel: string
-  onBack: () => void
-  onCancel: () => void
-  onLinkPaypay: () => Promise<void>
-  onUnlinkPaypay: () => Promise<void>
-  onNext: () => void
-}
-
-function formatCoins(value: number) {
-  const v = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
-  return v.toLocaleString('ja-JP')
-}
+import { type CoinExchangeDestScreenProps, formatCoins } from '../types/coinExchangeDestTypes'
 
 export function CoinExchangeDestScreen({
   ownedCoins,

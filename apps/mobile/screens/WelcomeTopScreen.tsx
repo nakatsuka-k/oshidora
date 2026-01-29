@@ -1,12 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient'
 import { Image, ImageBackground, Pressable, StyleSheet, Text, View } from 'react-native'
 import { PrimaryButton, ScreenContainer, THEME } from '../components'
-
-type WelcomeTopScreenProps = {
-  onStart: () => void
-  onLogin: () => void
-  onContinueAsGuest?: () => void
-}
+import { type WelcomeTopScreenProps } from '../types/welcomeTopScreenTypes'
 
 export function WelcomeTopScreen({ onStart, onLogin, onContinueAsGuest }: WelcomeTopScreenProps) {
   return (

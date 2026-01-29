@@ -3,14 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { PinInput, PrimaryButton, ScreenContainer, SecondaryButton, THEME } from '../components'
 import { digitsOnly } from '../utils/validators'
-
-type Sms2faScreenProps = {
-  onBack: () => void
-  onSendCode: (phone: string) => Promise<string | void>
-  onVerifyCode: (phone: string, code: string) => Promise<void>
-  onComplete: (phone: string) => void
-  initialCode?: string
-}
+import { type Sms2faScreenProps } from '../types/sms2faTypes'
 
 export function Sms2faScreen({ onBack, onSendCode, onVerifyCode, onComplete, initialCode }: Sms2faScreenProps) {
   const [phase, setPhase] = useState<'phone' | 'code'>('phone')
