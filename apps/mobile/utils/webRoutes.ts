@@ -161,6 +161,16 @@ export function videoPlayerToWebUrl(params: { workId: string; episodeId?: string
   return q ? `/play?${q}` : '/play'
 }
 
+export function workDetailToWebUrl(params: { workId?: string | null; episodeId?: string | null }): string {
+  const workId = String(params.workId || '').trim()
+  const episodeId = String(params.episodeId || '').trim()
+  const qs = new URLSearchParams()
+  if (workId) qs.set('workId', workId)
+  if (episodeId) qs.set('episodeId', episodeId)
+  const q = qs.toString()
+  return q ? `/work?${q}` : '/work'
+}
+
 export function webPathnameToScreen(pathname: string): string {
   const parts = splitPathname(pathname)
   if (parts.length === 0) return 'splash'

@@ -97,6 +97,19 @@ import {
   ContactScreen,
   FaqScreen,
   RankingScreen,
+  LoginScreen,
+  PhoneScreen,
+  OtpScreen,
+  ProfileInlineScreen,
+  WorkDetailScreen,
+  DebugTopScreen,
+  CastReviewMissingTargetScreen,
+  CommentMissingTargetScreen,
+  WorkReviewMissingTargetScreen,
+  VideoPlayerMissingTargetScreen,
+  IpCheckingScreen,
+  IpDeniedScreen,
+  MaintenanceScreen,
 } from './screens'
 
 import { apiFetch, DEBUG_MOCK_KEY } from './utils/api'
@@ -109,6 +122,7 @@ import {
   screenToWebPath,
   splitPathname,
   tutorialIndexToWebPath,
+  workDetailToWebUrl,
   videoPlayerToWebUrl,
   webPathnameToScreen,
 } from './utils/webRoutes'
@@ -594,9 +608,10 @@ export default function App() {
         }
 
         // Keep IDs in URL to avoid "refresh -> mock".
-        // Work detail links should be created by the caller (e.g. openWorkDetail) with explicit IDs.
         if (next === 'workDetail') {
-          pushWebUrl('/work')
+          const workId = String(selectedWorkId ?? '').trim()
+          const episodeId = String(workDetailEpisodeIdFromHash ?? '').trim()
+          pushWebUrl(workDetailToWebUrl({ workId, episodeId: episodeId || null }))
           return
         }
 
@@ -2249,58 +2264,745 @@ export default function App() {
     }
   }, [apiBaseUrl, authPendingToken, normalizedPhoneDigits, otpDigits, postLoginTarget, resetAuthErrors])
 
+  const onWorkDetailToggleFavorite = useCallback(() => {
+    if (!requireLogin('workDetail')) return
+
+    const targetId = String(workIdForDetail || '').trim()
+    if (!targetId) return
+
+    const wasFavorite = isWorkFavorite
+    const next = !wasFavorite
+
+    setFavoriteWorkIds((prev) => {
+      const s = new Set(prev)
+      if (next) s.add(targetId)
+      else s.delete(targetId)
+      return Array.from(s)
+    })
+
+    setFavoriteToastText(next ? 'お気に入りに登録しました' : 'お気に入りから削除しました')
+    setFavoriteToastVisible(true)
+    if (favoriteToastTimer.current) clearTimeout(favoriteToastTimer.current)
+    favoriteToastTimer.current = setTimeout(() => {
+      setFavoriteToastVisible(false)
+    }, 1600)
+
+    void (async () => {
+      try {
+        if (!authToken) throw new Error('auth_token_missing')
+        const res = await apiFetch(`${apiBaseUrl}/api/favorites/videos`, {
+          method: next ? 'POST' : 'DELETE',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ workIds: [targetId] }),
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      } catch {
+        setFavoriteWorkIds((prev) => {
+          const s = new Set(prev)
+          if (wasFavorite) s.add(targetId)
+          else s.delete(targetId)
+          return Array.from(s)
+        })
+      }
+    })()
+  }, [apiBaseUrl, authToken, favoriteToastTimer, isWorkFavorite, requireLogin, workIdForDetail])
+
+  const onWorkDetailPlayMain = useCallback(() => {
+    void upsertWatchHistory(watchHistoryUserKey, {
+      id: `content:${workIdForDetail}`,
+      contentId: workIdForDetail,
+      title: workForDetail.title,
+      kind: '映画',
+      durationSeconds: 25 * 60,
+      thumbnailUrl: workDetailHeroThumbnailUrl,
+      lastPlayedAt: Date.now(),
+    })
+    const preferredEpisode = workForDetail.episodes[workDetailPreferredEpisodeIndex]
+    const chosenNoSub = String(preferredEpisode?.streamVideoId || '').trim()
+    setPlayerVideoIdNoSub(chosenNoSub)
+    setPlayerVideoIdWithSub(null)
+    if (workForDetail.episodes.length > 0) {
+      setPlayerEpisodeContext({
+        workId: workIdForDetail,
+        episodeIds: workForDetail.episodes.map((x) => x.id),
+        currentIndex: workDetailPreferredEpisodeIndex,
+      })
+    } else {
+      setPlayerEpisodeContext(null)
+    }
+    const firstEpisodeId = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
+    if (!chosenNoSub && firstEpisodeId) {
+      void hydratePlayerFromEpisodeId(firstEpisodeId, { workId: workIdForDetail })
+    }
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      pushWebUrl(videoPlayerToWebUrl({ workId: workIdForDetail, episodeId: firstEpisodeId }))
+    } else {
+      goTo('videoPlayer')
+    }
+  }, [goTo, hydratePlayerFromEpisodeId, pushWebUrl, workDetailHeroThumbnailUrl, workDetailPreferredEpisodeId, workDetailPreferredEpisodeIndex, workForDetail.episodes, workForDetail.title, workIdForDetail, watchHistoryUserKey])
+
+  const onWorkDetailPressComment = useCallback(() => {
+    setCommentJustSubmitted(false)
+    setCommentTarget({
+      workId: workIdForDetail,
+      workTitle: workForDetail.title,
+    })
+    goTo('comment')
+  }, [goTo, workForDetail.title, workIdForDetail])
+
+  const onWorkDetailShare = useCallback(async () => {
+    const shareEpisode = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
+    const shareThumb = workForDetail.thumbnailUrl ?? workForDetail.episodes[0]?.thumbnailUrl ?? null
+    const url = shareUrlForWork(workIdForDetail, shareEpisode, workForDetail.title, shareThumb)
+    const title = workForDetail.title
+    const message = `${title}\n${url}`
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const nav: any = (window as any).navigator
+      if (nav?.share) {
+        try {
+          await nav.share({ title, text: message, url })
+          return
+        } catch {
+          // fallthrough
+        }
+      }
+      window.open(url, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    try {
+      const ShareLib = (await import('react-native-share')).default as any
+      await ShareLib.open({ title, message, url })
+    } catch {
+      const { Share } = await import('react-native')
+      await Share.share({ message, url })
+    }
+  }, [shareUrlForWork, workDetailPreferredEpisodeId, workForDetail.episodes, workForDetail.thumbnailUrl, workForDetail.title, workIdForDetail])
+
+  const onWorkDetailStartTrialFromPrompt = useCallback(() => {
+    setSubscriptionPrompt({ visible: false })
+
+    if (!loggedIn) {
+      setSubscriptionNote('このエピソードは会員限定です。ログイン後、サブスク会員に加入すると視聴できます。')
+      setSubscriptionReturnTo('workDetail')
+      if (subscriptionPrompt.workId && subscriptionPrompt.episodeId) {
+        setSubscriptionResume({ workId: subscriptionPrompt.workId, episodeId: subscriptionPrompt.episodeId })
+      }
+      requireLogin('subscription')
+      return
+    }
+
+    if (!isSubscribed) {
+      setSubscriptionNote('このエピソードは会員限定です。サブスク会員に加入してください。')
+      setSubscriptionReturnTo('workDetail')
+      if (subscriptionPrompt.workId && subscriptionPrompt.episodeId) {
+        setSubscriptionResume({ workId: subscriptionPrompt.workId, episodeId: subscriptionPrompt.episodeId })
+      }
+      goTo('subscription')
+    }
+  }, [goTo, isSubscribed, loggedIn, requireLogin, subscriptionPrompt.episodeId, subscriptionPrompt.workId])
+
+  const onWorkDetailPressEpisode = useCallback(
+    ({ id, thumbnailUrl, isMemberOnly }: { id: string; thumbnailUrl: string; isMemberOnly: boolean }) => {
+      const episodeIds = workForDetail.episodes.map((x) => x.id)
+      const currentIndex = episodeIds.indexOf(id)
+
+      if (isMemberOnly) {
+        setSubscriptionReturnTo('workDetail')
+        setSubscriptionResume({ workId: workIdForDetail, episodeId: id })
+        setSubscriptionPrompt({
+          visible: true,
+          workId: workIdForDetail,
+          episodeId: id,
+          workTitle: workForDetail.title,
+          thumbnailUrl,
+        })
+        return
+      }
+
+      void upsertWatchHistory(watchHistoryUserKey, {
+        id: `content:${workIdForDetail}:episode:${id}`,
+        contentId: workIdForDetail,
+        title: `${workForDetail.title} ${String(workForDetail.episodes.find((x) => x.id === id)?.title ?? '')}`,
+        kind: 'エピソード',
+        durationSeconds: 10 * 60,
+        thumbnailUrl,
+        lastPlayedAt: Date.now(),
+      })
+
+      const selectedEpisode = workForDetail.episodes.find((x) => x.id === id)
+      const chosenNoSub = String((selectedEpisode as any)?.streamVideoId || '').trim()
+      setPlayerVideoIdNoSub(chosenNoSub)
+      setPlayerVideoIdWithSub(null)
+      if (!chosenNoSub) {
+        void hydratePlayerFromEpisodeId(id, { workId: workIdForDetail })
+      }
+
+      if (currentIndex >= 0) {
+        setPlayerEpisodeContext({
+          workId: workIdForDetail,
+          episodeIds,
+          currentIndex,
+        })
+      } else {
+        setPlayerEpisodeContext(null)
+      }
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        pushWebUrl(videoPlayerToWebUrl({ workId: workIdForDetail, episodeId: id }))
+      } else {
+        goTo('videoPlayer')
+      }
+    },
+    [goTo, hydratePlayerFromEpisodeId, pushWebUrl, workForDetail.episodes, workForDetail.title, workIdForDetail, watchHistoryUserKey]
+  )
+
+  const onWorkDetailDismissGuestCta = useCallback(() => {
+    setGuestWorkAuthCtaDismissed(true)
+  }, [])
+
+  const onWorkDetailLoginFromGuestCta = useCallback(() => {
+    setPostLoginTarget('workDetail')
+    goTo('login')
+  }, [goTo])
+
+  const onWorkDetailSignupFromGuestCta = useCallback(() => {
+    setPostLoginTarget('workDetail')
+    setTermsReadOnly(false)
+    goTo('terms')
+  }, [goTo])
+
+  const onWorkDetailGoCoinGrantForCast = useCallback(
+    ({ accountId, name, roleLabel }: { accountId: string; name: string; roleLabel: string }) => {
+      if (!requireLogin('coinGrant')) return
+      setCoinGrantTarget({ id: accountId, name, roleLabel })
+      setCoinGrantPrimaryReturnTo('workDetail')
+      setCoinGrantPrimaryLabel('作品詳細へ戻る')
+      goTo('coinGrant')
+    },
+    [goTo, requireLogin]
+  )
+
+  const onWorkDetailOpenProfileForStaff = useCallback(
+    ({ id, name, roleLabel }: { id: string; name: string; roleLabel: string }) => {
+      if (!requireLogin('profile')) return
+      setSelectedCast({ id, name, roleLabel })
+      goTo('profile')
+    },
+    [goTo, requireLogin]
+  )
+
+  const onWorkDetailSubmitInlineComment = useCallback(async () => {
+    const trimmed = commentDraft.trim()
+    if (!trimmed) return
+    setCommentJustSubmitted(false)
+    try {
+      const safeAuthor = (userProfile.displayName || '').trim().slice(0, 50) || '匿名'
+      const res = await apiFetch(`${apiBaseUrl}/v1/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentId: workIdForDetail, episodeId: '', author: safeAuthor, body: trimmed, rating: commentRating }),
+      })
+      if (!res.ok) {
+        const msg = await res.text().catch(() => '')
+        throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+      }
+      setCommentDraft('')
+      setCommentRating(0)
+      setCommentJustSubmitted(true)
+    } catch {
+      setCommentJustSubmitted(true)
+    }
+  }, [apiBaseUrl, commentDraft, commentRating, userProfile.displayName, workIdForDetail])
+
+  const onRegisterCompleteGoVideos = useCallback(() => {
+    setLoggedIn(true)
+    setHistory([])
+    setScreen(postLoginTarget ?? 'home')
+    setPostLoginTarget(null)
+  }, [postLoginTarget])
+
+  const onCastOpenProfile = useCallback(
+    (cast: { id: string; name: string; role: string }) => {
+      if (!requireLogin('profile')) return
+      setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
+      goTo('profile')
+    },
+    [goTo, requireLogin]
+  )
+
+  const onCastSearchOpenResults = useCallback(
+    (keyword: string) => {
+      setCastSearchKeyword(keyword)
+      goTo('castSearchResult')
+    },
+    [goTo]
+  )
+
+  const onCastSearchResultBack = useCallback(() => {
+    goBack()
+  }, [goBack])
+
+  const onMyPageNavigate = useCallback(
+    (screenKey: string) => {
+      if (screenKey === 'coinPurchase') {
+        setCoinGrantPrimaryReturnTo('mypage')
+        setCoinGrantPrimaryLabel('マイページへ戻る')
+      }
+      if (screenKey === 'terms') {
+        setTermsReadOnly(true)
+      }
+      goTo(screenKey as Screen)
+    },
+    [goTo]
+  )
+
+  const onCoinExchangeCancelToMyPage = useCallback(() => {
+    setHistory([])
+    setScreen('mypage')
+  }, [])
+
+  const onCoinExchangeLinkPaypay = useCallback(async () => {
+    await new Promise((r) => setTimeout(r, 350))
+    setDebugPaypayLinked(true)
+  }, [])
+
+  const onCoinExchangeUnlinkPaypay = useCallback(async () => {
+    await new Promise((r) => setTimeout(r, 350))
+    setDebugPaypayLinked(false)
+  }, [])
+
+  const onCoinExchangeToPaypayStep = useCallback(() => {
+    goTo('coinExchangePayPay')
+  }, [goTo])
+
+  const onCoinExchangeChangeLink = useCallback(() => {
+    goTo('coinExchangeDest')
+  }, [goTo])
+
+  const onCoinExchangeSubmit = useCallback(async ({ coinAmount, pointAmount }: { coinAmount: number; pointAmount: number }) => {
+    // NOTE: APIが整備されるまではモック。
+    await new Promise((r) => setTimeout(r, 400))
+    setCoinExchangePendingCoins(coinAmount)
+    setCoinExchangeLastCoinAmount(coinAmount)
+    setCoinExchangeLastPointAmount(pointAmount)
+    goTo('coinExchangeComplete')
+  }, [goTo])
+
+  const onCoinExchangeCompleteDone = useCallback(() => {
+    setHistory([])
+    setScreen('mypage')
+  }, [])
+
+  const onNoticeOpenDetail = useCallback(
+    (id: string) => {
+      setSelectedNoticeId(id)
+      goTo('noticeDetail')
+    },
+    [goTo]
+  )
+
+  const onDevGo = useCallback(
+    (key: string) => {
+      goTo(key as Screen)
+    },
+    [goTo]
+  )
+
+  const onCoinGrantCompletePrimaryPress = useCallback(() => {
+    goTo(coinGrantPrimaryReturnTo)
+  }, [coinGrantPrimaryReturnTo, goTo])
+
+  const coinGrantCompletePrimaryAction = useMemo(
+    () => ({
+      label: coinGrantPrimaryLabel,
+      onPress: onCoinGrantCompletePrimaryPress,
+    }),
+    [coinGrantPrimaryLabel, onCoinGrantCompletePrimaryPress]
+  )
+
+  const onCoinGrantCompleteGoMyPage = useCallback(() => {
+    setHistory([])
+    setScreen('mypage')
+  }, [])
+
+  const onSplashDone = useCallback(() => {
+    void (async () => {
+      try {
+        const [token, tutorialSeen] = await Promise.all([
+          getString(AUTH_TOKEN_KEY),
+          getBoolean(TUTORIAL_SEEN_KEY),
+        ])
+
+        if (token) {
+          setAuthToken(token)
+          setLoggedIn(true)
+          setHistory([])
+          setScreen('home')
+          return
+        }
+
+        // Web版は初回導線でもチュートリアルへ自動遷移しない（トップ表示の安定化）。
+        if (Platform.OS === 'web') {
+          goTo('welcome')
+          return
+        }
+
+        if (!tutorialSeen) {
+          setTutorialIndex(0)
+          goTo('tutorial')
+          return
+        }
+
+        goTo('welcome')
+      } catch {
+        // Fallback: keep current behavior.
+        goTo('welcome')
+      }
+    })()
+  }, [goTo])
+
+  const onSubscriptionBack = useCallback(() => {
+    setSubscriptionNote(null)
+    setSubscriptionResume(null)
+    goBack()
+  }, [goBack])
+
+  const onSubscriptionSubscribe = useCallback(async () => {
+    if (!loggedIn) {
+      setSubscriptionNote('サブスク加入にはログインが必要です。')
+      requireLogin('subscription')
+      return
+    }
+
+    if (!authToken) {
+      setSubscriptionNote('認証情報が不足しています。ログインをやり直してください。')
+      requireLogin('subscription')
+      return
+    }
+
+    const res = await apiFetch(`${apiBaseUrl}/api/stripe/checkout/subscription`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${authToken}`,
+      },
+    })
+    if (!res.ok) {
+      const msg = await res.text().catch(() => '')
+      throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+    }
+    const json = (await res.json().catch(() => ({}))) as any
+    const checkoutUrl = String(json?.checkoutUrl ?? '').trim()
+    if (!checkoutUrl) throw new Error('checkoutUrl is missing')
+
+    setSubscriptionNote('ブラウザで決済ページを開きました。完了後にこの画面へ戻り「加入状況を更新」を押してください。')
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.location.href = checkoutUrl
+      return
+    }
+    await Linking.openURL(checkoutUrl)
+  }, [apiBaseUrl, authToken, loggedIn, requireLogin])
+
+  const onSubscriptionRefresh = useCallback(async () => {
+    const subscribed = await refreshSubscriptionFromApi()
+
+    if (!subscribed) {
+      setSubscriptionNote('未加入のままです。決済が完了している場合は少し待ってから再度更新してください。')
+      return
+    }
+
+    const resume = subscriptionResume
+    setSubscriptionNote(null)
+    setSubscriptionResume(null)
+
+    if (resume?.workId) {
+      setSelectedWorkId(resume.workId)
+
+      if (resume.episodeId) {
+        const key = resolveWorkKeyById(resume.workId)
+        const base = mockWorksByKey[key] ?? mockWork
+        const episodeIds = base.episodes.map((x) => x.id)
+        const currentIndex = episodeIds.indexOf(resume.episodeId)
+
+        setPlayerEpisodeContext(
+          currentIndex >= 0
+            ? {
+                workId: resume.workId,
+                episodeIds,
+                currentIndex,
+              }
+            : null
+        )
+
+        void hydratePlayerFromEpisodeId(resume.episodeId, { workId: resume.workId })
+
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          pushWebUrl(videoPlayerToWebUrl({ workId: resume.workId, episodeId: resume.episodeId }))
+        } else {
+          goTo('videoPlayer')
+        }
+        return
+      }
+
+      goTo('workDetail')
+    }
+  }, [goTo, hydratePlayerFromEpisodeId, pushWebUrl, refreshSubscriptionFromApi, subscriptionResume])
+
+  const onSubscriptionCancel = useCallback(async () => {
+    if (!loggedIn) {
+      setSubscriptionNote('ログインが必要です。')
+      requireLogin('subscription')
+      return
+    }
+
+    if (!authToken) {
+      setSubscriptionNote('認証情報が不足しています。ログインをやり直してください。')
+      requireLogin('subscription')
+      return
+    }
+
+    const res = await apiFetch(`${apiBaseUrl}/api/stripe/portal`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${authToken}`,
+      },
+    })
+    if (!res.ok) {
+      const msg = await res.text().catch(() => '')
+      throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+    }
+    const json = (await res.json().catch(() => ({}))) as any
+    const url = String(json?.url ?? '').trim()
+    if (!url) throw new Error('url is missing')
+
+    setSubscriptionNote('ブラウザでサブスク管理画面を開きました。変更後は「加入状況を更新」で反映してください。')
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    await Linking.openURL(url)
+  }, [apiBaseUrl, authToken, loggedIn, requireLogin])
+
+  const onStaffCastReviewSubmit = useCallback(
+    async ({ castId, rating, comment }: { castId: string; rating: number; comment: string }) => {
+      try {
+        const res = await apiFetch(`${apiBaseUrl}/v1/reviews/cast`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ castId, rating, comment }),
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        void fetchCastReviewSummary(castId)
+      } catch {
+        await new Promise((r) => setTimeout(r, 300))
+        setCastReviews((prev) => ({
+          ...prev,
+          [castId]: { rating, comment, updatedAt: Date.now() },
+        }))
+      }
+    },
+    [apiBaseUrl, fetchCastReviewSummary]
+  )
+
+  const onStaffCastReviewDone = useCallback(() => {
+    goTo('profile')
+  }, [goTo])
+
+  const onCommentPostSubmitted = useCallback(
+    async ({ workId, body }: { workId: string; body: string }) => {
+      const trimmed = body.trim()
+      if (!trimmed) throw new Error('コメントを入力してください')
+
+      const safeAuthor = (userProfile.displayName || '').trim().slice(0, 50) || '匿名'
+      const res = await apiFetch(`${apiBaseUrl}/v1/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentId: workId, episodeId: '', author: safeAuthor, body: trimmed }),
+      })
+      if (!res.ok) {
+        const msg = await res.text().catch(() => '')
+        throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+      }
+    },
+    [apiBaseUrl, userProfile.displayName]
+  )
+
+  const onCommentPostDone = useCallback(() => {
+    setCommentJustSubmitted(true)
+    goTo('workDetail')
+  }, [goTo])
+
+  const onWorkReviewSubmit = useCallback(
+    async ({ contentId, rating, comment }: { contentId: string; rating: number; comment: string }) => {
+      const res = await apiFetch(`${apiBaseUrl}/v1/reviews/work`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contentId, rating, comment }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      void fetchWorkReviewSummary(contentId)
+    },
+    [apiBaseUrl, fetchWorkReviewSummary]
+  )
+
+  const onWorkReviewDone = useCallback(() => {
+    goTo('workDetail')
+  }, [goTo])
+
+  const onCoinPurchaseStartCheckout = useCallback(
+    async ({ packId }: { packId: string }) => {
+      const tryCheckout = async () => {
+        const res = await apiFetch(`${apiBaseUrl}/api/stripe/checkout/coin-pack`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ packId }),
+        })
+        if (!res.ok) throw new Error('checkout failed')
+        const json = (await res.json().catch(() => null)) as any
+        const checkoutUrl = typeof json?.checkoutUrl === 'string' ? json.checkoutUrl : ''
+        if (checkoutUrl) {
+          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            window.location.href = checkoutUrl
+          } else {
+            await Linking.openURL(checkoutUrl)
+          }
+        }
+      }
+
+      try {
+        await tryCheckout()
+      } catch {
+        // ignore and proceed with mock
+      }
+
+      const packToCoins: Record<string, number> = {
+        p100: 100,
+        p300: 300,
+        p500: 500,
+      }
+      const added = Number.isFinite(packToCoins[packId]) ? packToCoins[packId] : 100
+      await new Promise((r) => setTimeout(r, 400))
+      setCoinGrantReasonLabel('コイン購入')
+      setCoinGrantAmount(added)
+      setCoinGrantAt(Date.now())
+      setOwnedCoins((v) => {
+        const next = v + added
+        setCoinGrantBalanceAfter(next)
+        return next
+      })
+      goTo('coinGrantComplete')
+    },
+    [apiBaseUrl, goTo]
+  )
+
+  const onCoinGrant = useCallback(
+    async (amount: number) => {
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('付与数を入力してください')
+      if (amount > ownedCoins) throw new Error('コインが不足しています')
+      await new Promise((r) => setTimeout(r, 350))
+      setCoinGrantReasonLabel('推しポイント付与')
+      setCoinGrantAmount(amount)
+      setCoinGrantAt(Date.now())
+      setOwnedCoins((v) => {
+        const next = Math.max(0, v - amount)
+        setCoinGrantBalanceAfter(next)
+        return next
+      })
+      goTo('coinGrantComplete')
+    },
+    [goTo, ownedCoins]
+  )
+
+  const playerCurrentEpisodeTitle = useMemo(() => {
+    if (!playerEpisodeContext) return null
+    if (playerEpisodeContext.workId !== workIdForDetail) return null
+    const currentIndex = playerEpisodeContext.currentIndex
+    if (currentIndex < 0 || currentIndex >= workForDetail.episodes.length) return null
+    const ep = workForDetail.episodes[currentIndex]
+    if (!ep) return null
+    const episodeNo = ep.episodeNo == null ? null : ep.episodeNo
+    const label =
+      episodeNo != null
+        ? `第${String(episodeNo).padStart(2, '0')}話`
+        : `第${String(currentIndex + 1).padStart(2, '0')}話`
+    const t = String(ep.title || '').trim()
+    return t.includes('第') && t.includes('話') ? t : `${label} ${t}`.trim()
+  }, [playerEpisodeContext, workForDetail.episodes, workIdForDetail])
+
+  const playerNextEpisodeTitle = useMemo(() => {
+    if (!playerEpisodeContext) return null
+    if (playerEpisodeContext.workId !== workIdForDetail) return null
+    const nextIndex = playerEpisodeContext.currentIndex + 1
+    if (nextIndex < 0 || nextIndex >= workForDetail.episodes.length) return null
+    const ep = workForDetail.episodes[nextIndex]
+    if (!ep) return null
+    const episodeNo = ep.episodeNo == null ? null : ep.episodeNo
+    const label =
+      episodeNo != null ? `第${String(episodeNo).padStart(2, '0')}話` : `第${String(nextIndex + 1).padStart(2, '0')}話`
+    const t = String(ep.title || '').trim()
+    return t.includes('第') && t.includes('話') ? t : `${label} ${t}`.trim()
+  }, [playerEpisodeContext, workForDetail.episodes, workIdForDetail])
+
+  const playerNextEpisodeThumbnailUrl = useMemo(() => {
+    if (!playerEpisodeContext) return null
+    const nextIndex = playerEpisodeContext.currentIndex + 1
+    if (!Number.isFinite(nextIndex)) return null
+    if (nextIndex < 0) return null
+    if (playerEpisodeContext.workId !== workIdForDetail) return null
+    if (nextIndex >= workForDetail.episodes.length) return null
+    const ep = workForDetail.episodes[nextIndex]
+    const t = typeof ep?.thumbnailUrl === 'string' ? ep.thumbnailUrl.trim() : ''
+    return t || workDetailHeroThumbnailUrl
+  }, [playerEpisodeContext, workDetailHeroThumbnailUrl, workForDetail.episodes, workIdForDetail])
+
+  const onPlayerPrevEpisode = useCallback(() => {
+    if (!playerEpisodeContext) return
+    const nextIndex = playerEpisodeContext.currentIndex - 1
+    if (nextIndex < 0) return
+    setPlayerEpisodeContext((prev) => (prev ? { ...prev, currentIndex: nextIndex } : prev))
+    const nextEpisodeId = String(playerEpisodeContext.episodeIds?.[nextIndex] ?? '').trim()
+    if (nextEpisodeId) void hydratePlayerFromEpisodeId(nextEpisodeId, { workId: playerEpisodeContext.workId })
+  }, [hydratePlayerFromEpisodeId, playerEpisodeContext])
+
+  const onPlayerNextEpisode = useCallback(() => {
+    if (!playerEpisodeContext) return
+    const nextIndex = playerEpisodeContext.currentIndex + 1
+    if (nextIndex >= playerEpisodeContext.episodeIds.length) return
+    setPlayerEpisodeContext((prev) => (prev ? { ...prev, currentIndex: nextIndex } : prev))
+    const nextEpisodeId = String(playerEpisodeContext.episodeIds?.[nextIndex] ?? '').trim()
+    if (nextEpisodeId) void hydratePlayerFromEpisodeId(nextEpisodeId, { workId: playerEpisodeContext.workId })
+  }, [hydratePlayerFromEpisodeId, playerEpisodeContext])
+
+  const playerCanPrevEpisode = playerEpisodeContext ? playerEpisodeContext.currentIndex > 0 : undefined
+  const playerCanNextEpisode = playerEpisodeContext
+    ? playerEpisodeContext.currentIndex < playerEpisodeContext.episodeIds.length - 1
+    : undefined
+
   // Show IP gate if IP restriction is enabled and checks are needed
   if (ipRestrictionEnabled) {
     if (ipLoading) {
-      return (
-        <SafeAreaView style={styles.safeArea}>
-          <ScreenContainer title="IP確認中">
-            <View style={styles.ipGate}>
-              <ActivityIndicator />
-              <Text style={styles.ipGateText}>アクセス元IPを確認しています…</Text>
-            </View>
-          </ScreenContainer>
-        </SafeAreaView>
-      )
+      return <IpCheckingScreen styles={styles} />
     }
 
     if (!ipAllowed) {
-      return (
-        <SafeAreaView style={styles.safeArea}>
-          <ScreenContainer title="Access Denied">
-            <View style={styles.ipGate}>
-              <Text style={styles.ipGateTitle}>このIPは許可されていません</Text>
-              <Text style={styles.ipGateText}>許可IPに追加してください。</Text>
-              <View style={styles.ipGateBox}>
-                <Text style={styles.ipGateMono}>IP: {ipInfo?.ip || '(unknown)'}</Text>
-                {ipInfo?.city || ipInfo?.region || ipInfo?.country ? (
-                  <Text style={styles.ipGateMono}>
-                    {ipInfo?.country || ''} {ipInfo?.region || ''} {ipInfo?.city || ''}
-                  </Text>
-                ) : null}
-                {ipError ? <Text style={styles.ipGateError}>{ipError}</Text> : null}
-              </View>
-              <SecondaryButton label="再取得" onPress={refetchIp} />
-            </View>
-          </ScreenContainer>
-        </SafeAreaView>
-      )
+      return <IpDeniedScreen styles={styles} ipInfo={ipInfo} ipError={ipError} onRetry={refetchIp} />
     }
   }
 
   if (maintenanceMode) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <ScreenContainer title="メンテナンス中">
-          <View style={styles.ipGate}>
-            <Text style={styles.ipGateTitle}>現在メンテナンス中です</Text>
-            <Text style={styles.ipGateText}>{maintenanceMessage || 'しばらくお待ちください。'}</Text>
-            <View style={{ height: 12 }} />
-            <SecondaryButton label="再読み込み" onPress={refreshMaintenance} />
-            {!maintenanceCheckedOnce ? <Text style={[styles.ipGateText, { marginTop: 10 }]}>状態を確認中…</Text> : null}
-          </View>
-        </ScreenContainer>
-      </SafeAreaView>
+      <MaintenanceScreen
+        styles={styles}
+        message={maintenanceMessage}
+        checkedOnce={maintenanceCheckedOnce}
+        onReload={refreshMaintenance}
+      />
     )
   }
 
@@ -2367,60 +3069,18 @@ export default function App() {
       ) : null}
 
       {screen === 'login' ? (
-        <ScreenContainer title="ログイン">
-          <View style={styles.authCenter}>
-            <View style={styles.authContent}>
-              <View style={styles.authTop}>
-                <View style={styles.authLogoWrap}>
-                  <Image
-                    source={require('./assets/oshidora-logo.png')}
-                    style={styles.authLogo}
-                    resizeMode="contain"
-                  />
-                </View>
-
-                {loginBannerError ? <Text style={styles.bannerError}>{loginBannerError}</Text> : null}
-
-                <View style={styles.field}>
-                  <TextInput
-                    value={loginEmail}
-                    onChangeText={(v) => setLoginEmail(v)}
-                    placeholder="メールアドレス"
-                    placeholderTextColor={THEME.textMuted}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    style={[styles.input, loginFieldErrors.email ? styles.inputError : null]}
-                  />
-                  {loginFieldErrors.email ? <Text style={styles.fieldError}>{loginFieldErrors.email}</Text> : null}
-                </View>
-                <View style={styles.field}>
-                  <TextInput
-                    value={loginPassword}
-                    onChangeText={(v) => setLoginPassword(v)}
-                    placeholder="パスワード"
-                    placeholderTextColor={THEME.textMuted}
-                    secureTextEntry
-                    autoCapitalize="none"
-                    style={[styles.input, loginFieldErrors.password ? styles.inputError : null]}
-                  />
-                  {loginFieldErrors.password ? (
-                    <Text style={styles.fieldError}>{loginFieldErrors.password}</Text>
-                  ) : null}
-                </View>
-              </View>
-
-              <View style={styles.authBottom}>
-                <View style={styles.buttons}>
-                  <View style={styles.buttonRow}>
-                    <SecondaryButton label="キャンセル" onPress={onCancel} disabled={authBusy} />
-                    <View style={styles.spacer} />
-                    <PrimaryButton label="次へ" onPress={onLoginNext} disabled={!canLoginNext} fullWidth={false} />
-                  </View>
-                </View>
-              </View>
-            </View>
-          </View>
-        </ScreenContainer>
+        <LoginScreen
+          email={loginEmail}
+          password={loginPassword}
+          fieldErrors={loginFieldErrors}
+          bannerError={loginBannerError}
+          busy={authBusy}
+          canNext={canLoginNext}
+          onChangeEmail={setLoginEmail}
+          onChangePassword={setLoginPassword}
+          onCancel={onCancel}
+          onNext={onLoginNext}
+        />
       ) : null}
 
       {screen === 'signup' ? (
@@ -2620,12 +3280,7 @@ export default function App() {
 
       {screen === 'registerComplete' ? (
         <RegisterCompleteScreen
-          onGoVideos={() => {
-            setLoggedIn(true)
-            setHistory([])
-            setScreen(postLoginTarget ?? 'home')
-            setPostLoginTarget(null)
-          }}
+          onGoVideos={onRegisterCompleteGoVideos}
         />
       ) : null}
 
@@ -2656,15 +3311,8 @@ export default function App() {
           apiBaseUrl={apiBaseUrl}
           onPressTab={switchTab}
           onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
-          onOpenProfile={(cast) => {
-            if (!requireLogin('profile')) return
-            setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
-            goTo('profile')
-          }}
-          onOpenResults={(keyword) => {
-            setCastSearchKeyword(keyword)
-            goTo('castSearchResult')
-          }}
+          onOpenProfile={onCastOpenProfile}
+          onOpenResults={onCastSearchOpenResults}
         />
       ) : null}
 
@@ -2674,14 +3322,8 @@ export default function App() {
           onPressTab={switchTab}
           onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           keyword={castSearchKeyword}
-          onBack={() => {
-            goBack()
-          }}
-          onOpenProfile={(cast) => {
-            if (!requireLogin('profile')) return
-            setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
-            goTo('profile')
-          }}
+          onBack={onCastSearchResultBack}
+          onOpenProfile={onCastOpenProfile}
         />
       ) : null}
 
@@ -2691,11 +3333,7 @@ export default function App() {
           onPressTab={switchTab}
           onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
           onOpenVideo={(id) => openWorkDetail(id)}
-          onOpenProfile={(cast) => {
-            if (!requireLogin('profile')) return
-            setSelectedCast({ id: cast.id, name: cast.name, roleLabel: cast.role })
-            goTo('profile')
-          }}
+          onOpenProfile={onCastOpenProfile}
         />
       ) : null}
 
@@ -2717,16 +3355,7 @@ export default function App() {
           userType={debugUserType}
           subscribed={isSubscribed}
           onOpenNotice={loggedIn || debugMock ? () => goTo('notice') : undefined}
-          onNavigate={(screenKey) => {
-            if (screenKey === 'coinPurchase') {
-              setCoinGrantPrimaryReturnTo('mypage')
-              setCoinGrantPrimaryLabel('マイページへ戻る')
-            }
-            if (screenKey === 'terms') {
-              setTermsReadOnly(true)
-            }
-            goTo(screenKey as Screen)
-          }}
+          onNavigate={onMyPageNavigate}
         />
       ) : null}
 
@@ -2734,126 +3363,10 @@ export default function App() {
         <SubscriptionScreen
           subscribed={isSubscribed}
           note={subscriptionNote}
-          onBack={() => {
-            setSubscriptionNote(null)
-            setSubscriptionResume(null)
-            goBack()
-          }}
-          onSubscribe={async () => {
-            if (!loggedIn) {
-              setSubscriptionNote('サブスク加入にはログインが必要です。')
-              requireLogin('subscription')
-              return
-            }
-
-            if (!authToken) {
-              setSubscriptionNote('認証情報が不足しています。ログインをやり直してください。')
-              requireLogin('subscription')
-              return
-            }
-
-            const res = await apiFetch(`${apiBaseUrl}/api/stripe/checkout/subscription`, {
-              method: 'POST',
-              headers: {
-                authorization: `Bearer ${authToken}`,
-              },
-            })
-            if (!res.ok) {
-              const msg = await res.text().catch(() => '')
-              throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
-            }
-            const json = (await res.json().catch(() => ({}))) as any
-            const checkoutUrl = String(json?.checkoutUrl ?? '').trim()
-            if (!checkoutUrl) throw new Error('checkoutUrl is missing')
-
-            setSubscriptionNote('ブラウザで決済ページを開きました。完了後にこの画面へ戻り「加入状況を更新」を押してください。')
-
-            if (Platform.OS === 'web' && typeof window !== 'undefined') {
-              window.location.href = checkoutUrl
-              return
-            }
-            await Linking.openURL(checkoutUrl)
-          }}
-          onRefresh={async () => {
-            const subscribed = await refreshSubscriptionFromApi()
-
-            if (!subscribed) {
-              setSubscriptionNote('未加入のままです。決済が完了している場合は少し待ってから再度更新してください。')
-              return
-            }
-
-            const resume = subscriptionResume
-            setSubscriptionNote(null)
-            setSubscriptionResume(null)
-
-            if (resume?.workId) {
-              setSelectedWorkId(resume.workId)
-
-              if (resume.episodeId) {
-                const key = resolveWorkKeyById(resume.workId)
-                const base = mockWorksByKey[key] ?? mockWork
-                const episodeIds = base.episodes.map((x) => x.id)
-                const currentIndex = episodeIds.indexOf(resume.episodeId)
-
-                setPlayerEpisodeContext(
-                  currentIndex >= 0
-                    ? {
-                        workId: resume.workId,
-                        episodeIds,
-                        currentIndex,
-                      }
-                    : null
-                )
-
-                void hydratePlayerFromEpisodeId(resume.episodeId, { workId: resume.workId })
-
-                if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                  pushWebUrl(videoPlayerToWebUrl({ workId: resume.workId, episodeId: resume.episodeId }))
-                } else {
-                  goTo('videoPlayer')
-                }
-                return
-              }
-
-              goTo('workDetail')
-            }
-          }}
-          onCancel={async () => {
-            if (!loggedIn) {
-              setSubscriptionNote('ログインが必要です。')
-              requireLogin('subscription')
-              return
-            }
-
-            if (!authToken) {
-              setSubscriptionNote('認証情報が不足しています。ログインをやり直してください。')
-              requireLogin('subscription')
-              return
-            }
-
-            const res = await apiFetch(`${apiBaseUrl}/api/stripe/portal`, {
-              method: 'POST',
-              headers: {
-                authorization: `Bearer ${authToken}`,
-              },
-            })
-            if (!res.ok) {
-              const msg = await res.text().catch(() => '')
-              throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
-            }
-            const json = (await res.json().catch(() => ({}))) as any
-            const url = String(json?.url ?? '').trim()
-            if (!url) throw new Error('url is missing')
-
-            setSubscriptionNote('ブラウザでサブスク管理画面を開きました。変更後は「加入状況を更新」で反映してください。')
-
-            if (Platform.OS === 'web' && typeof window !== 'undefined') {
-              window.open(url, '_blank', 'noopener,noreferrer')
-              return
-            }
-            await Linking.openURL(url)
-
-          }}
+          onBack={onSubscriptionBack}
+          onSubscribe={onSubscriptionSubscribe}
+          onRefresh={onSubscriptionRefresh}
+          onCancel={onSubscriptionCancel}
         />
       ) : null}
 
@@ -2864,21 +3377,10 @@ export default function App() {
           paypayLinked={debugPaypayLinked}
           paypayMaskedLabel={debugPaypayMaskedLabel}
           onBack={goBack}
-          onCancel={() => {
-            setHistory([])
-            setScreen('mypage')
-          }}
-          onLinkPaypay={async () => {
-            await new Promise((r) => setTimeout(r, 350))
-            setDebugPaypayLinked(true)
-          }}
-          onUnlinkPaypay={async () => {
-            await new Promise((r) => setTimeout(r, 350))
-            setDebugPaypayLinked(false)
-          }}
-          onNext={() => {
-            goTo('coinExchangePayPay')
-          }}
+          onCancel={onCoinExchangeCancelToMyPage}
+          onLinkPaypay={onCoinExchangeLinkPaypay}
+          onUnlinkPaypay={onCoinExchangeUnlinkPaypay}
+          onNext={onCoinExchangeToPaypayStep}
         />
       ) : null}
 
@@ -2890,21 +3392,9 @@ export default function App() {
           paypayLinked={debugPaypayLinked}
           paypayMaskedLabel={debugPaypayMaskedLabel}
           onBack={goBack}
-          onCancel={() => {
-            setHistory([])
-            setScreen('mypage')
-          }}
-          onChangeLink={() => {
-            goTo('coinExchangeDest')
-          }}
-          onSubmit={async ({ coinAmount, pointAmount }) => {
-            // NOTE: APIが整備されるまではモック。
-            await new Promise((r) => setTimeout(r, 400))
-            setCoinExchangePendingCoins(coinAmount)
-            setCoinExchangeLastCoinAmount(coinAmount)
-            setCoinExchangeLastPointAmount(pointAmount)
-            goTo('coinExchangeComplete')
-          }}
+          onCancel={onCoinExchangeCancelToMyPage}
+          onChangeLink={onCoinExchangeChangeLink}
+          onSubmit={onCoinExchangeSubmit}
         />
       ) : null}
 
@@ -2913,10 +3403,7 @@ export default function App() {
           coinAmount={coinExchangeLastCoinAmount}
           pointAmount={coinExchangeLastPointAmount}
           paypayMaskedLabel={debugPaypayMaskedLabel}
-          onDone={() => {
-            setHistory([])
-            setScreen('mypage')
-          }}
+          onDone={onCoinExchangeCompleteDone}
         />
       ) : null}
 
@@ -3102,10 +3589,7 @@ export default function App() {
           mock={debugMock}
           onBack={goBack}
           onLogin={() => goTo('login')}
-          onOpenDetail={(id) => {
-            setSelectedNoticeId(id)
-            goTo('noticeDetail')
-          }}
+          onOpenDetail={onNoticeOpenDetail}
         />
       ) : null}
 
@@ -3119,182 +3603,62 @@ export default function App() {
       ) : null}
 
       {screen === 'phone' ? (
-        <ScreenContainer
-          title="SMS認証"
+        <PhoneScreen
+          phoneNumber={phoneNumber}
+          onChangePhoneNumber={setPhoneNumber}
+          fieldError={phoneFieldError}
+          bannerError={phoneBannerError}
+          canNext={canPhoneNext}
           onBack={goBack}
-          backgroundColor={THEME.bg}
-          background={
-            <>
-              <View style={styles.smsBgBase} />
-              <LinearGradient
-                pointerEvents="none"
-                colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0.04)', 'rgba(255,255,255,0)']}
-                locations={[0, 0.45, 1]}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 0.7 }}
-                style={styles.smsBgTopGlow}
-              />
-              <LinearGradient
-                pointerEvents="none"
-                colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.80)']}
-                locations={[0, 0.6, 1]}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={styles.smsBgVignette}
-              />
-            </>
-          }
-        >
-          <View style={styles.smsSendRoot}>
-            {phoneBannerError ? <Text style={styles.bannerError}>{phoneBannerError}</Text> : null}
-
-            <View style={styles.smsField}>
-              <Text style={styles.smsLabel}>電話番号</Text>
-              <TextInput
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                placeholder="電話番号"
-                placeholderTextColor={THEME.textMuted}
-                keyboardType="phone-pad"
-                autoCapitalize="none"
-                style={[styles.smsInput, phoneFieldError ? styles.inputError : null]}
-              />
-              {phoneFieldError ? <Text style={styles.fieldError}>{phoneFieldError}</Text> : null}
-            </View>
-
-            <Text style={styles.smsHint}>登録用の認証コードを、SMS（携帯電話番号宛）に送信します。</Text>
-
-            <View style={styles.smsButtonWrap}>
-              <PrimaryButton label="認証コードを送信" onPress={onPhoneNext} disabled={!canPhoneNext} />
-            </View>
-          </View>
-        </ScreenContainer>
+          onNext={onPhoneNext}
+        />
       ) : null}
 
       {screen === 'otp' ? (
-        <ScreenContainer title="2段階認証" onBack={goBack}>
-          <Text style={styles.centerText}>電話番号(SMS)に送信された認証コードを入力して下さい</Text>
-
-          {otpBannerError ? <Text style={styles.bannerError}>{otpBannerError}</Text> : null}
-
-          <View style={styles.otpRow}>
-            {otpDigits.map((digit, idx) => (
-              <TextInput
-                key={idx}
-                ref={(el) => {
-                  otpRefs.current[idx] = el
-                }}
-                value={digit}
-                onChangeText={(v) => setOtpAt(idx, v)}
-                onKeyPress={({ nativeEvent }) => onOtpKeyPress(idx, nativeEvent.key)}
-                keyboardType="number-pad"
-                autoCapitalize="none"
-                maxLength={1}
-                style={[styles.otpInput, otpFieldError ? styles.inputError : null]}
-              />
-            ))}
-          </View>
-
-          {otpFieldError ? <Text style={styles.fieldErrorCenter}>{otpFieldError}</Text> : null}
-
-          <View style={styles.buttons}>
-            <View style={styles.buttonRow}>
-              <SecondaryButton label="キャンセル" onPress={onCancel} disabled={authBusy} />
-              <View style={styles.spacer} />
-              <PrimaryButton label="次へ" onPress={onOtpNext} disabled={!canOtpNext} fullWidth={false} />
-            </View>
-          </View>
-        </ScreenContainer>
+        <OtpScreen
+          otpDigits={otpDigits}
+          otpRefs={otpRefs}
+          bannerError={otpBannerError}
+          fieldError={otpFieldError}
+          busy={authBusy}
+          canNext={canOtpNext}
+          onBack={goBack}
+          onCancel={onCancel}
+          onNext={onOtpNext}
+          onChangeDigit={setOtpAt}
+          onKeyPress={onOtpKeyPress}
+        />
       ) : null}
 
       {screen === 'top' ? (
-        <ScreenContainer title="推しドラ">
-          <View style={styles.header}>
-            <Text style={styles.sub}>API: {apiBaseUrl}</Text>
-            {health ? <Text style={styles.sub}>Health: {health}</Text> : null}
-            {error ? <Text style={styles.error}>Error: {error}</Text> : null}
-            {!loggedIn ? (
-              <View style={styles.topLoginRow}>
-                <PrimaryButton label="ログイン" onPress={() => goTo('login')} />
-              </View>
-            ) : null}
-            <View style={styles.topNavRow}>
-              <SecondaryButton label="プロフィール(ワイヤー)" onPress={() => goTo('profile')} />
-              <View style={styles.spacer} />
-              <SecondaryButton label="作品詳細(ワイヤー)" onPress={() => goTo('workDetail')} />
-              <View style={styles.spacer} />
-              <SecondaryButton label="Developer" onPress={() => goTo('dev')} />
-            </View>
-          </View>
-
-          <View style={styles.row}>
-            <SecondaryButton label="Health" onPress={checkHealth} />
-            <View style={styles.spacer} />
-            <SecondaryButton label="Reload" onPress={loadOshi} />
-          </View>
-
-          <View style={styles.header}>
-            <Text style={styles.sub}>Components</Text>
-            <Text style={styles.sub}>PaginationDots: {debugDotsIndex + 1}/5</Text>
-          </View>
-          <PaginationDots count={5} index={debugDotsIndex} onChange={setDebugDotsIndex} />
-
-          <View style={styles.header}>
-            <Text style={styles.sub}>Slideshow: {debugSlideIndex + 1}/3</Text>
-          </View>
-          <Slideshow
-            images={[
-              require('./assets/tutorial0.png'),
-              require('./assets/tutorial1.png'),
-              require('./assets/tutorial2.png'),
-            ]}
-            height={220}
-            index={debugSlideIndex}
-            onIndexChange={setDebugSlideIndex}
-            resizeMode="cover"
-          />
-
-          <View style={styles.row}>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="推しの名前"
-              placeholderTextColor={THEME.textMuted}
-              autoCapitalize="none"
-              style={styles.input}
-            />
-            <View style={styles.spacer} />
-            <PrimaryButton
-              label="Add"
-              onPress={addOshi}
-              disabled={apiBusy || name.trim().length === 0}
-              fullWidth={false}
-            />
-          </View>
-
-          {apiBusy ? <ActivityIndicator style={styles.loading} /> : null}
-
-          <FlatList
-            data={items}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.list}
-            renderItem={({ item }) => (
-              <View style={styles.item}>
-                <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemMeta}>{item.created_at}</Text>
-              </View>
-            )}
-            ListEmptyComponent={<Text style={styles.sub}>まだ登録がありません</Text>}
-          />
-        </ScreenContainer>
+        <DebugTopScreen
+          styles={styles}
+          apiBaseUrl={apiBaseUrl}
+          health={health}
+          error={error}
+          loggedIn={loggedIn}
+          onGoLogin={() => goTo('login')}
+          onGoProfile={() => goTo('profile')}
+          onGoWorkDetail={() => goTo('workDetail')}
+          onGoDev={() => goTo('dev')}
+          onCheckHealth={checkHealth}
+          onReload={loadOshi}
+          debugDotsIndex={debugDotsIndex}
+          onChangeDebugDotsIndex={setDebugDotsIndex}
+          debugSlideIndex={debugSlideIndex}
+          onChangeDebugSlideIndex={setDebugSlideIndex}
+          name={name}
+          onChangeName={setName}
+          onAddOshi={addOshi}
+          apiBusy={apiBusy}
+          items={items}
+        />
       ) : null}
 
       {screen === 'dev' ? (
         <DeveloperMenuScreen
           onBack={goBack}
-          onGo={(key) => {
-            goTo(key as Screen)
-          }}
+          onGo={onDevGo}
           userType={debugUserType}
           onUserTypeToggle={toggleDebugUserType}
           mock={debugMock}
@@ -3303,339 +3667,47 @@ export default function App() {
       ) : null}
 
       {screen === 'profile' ? (
-        <ScreenContainer title="キャストプロフィール" onBack={goBack} scroll>
-
-          <View style={styles.castCarouselWrap}>
-            <ScrollView
-              horizontal
-              decelerationRate="fast"
-              snapToInterval={CAST_PROFILE_CAROUSEL_CARD_WIDTH + CAST_PROFILE_CAROUSEL_GAP}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.castCarouselContent}
-              onMomentumScrollEnd={(e) => {
-                const x = e.nativeEvent.contentOffset.x
-                const step = CAST_PROFILE_CAROUSEL_CARD_WIDTH + CAST_PROFILE_CAROUSEL_GAP
-                const next = Math.round(x / step)
-                setCastProfileSlideIndex(Math.max(0, Math.min(next, 4)))
-              }}
-            >
-              {Array.from({ length: 5 }).map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.castCarouselCard,
-                    i === 4 ? null : { marginRight: CAST_PROFILE_CAROUSEL_GAP },
-                  ]}
-                >
-                  <View style={styles.castCarouselCardInner} />
-                </View>
-              ))}
-            </ScrollView>
-            <PaginationDots
-              count={5}
-              index={castProfileSlideIndex}
-              style={styles.castCarouselDots}
-              variant="plain"
-              dotSize={6}
-              activeColor={THEME.accent}
-              inactiveColor={THEME.outline}
-              onChange={(idx) => setCastProfileSlideIndex(idx)}
-            />
-          </View>
-
-          <View style={styles.castTitleBlock}>
-            <Text style={styles.castNameMain}>{selectedCast?.name ?? mockProfile.name}</Text>
-            <Text style={styles.castNameSub}>
-              {String((mockProfile as any).nameKana ?? '—')} / {String((mockProfile as any).nameEn ?? '—')}
-            </Text>
-            <View style={styles.castRatingRow}>
-              <IconStarYellow width={14} height={14} />
-              <Text style={styles.castRatingText}>
-                {castReviewSummary
-                  ? castReviewSummary.ratingAvg.toFixed(1)
-                  : selectedCastReview
-                    ? selectedCastReview.rating.toFixed(1)
-                    : '4.7'}
-                {castReviewSummary ? ` (${castReviewSummary.reviewCount}件)` : ' (375件)'}
-              </Text>
-            </View>
-          </View>
-
-          <PrimaryButton
-            label="推しポイント付与"
-            onPress={() => {
-              if (!requireLogin('coinGrant')) return
-              const castId = selectedCast?.id ?? mockProfile.id
-              const castName = selectedCast?.name ?? mockProfile.name
-              setCoinGrantTarget({ id: castId, name: castName, roleLabel: selectedCast?.roleLabel })
-              setCoinGrantPrimaryReturnTo('profile')
-              setCoinGrantPrimaryLabel('プロフィールへ戻る')
-              goTo('coinGrant')
-            }}
-          />
-
-          <View style={styles.castActionRow}>
-            <Pressable
-              accessibilityRole="button"
-              style={styles.castActionItem}
-              onPress={() => {
-                if (!requireLogin('castReview')) return
-                if (!selectedCast) {
-                  setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
-                }
-                goTo('castReview')
-              }}
-            >
-              <IconPen width={18} height={18} />
-              <Text style={styles.castActionLabel}>コメントする</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              style={styles.castActionItem}
-              onPress={() => {
-                if (!requireLogin('profile')) return
-                setCastFavorite((prev) => !prev)
-                setFavoriteToastText(!castFavorite ? 'お気に入りに登録しました' : 'お気に入りから削除しました')
-                setFavoriteToastVisible(true)
-                if (favoriteToastTimer.current) clearTimeout(favoriteToastTimer.current)
-                favoriteToastTimer.current = setTimeout(() => setFavoriteToastVisible(false), 2200)
-              }}
-            >
-              {castFavorite ? <IconFavoriteOn width={18} height={18} /> : <IconFavoriteOff width={18} height={18} />}
-              <Text style={styles.castActionLabel}>お気に入り</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              style={styles.castActionItem}
-              onPress={async () => {
-                if (!requireLogin('profile')) return
-                const castId = selectedCast?.id ?? mockProfile.id
-                const castName = selectedCast?.name ?? mockProfile.name
-                const url = shareUrlForCast(castId, castName)
-                const message = `${castName}\n${url}`
-
-                if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                  const nav: any = (window as any).navigator
-                  if (nav?.share) {
-                    try {
-                      await nav.share({ title: castName, text: message, url })
-                      return
-                    } catch {
-                      // fallthrough
-                    }
-                  }
-                  window.open(url, '_blank', 'noopener,noreferrer')
-                  return
-                }
-
-                try {
-                  const ShareLib = (await import('react-native-share')).default as any
-                  await ShareLib.open({ title: castName, message, url })
-                } catch {
-                  const { Share } = await import('react-native')
-                  await Share.share({ message, url })
-                }
-              }}
-            >
-              <IconShare width={18} height={18} />
-              <Text style={styles.castActionLabel}>共有する</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.profileCard}>
-            <Text style={styles.sectionTitle}>プロフィール</Text>
-            {[
-              { label: 'ジャンル', value: (mockProfile.genre ?? []).join(' / ') || '—' },
-              { label: '所属', value: mockProfile.affiliation || '—' },
-              { label: '生年月日', value: '1998年11月29日' },
-              { label: '出身地', value: '神奈川県（最寄駅：未指定）' },
-              { label: '血液型', value: 'A型' },
-              { label: '趣味', value: '映画・アニメ鑑賞・カフェ巡り・ホカンス' },
-              { label: '特技', value: 'ダンス・歌・ラーメン作り・中華鍋' },
-              { label: '資格', value: '英検1級' },
-            ].map((it) => (
-              <View key={it.label} style={styles.infoRow}>
-                <Text style={styles.infoLabel}>{it.label}</Text>
-                <Text style={styles.infoValue}>{it.value}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.profileCard}>
-            <Text style={styles.sectionTitle}>カテゴリ</Text>
-            <View style={styles.castCategoryRow}>
-              {['Drama', 'Comedy', 'Action'].map((t) => (
-                <View key={t} style={styles.castCategoryChip}>
-                  <Text style={styles.castCategoryChipText}>{t}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.profileCard}>
-            <Text style={styles.sectionTitle}>SNSリンク</Text>
-            {mockProfile.snsLinks.length === 0 ? (
-              <Text style={styles.bodyText}>—</Text>
-            ) : (
-              <View style={{ gap: 0 }}>
-                {mockProfile.snsLinks.map((url, idx) => (
-                  <Pressable
-                    key={url}
-                    onPress={() => {
-                      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                        window.open(url, '_blank', 'noopener,noreferrer')
-                      }
-                    }}
-                    style={[styles.castSnsRow, idx === mockProfile.snsLinks.length - 1 ? styles.castSnsRowLast : null]}
-                  >
-                    <View style={styles.castSnsIcon} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.castSnsLabel}>{detectSocialService(url).label}</Text>
-                      <Text style={styles.castSnsUrl} numberOfLines={1}>
-                        {url}
-                      </Text>
-                    </View>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
-
-          <View style={styles.profileCard}>
-            <Text style={styles.sectionTitle}>自己PR</Text>
-            <Text style={styles.bodyText}>{mockProfile.selfPr || '—'}</Text>
-          </View>
-
-          <View style={styles.profileCard}>
-            <Text style={styles.sectionTitle}>経歴・出演実績</Text>
-            <Text style={styles.bodyText}>
-              2014年、都内の養成所に入所し演技・ダンス・発声を学ぶ。{`\n`}
-              2016年、Webドラマで役をデビュー。{`\n`}
-              2018年、深夜ドラマでの繊細な演技が話題になり注目を集める。{`\n`}
-              2020年、映画初主演。{`\n`}
-              以降、ドラマ・映画・CMを中心に活動。
-            </Text>
-          </View>
-
-          <View style={styles.profileCard}>
-            <Text style={styles.sectionTitle}>作品</Text>
-            <Text style={styles.bodyText}>{mockProfile.worksText || '—'}</Text>
-          </View>
-
-          <View style={styles.commentsBox}>
-            <View style={styles.commentItem}>
-              <Text style={styles.sectionTitle}>
-                コメント（{castReviewSummary ? castReviewSummary.reviewCount : 375}件）
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                {Array.from({ length: 5 }).map((_, idx) => (
-                  <IconStarYellow key={idx} width={16} height={16} />
-                ))}
-                <Text style={[styles.metaTextBase, { color: '#E4A227', fontWeight: '900' }]}>
-                  {castReviewSummary
-                    ? castReviewSummary.ratingAvg.toFixed(1)
-                    : selectedCastReview
-                      ? selectedCastReview.rating.toFixed(1)
-                      : '4.7'}
-                </Text>
-              </View>
-            </View>
-
-            {(castCommentsExpanded
-              ? [...castLocalComments, ...mockApprovedComments]
-              : [...castLocalComments, ...mockApprovedComments].slice(0, 3)
-            ).map((c) => {
-              const stars = commentStarRating(c)
-              return (
-                <View key={c.id} style={styles.commentItem}>
-                  <Text style={styles.commentAuthor}>{c.author}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-                    {Array.from({ length: 5 }).map((_, idx) => {
-                      const active = idx < stars
-                      return active ? <IconStarYellow key={idx} width={14} height={14} /> : <IconStarEmpty key={idx} width={14} height={14} />
-                    })}
-                  </View>
-                  <Text style={styles.commentBody}>{truncateCommentBody(c.body)}</Text>
-                </View>
-              )
-            })}
-
-            {!castCommentsExpanded && [...castLocalComments, ...mockApprovedComments].length > 3 ? (
-              <Pressable style={styles.moreRow} onPress={() => setCastCommentsExpanded(true)}>
-                <Text style={styles.moreLink}>さらに表示</Text>
-                <Text style={styles.moreLink}>›</Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          <View style={styles.profileCard}>
-            <Text style={styles.sectionTitle}>コメント投稿</Text>
-            <View style={styles.commentCtaWrap}>
-              <View style={styles.commentRatingRow}>
-                {Array.from({ length: 5 }).map((_, idx) => {
-                  const active = idx < castCommentRating
-                  return (
-                    <Pressable key={`cast-rating-${idx}`} onPress={() => setCastCommentRating(idx + 1)}>
-                      {active ? <IconStarYellow width={18} height={18} /> : <IconStarEmpty width={18} height={18} />}
-                    </Pressable>
-                  )
-                })}
-              </View>
-
-              <TextInput
-                value={castCommentDraft}
-                onChangeText={setCastCommentDraft}
-                placeholder="コメントを記入する"
-                placeholderTextColor={THEME.textMuted}
-                multiline
-                style={styles.commentInput}
-              />
-
-              <PrimaryButton
-                label="コメントを投稿する"
-                onPress={async () => {
-                  if (!requireLogin('profile')) return
-                  const castId = selectedCast?.id ?? mockProfile.id
-                  const author = userProfile?.displayName?.trim() || 'あなた'
-                  const body = castCommentDraft.trim()
-                  if (!body) {
-                    Alert.alert('入力してください', 'コメントを入力してください')
-                    return
-                  }
-                  if (castCommentRating <= 0) {
-                    Alert.alert('評価を選択してください', '星を選んで評価してください')
-                    return
-                  }
-
-                  try {
-                    const res = await apiFetch(`${apiBaseUrl}/v1/reviews/cast`, {
-                      method: 'POST',
-                      headers: { 'content-type': 'application/json' },
-                      body: JSON.stringify({ castId, rating: castCommentRating, comment: body }),
-                    })
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-                    void fetchCastReviewSummary(castId)
-                  } catch {
-                    setCastReviews((prev) => ({
-                      ...prev,
-                      [castId]: { rating: castCommentRating, comment: body, updatedAt: Date.now() },
-                    }))
-                  }
-
-                  setCastLocalComments((prev) => [
-                    { id: `local-${Date.now()}`, author, body, createdAt: new Date().toISOString() },
-                    ...prev,
-                  ])
-                  setCastCommentDraft('')
-                  setCastCommentRating(0)
-                }}
-              />
-            </View>
-          </View>
-
-        </ScreenContainer>
+        <ProfileInlineScreen
+          styles={styles}
+          apiBaseUrl={apiBaseUrl}
+          selectedCast={selectedCast}
+          mockProfile={mockProfile}
+          castProfileSlideIndex={castProfileSlideIndex}
+          setCastProfileSlideIndex={setCastProfileSlideIndex}
+          castReviewSummary={castReviewSummary}
+          selectedCastReview={selectedCastReview}
+          castFavorite={castFavorite}
+          setCastFavorite={setCastFavorite}
+          requireLogin={requireLogin}
+          goTo={goTo}
+          goBack={goBack}
+          ensureSelectedCastForReview={() => {
+            if (!selectedCast) {
+              setSelectedCast({ id: mockProfile.id, name: mockProfile.name, roleLabel: '出演者' })
+            }
+          }}
+          setCoinGrantTarget={setCoinGrantTarget}
+          setCoinGrantPrimaryReturnTo={setCoinGrantPrimaryReturnTo}
+          setCoinGrantPrimaryLabel={setCoinGrantPrimaryLabel}
+          setFavoriteToastText={setFavoriteToastText}
+          setFavoriteToastVisible={setFavoriteToastVisible}
+          favoriteToastTimer={favoriteToastTimer}
+          shareUrlForCast={shareUrlForCast}
+          userProfile={userProfile}
+          castCommentsExpanded={castCommentsExpanded}
+          setCastCommentsExpanded={setCastCommentsExpanded}
+          castLocalComments={castLocalComments}
+          mockApprovedComments={mockApprovedComments}
+          commentStarRating={commentStarRating}
+          truncateCommentBody={truncateCommentBody}
+          castCommentRating={castCommentRating}
+          setCastCommentRating={setCastCommentRating}
+          castCommentDraft={castCommentDraft}
+          setCastCommentDraft={setCastCommentDraft}
+          fetchCastReviewSummary={fetchCastReviewSummary}
+          setCastReviews={setCastReviews}
+          setCastLocalComments={setCastLocalComments}
+        />
       ) : null}
 
       {screen === 'castReview' && selectedCast ? (
@@ -3643,700 +3715,80 @@ export default function App() {
           onBack={goBack}
           cast={{ id: selectedCast.id, name: selectedCast.name, roleLabel: selectedCast.roleLabel, profileImageUrl: null }}
           initial={{ rating: selectedCastReview?.rating ?? null, comment: selectedCastReview?.comment ?? null }}
-          onSubmit={async ({ castId, rating, comment }) => {
-            try {
-              const res = await apiFetch(`${apiBaseUrl}/v1/reviews/cast`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ castId, rating, comment }),
-              })
-              if (!res.ok) throw new Error(`HTTP ${res.status}`)
-              void fetchCastReviewSummary(castId)
-            } catch {
-              // Fallback: local mock update
-              await new Promise((r) => setTimeout(r, 300))
-              setCastReviews((prev) => ({
-                ...prev,
-                [castId]: { rating, comment, updatedAt: Date.now() },
-              }))
-            }
-          }}
-          onDone={() => {
-            goTo('profile')
-          }}
+          onSubmit={onStaffCastReviewSubmit}
+          onDone={onStaffCastReviewDone}
         />
       ) : null}
 
       {screen === 'castReview' && !selectedCast ? (
-        <ScreenContainer title="評価" onBack={goBack}>
-          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24 }}>
-            <Text style={styles.centerText}>対象のキャスト／スタッフが未選択です。{`\n`}プロフィールから「★」を押して開いてください。</Text>
-            <View style={{ height: 12 }} />
-            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
-              <SecondaryButton label="Developer" onPress={() => goTo('dev')} />
-              <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
-            </View>
-          </View>
-        </ScreenContainer>
+        <CastReviewMissingTargetScreen
+          styles={styles}
+          onBack={goBack}
+          onGoDev={() => goTo('dev')}
+          onGoHome={() => goTo('home')}
+        />
       ) : null}
 
       {screen === 'workDetail' ? (
-        <ScreenContainer
-          headerLeft={<Image source={require('./assets/oshidora_logo.png')} style={styles.logo} resizeMode="contain" />}
-          headerRight={
-            <View style={styles.headerRightRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="お知らせ"
-                onPress={() => goTo('notice')}
-                style={styles.headerIconButton}
-              >
-                <IconNotification width={22} height={22} />
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="検索"
-                onPress={() => switchTab('search')}
-                style={styles.headerIconButton}
-              >
-                <IconSearch width={22} height={22} />
-              </Pressable>
-            </View>
-          }
+        <WorkDetailScreen
+          apiBaseUrl={apiBaseUrl}
+          authToken={authToken}
+          loggedIn={loggedIn}
+          isSubscribed={isSubscribed}
+          workIdForDetail={workIdForDetail}
+          workForDetail={workForDetail}
+          workDetailHeroThumbnailUrl={workDetailHeroThumbnailUrl}
+          workReleaseYear={workReleaseYear}
+          workLikeCount={workLikeCount}
+          workRatingAvg={workRatingAvg}
+          workReviewCount={workReviewCount}
+          isWorkFavorite={isWorkFavorite}
+          onToggleFavorite={onWorkDetailToggleFavorite}
+          guestWorkAuthCtaDismissed={guestWorkAuthCtaDismissed}
+          onDismissGuestCta={onWorkDetailDismissGuestCta}
+          onLoginFromGuestCta={onWorkDetailLoginFromGuestCta}
+          onSignupFromGuestCta={onWorkDetailSignupFromGuestCta}
           onBack={goBack}
-          footer={<TabBar active="video" onPress={switchTab} />}
-          footerPaddingHorizontal={0}
-          scroll
-          maxWidth={768}
-        >
-
-          {!workIdForDetail ? (
-            <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24 }}>
-              <Text style={styles.centerText}>作品が未指定です。{`\n`}一覧から作品を選択してください。</Text>
-              <View style={{ height: 12 }} />
-              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
-                <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
-              </View>
-            </View>
-          ) : (
-
-            <>
-
-          {!loggedIn && !guestWorkAuthCtaDismissed ? (
-            <View style={styles.guestCta}>
-              <View style={styles.guestCtaHeaderRow}>
-                <Text style={styles.guestCtaTitle}>ログインするともっと楽しめます</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="閉じる"
-                  onPress={() => setGuestWorkAuthCtaDismissed(true)}
-                  hitSlop={10}
-                >
-                  <Text style={styles.guestCtaClose}>×</Text>
-                </Pressable>
-              </View>
-
-              <Text style={styles.guestCtaText}>会員限定エピソードの視聴・お気に入り・コメント投稿ができます。</Text>
-
-              <View style={styles.guestCtaButtonsRow}>
-                <View style={{ flex: 1 }}>
-                  <SecondaryButton
-                    label="ログイン"
-                    onPress={() => {
-                      setPostLoginTarget('workDetail')
-                      goTo('login')
-                    }}
-                  />
-                </View>
-                <View style={{ width: 10 }} />
-                <View style={{ flex: 1 }}>
-                  <PrimaryButton
-                    label="会員登録"
-                    onPress={() => {
-                      setPostLoginTarget('workDetail')
-                      setTermsReadOnly(false)
-                      goTo('terms')
-                    }}
-                  />
-                </View>
-              </View>
-            </View>
-          ) : null}
-
-          <View style={styles.heroImage}>
-            {workDetailHeroThumbnailUrl ? (
-              <Image source={{ uri: workDetailHeroThumbnailUrl }} style={styles.heroImageThumb} resizeMode="cover" />
-            ) : (
-              <View style={styles.heroPlaceholder} />
-            )}
-            <Pressable
-              onPress={() => {
-                void upsertWatchHistory(watchHistoryUserKey, {
-                  id: `content:${workIdForDetail}`,
-                  contentId: workIdForDetail,
-                  title: workForDetail.title,
-                  kind: '映画',
-                  durationSeconds: 25 * 60,
-                  thumbnailUrl: workDetailHeroThumbnailUrl,
-                  lastPlayedAt: Date.now(),
-                })
-                const preferredEpisode = workForDetail.episodes[workDetailPreferredEpisodeIndex]
-                const chosenNoSub = String(preferredEpisode?.streamVideoId || '').trim()
-                setPlayerVideoIdNoSub(chosenNoSub)
-                setPlayerVideoIdWithSub(null)
-                if (workForDetail.episodes.length > 0) {
-                  setPlayerEpisodeContext({
-                    workId: workIdForDetail,
-                    episodeIds: workForDetail.episodes.map((x) => x.id),
-                    currentIndex: workDetailPreferredEpisodeIndex,
-                  })
-                } else {
-                  setPlayerEpisodeContext(null)
-                }
-                const firstEpisodeId = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
-                if (!chosenNoSub && firstEpisodeId) {
-                  void hydratePlayerFromEpisodeId(firstEpisodeId, { workId: workIdForDetail })
-                }
-                if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                  pushWebUrl(videoPlayerToWebUrl({ workId: workIdForDetail, episodeId: firstEpisodeId }))
-                } else {
-                  goTo('videoPlayer')
-                }
-              }}
-              style={styles.heroPlayOverlay}
-            >
-              <IconPlayWhite width={44} height={44} />
-            </Pressable>
-          </View>
-
-          <View style={styles.titleBlock}>
-            {workForDetail.tags.includes('新着') ? (
-              <View style={styles.badgeNew}>
-                <Text style={styles.badgeNewText}>新着</Text>
-              </View>
-            ) : null}
-            <Text style={styles.h1}>{workForDetail.title}</Text>
-            <View style={styles.metaRow}>
-              <View style={styles.metaItem}>
-                <Text style={styles.metaTextBase}>{workReleaseYear}年</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <IconHeartYellow width={12} height={12} />
-                <Text style={styles.metaTextAccent}>{workLikeCount}</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <IconStarYellow width={12} height={12} />
-                <Text style={styles.metaTextAccent}>{workRatingAvg.toFixed(1)}（{workReviewCount}件）</Text>
-              </View>
-            </View>
-          </View>
-
-          {workReviewError ? <Text style={styles.loadNote}>評価取得に失敗しました（モック表示）</Text> : null}
-
-          <PrimaryButton
-            label="本編を再生する"
-            onPress={() => {
-              void upsertWatchHistory(watchHistoryUserKey, {
-                id: `content:${workIdForDetail}`,
-                contentId: workIdForDetail,
-                title: workForDetail.title,
-                kind: '映画',
-                durationSeconds: 25 * 60,
-                thumbnailUrl: workDetailHeroThumbnailUrl,
-                lastPlayedAt: Date.now(),
-              })
-              const preferredEpisode = workForDetail.episodes[workDetailPreferredEpisodeIndex]
-              const chosenNoSub = String(preferredEpisode?.streamVideoId || '').trim()
-              setPlayerVideoIdNoSub(chosenNoSub)
-              setPlayerVideoIdWithSub(null)
-              if (workForDetail.episodes.length > 0) {
-                setPlayerEpisodeContext({
-                  workId: workIdForDetail,
-                  episodeIds: workForDetail.episodes.map((x) => x.id),
-                  currentIndex: workDetailPreferredEpisodeIndex,
-                })
-              } else {
-                setPlayerEpisodeContext(null)
-              }
-              const firstEpisodeId = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
-              if (!chosenNoSub && firstEpisodeId) {
-                void hydratePlayerFromEpisodeId(firstEpisodeId, { workId: workIdForDetail })
-              }
-              if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                pushWebUrl(videoPlayerToWebUrl({ workId: workIdForDetail, episodeId: firstEpisodeId }))
-              } else {
-                goTo('videoPlayer')
-              }
-            }}
-          />
-
-          <View style={styles.actionsRow}>
-            <Pressable
-              style={styles.actionItem}
-              onPress={() => {
-                setCommentJustSubmitted(false)
-                setCommentTarget({
-                  workId: workIdForDetail,
-                  workTitle: workForDetail.title,
-                })
-                goTo('comment')
-              }}
-            >
-              <IconPen width={18} height={18} />
-              <Text style={styles.actionLabel}>コメントする</Text>
-            </Pressable>
-            <Pressable
-              style={styles.actionItem}
-              onPress={() => {
-                if (!requireLogin('workDetail')) return
-
-                const targetId = String(workIdForDetail || '').trim()
-                if (!targetId) return
-
-                const wasFavorite = isWorkFavorite
-                const next = !wasFavorite
-
-                setFavoriteWorkIds((prev) => {
-                  const s = new Set(prev)
-                  if (next) s.add(targetId)
-                  else s.delete(targetId)
-                  return Array.from(s)
-                })
-
-                setFavoriteToastText(next ? 'お気に入りに登録しました' : 'お気に入りから削除しました')
-                setFavoriteToastVisible(true)
-                if (favoriteToastTimer.current) clearTimeout(favoriteToastTimer.current)
-                favoriteToastTimer.current = setTimeout(() => {
-                  setFavoriteToastVisible(false)
-                }, 1600)
-
-                void (async () => {
-                  try {
-                    if (!authToken) throw new Error('auth_token_missing')
-                    const res = await apiFetch(`${apiBaseUrl}/api/favorites/videos`, {
-                      method: next ? 'POST' : 'DELETE',
-                      headers: {
-                        'content-type': 'application/json',
-                        authorization: `Bearer ${authToken}`,
-                      },
-                      body: JSON.stringify({ workIds: [targetId] }),
-                    })
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-                  } catch {
-                    setFavoriteWorkIds((prev) => {
-                      const s = new Set(prev)
-                      if (wasFavorite) s.add(targetId)
-                      else s.delete(targetId)
-                      return Array.from(s)
-                    })
-                  }
-                })()
-              }}
-            >
-              {isWorkFavorite ? <IconFavoriteOn width={18} height={18} /> : <IconFavoriteOff width={18} height={18} />}
-              <Text style={styles.actionLabel}>お気に入り</Text>
-            </Pressable>
-            <Pressable
-              style={styles.actionItem}
-              onPress={async () => {
-                const shareEpisode = workDetailPreferredEpisodeId ?? workForDetail.episodes[0]?.id
-                const shareThumb = workForDetail.thumbnailUrl ?? workForDetail.episodes[0]?.thumbnailUrl ?? null
-                const url = shareUrlForWork(workIdForDetail, shareEpisode, workForDetail.title, shareThumb)
-                const title = workForDetail.title
-                const message = `${title}\n${url}`
-
-                if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                  const nav: any = (window as any).navigator
-                  if (nav?.share) {
-                    try {
-                      await nav.share({ title, text: message, url })
-                      return
-                    } catch {
-                      // fallthrough
-                    }
-                  }
-                  window.open(url, '_blank', 'noopener,noreferrer')
-                  return
-                }
-
-                try {
-                  const ShareLib = (await import('react-native-share')).default as any
-                  await ShareLib.open({ title, message, url })
-                } catch {
-                  const { Share } = await import('react-native')
-                  await Share.share({ message, url })
-                }
-              }}
-            >
-              <IconShare width={18} height={18} />
-              <Text style={styles.actionLabel}>共有する</Text>
-            </Pressable>
-          </View>
-
-          <Text style={styles.bodyText}>{workForDetail.story || '—'}</Text>
-
-          <View style={styles.tagList}>
-            {workForDetail.tags.map((t) => (
-              <Pressable
-                key={t}
-                style={styles.tagChip}
-                onPress={() => {
-                  setVideoListTag(t)
-                  goTo('videoList')
-                }}
-              >
-                <Text style={styles.tagChipText}>{t}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.workTabsWrap}>
-            <View style={styles.workTabsRow}>
-              <Pressable style={styles.workTabItem} onPress={() => setWorkDetailTab('episodes')}>
-                <Text style={[styles.workTabText, workDetailTab === 'episodes' ? styles.workTabTextActive : null]}>エピソード</Text>
-                {workDetailTab === 'episodes' ? <View style={styles.workTabUnderline} /> : null}
-              </Pressable>
-              <Pressable style={styles.workTabItem} onPress={() => setWorkDetailTab('info')}>
-                <Text style={[styles.workTabText, workDetailTab === 'info' ? styles.workTabTextActive : null]}>作品情報</Text>
-                {workDetailTab === 'info' ? <View style={styles.workTabUnderline} /> : null}
-              </Pressable>
-            </View>
-            <View style={styles.workTabsBaseline} />
-          </View>
-
-          {workDetailTab === 'episodes' ? (
-            <View style={styles.tabContent}>
-              {workForDetail.episodes.length === 0 ? (
-                <Text style={styles.emptyText}>空です</Text>
-              ) : (
-                workForDetail.episodes.map((e) => (
-                  (() => {
-                    const episodeIds = workForDetail.episodes.map((x) => x.id)
-                    const currentIndex = episodeIds.indexOf(e.id)
-                    const durationText = `${String(2 + (currentIndex % 3)).padStart(2, '0')}:${String(21 + (currentIndex % 4)).padStart(2, '0')}`
-                    const requiredCoins = typeof (e as any).priceCoin === 'number' ? (e as any).priceCoin : 0
-                    const isMemberOnly = requiredCoins > 0
-
-                    const episodeNo = e.episodeNo == null ? null : e.episodeNo
-                    const fallbackNo = currentIndex >= 0 ? currentIndex + 1 : null
-                    const episodeLabel = episodeNo != null ? `第${String(episodeNo).padStart(2, '0')}話` : fallbackNo != null ? `第${String(fallbackNo).padStart(2, '0')}話` : null
-                    const displayTitle = (() => {
-                      const t = String(e.title || '').trim()
-                      if (!episodeLabel) return t || 'エピソード'
-                      // Avoid duplicating labels if API already includes them.
-                      if (t.includes('第') && t.includes('話')) return t
-                      return `${episodeLabel} ${t}`.trim()
-                    })()
-
-                    const episodeThumbUrl = (() => {
-                      const t = typeof e.thumbnailUrl === 'string' ? e.thumbnailUrl.trim() : ''
-                      return t || workDetailHeroThumbnailUrl
-                    })()
-
-                    return (
-                      <Pressable
-                        key={e.id}
-                        style={styles.episodeRow}
-                        onPress={() => {
-                          if (isMemberOnly) {
-                            setSubscriptionReturnTo('workDetail')
-                            setSubscriptionResume({ workId: workIdForDetail, episodeId: e.id })
-                            setSubscriptionPrompt({
-                              visible: true,
-                              workId: workIdForDetail,
-                              episodeId: e.id,
-                              workTitle: workForDetail.title,
-                              thumbnailUrl: episodeThumbUrl,
-                            })
-                            return
-                          }
-                          void upsertWatchHistory(watchHistoryUserKey, {
-                            id: `content:${workIdForDetail}:episode:${e.id}`,
-                            contentId: workIdForDetail,
-                            title: `${workForDetail.title} ${e.title}`,
-                            kind: 'エピソード',
-                            durationSeconds: 10 * 60,
-                            thumbnailUrl: episodeThumbUrl,
-                            lastPlayedAt: Date.now(),
-                          })
-                            const chosenNoSub = String((e as any).streamVideoId || '').trim()
-                          setPlayerVideoIdNoSub(chosenNoSub)
-                            setPlayerVideoIdWithSub(null)
-                          if (!chosenNoSub) {
-                            void hydratePlayerFromEpisodeId(e.id, { workId: workIdForDetail })
-                          }
-                          if (currentIndex >= 0) {
-                            setPlayerEpisodeContext({
-                              workId: workIdForDetail,
-                              episodeIds,
-                              currentIndex,
-                            })
-                          } else {
-                            setPlayerEpisodeContext(null)
-                          }
-                          if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                            pushWebUrl(videoPlayerToWebUrl({ workId: workIdForDetail, episodeId: e.id }))
-                          } else {
-                            goTo('videoPlayer')
-                          }
-                        }}
-                      >
-                        <Image
-                          source={{ uri: episodeThumbUrl }}
-                          style={styles.episodeThumb}
-                          resizeMode="cover"
-                        />
-                        <View style={styles.episodeMeta}>
-                          <Text style={styles.episodeTitle} numberOfLines={1}>
-                            {displayTitle}
-                          </Text>
-                          <Text style={styles.episodeDuration}>{durationText}</Text>
-                        </View>
-                      </Pressable>
-                    )
-                  })()
-                ))
-              )}
-
-              <SubscriptionPromptModal
-                visible={subscriptionPrompt.visible}
-                workTitle={subscriptionPrompt.workTitle}
-                thumbnailUrl={subscriptionPrompt.thumbnailUrl}
-                onClose={() => setSubscriptionPrompt({ visible: false })}
-                onStartTrial={() => {
-                  setSubscriptionPrompt({ visible: false })
-
-                  if (!loggedIn) {
-                    setSubscriptionNote('このエピソードは会員限定です。ログイン後、サブスク会員に加入すると視聴できます。')
-                    setSubscriptionReturnTo('workDetail')
-                    if (subscriptionPrompt.workId && subscriptionPrompt.episodeId) {
-                      setSubscriptionResume({ workId: subscriptionPrompt.workId, episodeId: subscriptionPrompt.episodeId })
-                    }
-                    requireLogin('subscription')
-                    return
-                  }
-
-                  if (!isSubscribed) {
-                    setSubscriptionNote('このエピソードは会員限定です。サブスク会員に加入してください。')
-                    setSubscriptionReturnTo('workDetail')
-                    if (subscriptionPrompt.workId && subscriptionPrompt.episodeId) {
-                      setSubscriptionResume({ workId: subscriptionPrompt.workId, episodeId: subscriptionPrompt.episodeId })
-                    }
-                    goTo('subscription')
-                  }
-                }}
-              />
-
-              <Text style={styles.subSectionTitle}>おすすめドラマ一覧</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recoList}>
-                {recommendedWorks.map((w) => (
-                  <Pressable key={`reco-${w.id}`} style={styles.recoCard} onPress={() => openWorkDetail(w.id)}>
-                    {(() => {
-                      const workThumb = typeof (w as any)?.thumbnailUrl === 'string' ? String((w as any).thumbnailUrl).trim() : ''
-                      if (workThumb) {
-                        return <Image source={{ uri: workThumb }} style={styles.recoThumb} resizeMode="cover" />
-                      }
-                      const epThumb = typeof (w as any)?.episodes?.[0]?.thumbnailUrl === 'string' ? String((w as any).episodes[0].thumbnailUrl).trim() : ''
-                      if (epThumb) {
-                        return <Image source={{ uri: epThumb }} style={styles.recoThumb} resizeMode="cover" />
-                      }
-                      const streamUid = String((w as any)?.episodes?.[0]?.streamVideoId || '').trim()
-                      if (/^[a-f0-9]{32}$/i.test(streamUid)) {
-                        return (
-                          <Image
-                            source={{ uri: `https://videodelivery.net/${encodeURIComponent(streamUid)}/thumbnails/thumbnail.jpg?time=1s` }}
-                            style={styles.recoThumb}
-                            resizeMode="cover"
-                          />
-                        )
-                      }
-                      return <View style={[styles.recoThumb, { backgroundColor: THEME.placeholder }]} />
-                    })()}
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          ) : (
-            <View style={styles.tabContent}>
-              <Text style={styles.subSectionTitle}>出演者</Text>
-              {workForDetail.staff.filter((s) => s.role === '出演者').map((s, idx) => (
-                <View key={`${s.role}-${idx}`} style={styles.castRow}
-                >
-                  <View style={styles.castAvatar} />
-                  <View style={styles.castInfo}>
-                    <Text style={styles.castRole}>{s.role}</Text>
-                    <Text style={styles.castName}>{s.name}</Text>
-                  </View>
-                  <View style={styles.castActions}>
-                    <Pressable
-                      style={styles.castBtn}
-                      onPress={() => {
-                        const accountId = resolveCastAccountIdByName(s.name)
-                        if (!accountId) return
-                        if (!requireLogin('coinGrant')) return
-                        setCoinGrantTarget({ id: accountId, name: s.name, roleLabel: s.role })
-                        setCoinGrantPrimaryReturnTo('workDetail')
-                        setCoinGrantPrimaryLabel('作品詳細へ戻る')
-                        goTo('coinGrant')
-                      }}
-                    >
-                      <Text style={styles.castBtnText}>推しポイント付与</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.castBtn}
-                      onPress={() => {
-                        if (!requireLogin('profile')) return
-                        setSelectedCast({
-                          id: `cast:${s.name}`,
-                          name: s.name,
-                          roleLabel: s.role,
-                        })
-                        goTo('profile')
-                      }}
-                    >
-                      <Text style={styles.castBtnText}>詳しく</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ))}
-
-              <Text style={styles.subSectionTitle}>スタッフ</Text>
-              {workForDetail.staff
-                .filter((s) => s.role !== '出演者' && !s.role.includes('制作プロダクション') && !s.role.includes('提供'))
-                .map((s, idx) => (
-                  <View key={`${s.role}-${idx}`} style={styles.castRow}
-                  >
-                    <View style={styles.castAvatar} />
-                    <View style={styles.castInfo}>
-                      <Text style={styles.castRole}>{s.role}</Text>
-                      <Text style={styles.castName}>{s.name}</Text>
-                    </View>
-                    <View style={styles.castActions}>
-                      <Pressable style={styles.castBtn}>
-                        <Text style={styles.castBtnText}>推しポイント付与</Text>
-                      </Pressable>
-                      <Pressable style={styles.castBtn}>
-                        <Text style={styles.castBtnText}>詳しく</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ))}
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>制作プロダクション</Text>
-                <Text style={styles.infoValue}>{productionLabel}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>提供元</Text>
-                <Text style={styles.infoValue}>{providerLabel}</Text>
-              </View>
-
-              <PrimaryButton
-                label="出演者・スタッフを探す"
-                onPress={() => {
-                  if (!requireLogin('cast')) return
-                  goTo('cast')
-                }}
-              />
-            </View>
-          )}
-
-          <View style={styles.commentsSection}>
-            <Text style={styles.sectionTitle}>コメント（{(commentsError ? mockApprovedComments : approvedComments).length}件）</Text>
-            <View style={styles.commentsBox}>
-              {commentsBusy ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator />
-                </View>
-              ) : null}
-
-              {commentsError ? <Text style={styles.loadNote}>取得に失敗しました（モック表示）</Text> : null}
-
-              {(commentsExpanded
-                ? (commentsError ? mockApprovedComments : approvedComments)
-                : (commentsError ? mockApprovedComments : approvedComments).slice(0, 5)
-              ).map((c) => (
-                <View key={c.id} style={styles.commentItem}>
-                  <Text style={styles.commentAuthor} numberOfLines={1} ellipsizeMode="tail">
-                    {c.author}  ★{commentStarRating(c)}
-                  </Text>
-                  <Text style={styles.commentBody}>{truncateCommentBody(c.body)}</Text>
-                </View>
-              ))}
-
-              {!commentsExpanded && (commentsError ? mockApprovedComments : approvedComments).length > 5 ? (
-                <Pressable style={styles.moreRow} onPress={() => setCommentsExpanded(true)}>
-                  <Text style={styles.moreLink}>さらに表示</Text>
-                  <IconDown width={14} height={14} />
-                </Pressable>
-              ) : null}
-            </View>
-
-            <Text style={styles.subSectionTitle}>コメント投稿</Text>
-            <View style={styles.commentCtaWrap}>
-              <View style={styles.commentRatingRow}>
-                {Array.from({ length: 5 }).map((_, idx) => {
-                  const active = idx < commentRating
-                  return (
-                    <Pressable key={`rating-${idx}`} onPress={() => setCommentRating(idx + 1)}>
-                      {active ? <IconStarYellow width={18} height={18} /> : <IconStarEmpty width={18} height={18} />}
-                    </Pressable>
-                  )
-                })}
-              </View>
-              <TextInput
-                value={commentDraft}
-                onChangeText={setCommentDraft}
-                placeholder="コメントを書く"
-                placeholderTextColor={THEME.textMuted}
-                style={styles.commentInput}
-                multiline
-              />
-              <PrimaryButton
-                label="コメントを投稿する"
-                onPress={async () => {
-                  const trimmed = commentDraft.trim()
-                  if (!trimmed) return
-                  setCommentJustSubmitted(false)
-                  try {
-                    const safeAuthor = (userProfile.displayName || '').trim().slice(0, 50) || '匿名'
-                    const res = await apiFetch(`${apiBaseUrl}/v1/comments`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ contentId: workIdForDetail, episodeId: '', author: safeAuthor, body: trimmed, rating: commentRating }),
-                    })
-                    if (!res.ok) {
-                      const msg = await res.text().catch(() => '')
-                      throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
-                    }
-                    setCommentDraft('')
-                    setCommentRating(0)
-                    setCommentJustSubmitted(true)
-                  } catch {
-                    setCommentJustSubmitted(true)
-                  }
-                }}
-              />
-            </View>
-
-            {commentJustSubmitted ? (
-              <Text style={styles.commentNotice}>
-                ※ コメントは管理者の確認後に公開されます。{`\n`}反映までお時間がかかる場合があります。
-              </Text>
-            ) : null}
-          </View>
-
-          {favoriteToastVisible ? (
-            <View style={styles.favoriteToastWrap} pointerEvents="none">
-              <View style={styles.favoriteToast}>
-                <Text style={styles.favoriteToastText}>{favoriteToastText}</Text>
-              </View>
-            </View>
-          ) : null}
-
-            </>
-          )}
-        </ScreenContainer>
+          onGoHome={() => goTo('home')}
+          onOpenNotice={() => goTo('notice')}
+          onOpenSearch={() => switchTab('search')}
+          onPressTab={(tabKey) => switchTab(tabKey as any)}
+          onPlayMain={onWorkDetailPlayMain}
+          onPressComment={onWorkDetailPressComment}
+          shareWork={onWorkDetailShare}
+          videoListTagSetter={setVideoListTag}
+          onGoVideoList={() => goTo('videoList')}
+          workDetailTab={workDetailTab}
+          onChangeWorkDetailTab={setWorkDetailTab}
+          recommendedWorks={recommendedWorks}
+          openWorkDetail={openWorkDetail}
+          subscriptionPrompt={subscriptionPrompt}
+          onCloseSubscriptionPrompt={() => setSubscriptionPrompt({ visible: false })}
+          onStartTrialFromPrompt={onWorkDetailStartTrialFromPrompt}
+          onPressEpisode={onWorkDetailPressEpisode}
+          productionLabel={productionLabel}
+          providerLabel={providerLabel}
+          resolveCastAccountIdByName={resolveCastAccountIdByName}
+          requireLogin={(screenKey) => requireLogin(screenKey as any)}
+          onGoCoinGrantForCast={onWorkDetailGoCoinGrantForCast}
+          onOpenProfileForStaff={onWorkDetailOpenProfileForStaff}
+          commentsBusy={commentsBusy}
+          commentsError={Boolean(commentsError)}
+          commentsExpanded={commentsExpanded}
+          onExpandComments={() => setCommentsExpanded(true)}
+          approvedComments={approvedComments}
+          mockApprovedComments={mockApprovedComments}
+          commentStarRating={commentStarRating}
+          truncateCommentBody={truncateCommentBody}
+          commentRating={commentRating}
+          onChangeCommentRating={(rating) => setCommentRating(rating)}
+          commentDraft={commentDraft}
+          onChangeCommentDraft={setCommentDraft}
+          onSubmitInlineComment={onWorkDetailSubmitInlineComment}
+          commentJustSubmitted={commentJustSubmitted}
+          favoriteToastVisible={favoriteToastVisible}
+          favoriteToastText={favoriteToastText}
+        />
       ) : null}
 
       {screen === 'comment' && commentTarget ? (
@@ -4344,74 +3796,36 @@ export default function App() {
           onBack={goBack}
           workId={commentTarget.workId}
           workTitle={commentTarget.workTitle}
-          onSubmitted={async ({ workId, body }) => {
-            const trimmed = body.trim()
-            if (!trimmed) throw new Error('コメントを入力してください')
-
-            const safeAuthor = (userProfile.displayName || '').trim().slice(0, 50) || '匿名'
-            const res = await apiFetch(`${apiBaseUrl}/v1/comments`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ contentId: workId, episodeId: '', author: safeAuthor, body: trimmed }),
-            })
-            if (!res.ok) {
-              const msg = await res.text().catch(() => '')
-              throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
-            }
-          }}
-          onDone={() => {
-            setCommentJustSubmitted(true)
-            goTo('workDetail')
-          }}
+          onSubmitted={onCommentPostSubmitted}
+          onDone={onCommentPostDone}
         />
       ) : null}
 
       {screen === 'comment' && !commentTarget ? (
-        <ScreenContainer title="コメント" onBack={goBack}>
-          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24, alignItems: 'center' }}>
-            <View style={{ width: '100%', maxWidth: 420 }}>
-              <Text style={styles.centerText}>対象の作品が未選択です。{`\n`}作品詳細から「コメントを書く」を開いてください。</Text>
-              <View style={{ height: 16 }} />
-              <View style={{ width: '100%' }}>
-                <SecondaryButton label="Developer" onPress={() => goTo('dev')} />
-                <View style={{ height: 10 }} />
-                <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
-              </View>
-            </View>
-          </View>
-        </ScreenContainer>
+        <CommentMissingTargetScreen
+          styles={styles}
+          onBack={goBack}
+          onGoDev={() => goTo('dev')}
+          onGoHome={() => goTo('home')}
+        />
       ) : null}
 
       {screen === 'workReview' && workReviewTarget ? (
         <WorkReviewScreen
           onBack={goBack}
           work={workReviewTarget}
-          onSubmit={async ({ contentId, rating, comment }) => {
-            const res = await apiFetch(`${apiBaseUrl}/v1/reviews/work`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ contentId, rating, comment }),
-            })
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            void fetchWorkReviewSummary(contentId)
-          }}
-          onDone={() => {
-            goTo('workDetail')
-          }}
+          onSubmit={onWorkReviewSubmit}
+          onDone={onWorkReviewDone}
         />
       ) : null}
 
       {screen === 'workReview' && !workReviewTarget ? (
-        <ScreenContainer title="評価" onBack={goBack}>
-          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24 }}>
-            <Text style={styles.centerText}>対象の作品が未選択です。{`\n`}作品詳細から「☆」を押して開いてください。</Text>
-            <View style={{ height: 12 }} />
-            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
-              <SecondaryButton label="Developer" onPress={() => goTo('dev')} />
-              <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
-            </View>
-          </View>
-        </ScreenContainer>
+        <WorkReviewMissingTargetScreen
+          styles={styles}
+          onBack={goBack}
+          onGoDev={() => goTo('dev')}
+          onGoHome={() => goTo('home')}
+        />
       ) : null}
 
       {screen === 'coinPurchase' ? (
@@ -4419,51 +3833,7 @@ export default function App() {
           apiBaseUrl={apiBaseUrl}
           ownedCoins={ownedCoins}
           onBack={goBack}
-          onStartCheckout={async ({ packId }) => {
-            // NOTE: APIが整備されるまでは「購入開始→即時付与」のモック。
-            // 将来的には /api/stripe/checkout/coin-pack を呼び出し、決済完了Webhook後に残高再取得する。
-            const tryCheckout = async () => {
-              const res = await apiFetch(`${apiBaseUrl}/api/stripe/checkout/coin-pack`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ packId }),
-              })
-              if (!res.ok) throw new Error('checkout failed')
-              const json = (await res.json().catch(() => null)) as any
-              const checkoutUrl = typeof json?.checkoutUrl === 'string' ? json.checkoutUrl : ''
-              if (checkoutUrl) {
-                if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                  window.location.href = checkoutUrl
-                } else {
-                  await Linking.openURL(checkoutUrl)
-                }
-              }
-            }
-
-            // attempt real API first; if unavailable, fall back to mock
-            try {
-              await tryCheckout()
-            } catch {
-              // ignore and proceed with mock
-            }
-
-            const packToCoins: Record<string, number> = {
-              p100: 100,
-              p300: 300,
-              p500: 500,
-            }
-            const added = Number.isFinite(packToCoins[packId]) ? packToCoins[packId] : 100
-            await new Promise((r) => setTimeout(r, 400))
-            setCoinGrantReasonLabel('コイン購入')
-            setCoinGrantAmount(added)
-            setCoinGrantAt(Date.now())
-            setOwnedCoins((v) => {
-              const next = v + added
-              setCoinGrantBalanceAfter(next)
-              return next
-            })
-            goTo('coinGrantComplete')
-          }}
+          onStartCheckout={onCoinPurchaseStartCheckout}
         />
       ) : null}
 
@@ -4472,20 +3842,7 @@ export default function App() {
           targetLabel={`${coinGrantTarget.roleLabel ? `${coinGrantTarget.roleLabel}：` : ''}${coinGrantTarget.name}`}
           ownedCoins={ownedCoins}
           onBack={goBack}
-          onGrant={async (amount) => {
-            if (!Number.isFinite(amount) || amount <= 0) throw new Error('付与数を入力してください')
-            if (amount > ownedCoins) throw new Error('コインが不足しています')
-            await new Promise((r) => setTimeout(r, 350))
-            setCoinGrantReasonLabel('推しポイント付与')
-            setCoinGrantAmount(amount)
-            setCoinGrantAt(Date.now())
-            setOwnedCoins((v) => {
-              const next = Math.max(0, v - amount)
-              setCoinGrantBalanceAfter(next)
-              return next
-            })
-            goTo('coinGrantComplete')
-          }}
+          onGrant={onCoinGrant}
         />
       ) : null}
 
@@ -4495,39 +3852,20 @@ export default function App() {
           reasonLabel={coinGrantReasonLabel}
           grantedAt={coinGrantAt}
           balanceAfter={coinGrantBalanceAfter}
-          primaryAction={{
-            label: coinGrantPrimaryLabel,
-            onPress: () => {
-              goTo(coinGrantPrimaryReturnTo)
-            },
-          }}
+          primaryAction={coinGrantCompletePrimaryAction}
           showMyPageAction={coinGrantPrimaryReturnTo !== 'mypage'}
-          onGoMyPage={() => {
-            setHistory([])
-            setScreen('mypage')
-          }}
+          onGoMyPage={onCoinGrantCompleteGoMyPage}
         />
       ) : null}
 
       {screen === 'videoPlayer' ? (
         !String(playerVideoIdNoSub || '').trim() && !String(playerVideoIdWithSub || '').trim() ? (
-          <ScreenContainer title="再生" onBack={goBack}>
-            <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 24 }}>
-              {playerHydrating ? (
-                <>
-                  <ActivityIndicator />
-                  <View style={{ height: 12 }} />
-                  <Text style={styles.centerText}>動画情報を取得中です…</Text>
-                </>
-              ) : (
-                <Text style={styles.centerText}>動画が未指定です。{`\n`}作品詳細から再生してください。</Text>
-              )}
-              <View style={{ height: 12 }} />
-              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
-                <PrimaryButton label="ホームへ" onPress={() => goTo('home')} />
-              </View>
-            </View>
-          </ScreenContainer>
+          <VideoPlayerMissingTargetScreen
+            styles={styles}
+            hydrating={playerHydrating}
+            onBack={goBack}
+            onGoHome={() => goTo('home')}
+          />
         ) : (
         <VideoPlayerScreen
           apiBaseUrl={apiBaseUrl}
@@ -4535,69 +3873,13 @@ export default function App() {
           videoIdNoSub={playerVideoIdNoSub}
           videoIdWithSub={playerVideoIdWithSub}
           onBack={goBack}
-          currentEpisodeTitle={(() => {
-            if (!playerEpisodeContext) return null
-            if (playerEpisodeContext.workId !== workIdForDetail) return null
-            const currentIndex = playerEpisodeContext.currentIndex
-            if (currentIndex < 0 || currentIndex >= workForDetail.episodes.length) return null
-            const ep = workForDetail.episodes[currentIndex]
-            if (!ep) return null
-            const episodeNo = ep.episodeNo == null ? null : ep.episodeNo
-            const label = episodeNo != null ? `第${String(episodeNo).padStart(2, '0')}話` : `第${String(currentIndex + 1).padStart(2, '0')}話`
-            const t = String(ep.title || '').trim()
-            return t.includes('第') && t.includes('話') ? t : `${label} ${t}`.trim()
-          })()}
-          nextEpisodeTitle={(() => {
-            if (!playerEpisodeContext) return null
-            if (playerEpisodeContext.workId !== workIdForDetail) return null
-            const nextIndex = playerEpisodeContext.currentIndex + 1
-            if (nextIndex < 0 || nextIndex >= workForDetail.episodes.length) return null
-            const ep = workForDetail.episodes[nextIndex]
-            if (!ep) return null
-            const episodeNo = ep.episodeNo == null ? null : ep.episodeNo
-            const label = episodeNo != null ? `第${String(episodeNo).padStart(2, '0')}話` : `第${String(nextIndex + 1).padStart(2, '0')}話`
-            const t = String(ep.title || '').trim()
-            return t.includes('第') && t.includes('話') ? t : `${label} ${t}`.trim()
-          })()}
-          nextEpisodeThumbnailUrl={(() => {
-            if (!playerEpisodeContext) return null
-            const nextIndex = playerEpisodeContext.currentIndex + 1
-            if (!Number.isFinite(nextIndex)) return null
-            if (nextIndex < 0) return null
-            if (playerEpisodeContext.workId !== workIdForDetail) return null
-            if (nextIndex >= workForDetail.episodes.length) return null
-            const ep = workForDetail.episodes[nextIndex]
-            const t = typeof ep?.thumbnailUrl === 'string' ? ep.thumbnailUrl.trim() : ''
-            return t || workDetailHeroThumbnailUrl
-          })()}
-          onPrevEpisode={
-            playerEpisodeContext
-              ? () => {
-                  const nextIndex = playerEpisodeContext.currentIndex - 1
-                  if (nextIndex < 0) return
-                  setPlayerEpisodeContext((prev) => (prev ? { ...prev, currentIndex: nextIndex } : prev))
-                  const nextEpisodeId = String(playerEpisodeContext.episodeIds?.[nextIndex] ?? '').trim()
-                  if (nextEpisodeId) void hydratePlayerFromEpisodeId(nextEpisodeId, { workId: playerEpisodeContext.workId })
-                }
-              : undefined
-          }
-          onNextEpisode={
-            playerEpisodeContext
-              ? () => {
-                  const nextIndex = playerEpisodeContext.currentIndex + 1
-                  if (nextIndex >= playerEpisodeContext.episodeIds.length) return
-                  setPlayerEpisodeContext((prev) => (prev ? { ...prev, currentIndex: nextIndex } : prev))
-                  const nextEpisodeId = String(playerEpisodeContext.episodeIds?.[nextIndex] ?? '').trim()
-                  if (nextEpisodeId) void hydratePlayerFromEpisodeId(nextEpisodeId, { workId: playerEpisodeContext.workId })
-                }
-              : undefined
-          }
-          canPrevEpisode={playerEpisodeContext ? playerEpisodeContext.currentIndex > 0 : undefined}
-          canNextEpisode={
-            playerEpisodeContext
-              ? playerEpisodeContext.currentIndex < playerEpisodeContext.episodeIds.length - 1
-              : undefined
-          }
+          currentEpisodeTitle={playerCurrentEpisodeTitle}
+          nextEpisodeTitle={playerNextEpisodeTitle}
+          nextEpisodeThumbnailUrl={playerNextEpisodeThumbnailUrl}
+          onPrevEpisode={playerEpisodeContext ? onPlayerPrevEpisode : undefined}
+          onNextEpisode={playerEpisodeContext ? onPlayerNextEpisode : undefined}
+          canPrevEpisode={playerCanPrevEpisode}
+          canNextEpisode={playerCanNextEpisode}
         />
         )
       ) : null}
@@ -4610,41 +3892,7 @@ export default function App() {
       {screen === 'splash' ? (
         <SplashScreen
           maxDurationMs={2200}
-          onDone={() => {
-            void (async () => {
-              try {
-                const [token, tutorialSeen] = await Promise.all([
-                  getString(AUTH_TOKEN_KEY),
-                  getBoolean(TUTORIAL_SEEN_KEY),
-                ])
-
-                if (token) {
-                  setAuthToken(token)
-                  setLoggedIn(true)
-                  setHistory([])
-                  setScreen('home')
-                  return
-                }
-
-                // Web版は初回導線でもチュートリアルへ自動遷移しない（トップ表示の安定化）。
-                if (Platform.OS === 'web') {
-                  goTo('welcome')
-                  return
-                }
-
-                if (!tutorialSeen) {
-                  setTutorialIndex(0)
-                  goTo('tutorial')
-                  return
-                }
-
-                goTo('welcome')
-              } catch {
-                // Fallback: keep current behavior.
-                goTo('welcome')
-              }
-            })()
-          }}
+          onDone={onSplashDone}
         />
       ) : null}
     </View>

@@ -93,7 +93,7 @@ export function SelectField({
   )
 }
 
-type MultiSelectOption = { label: string; value: string; detail?: string }
+export type MultiSelectOption = { label: string; value: string; detail?: string }
 
 export function MultiSelectField({
   label,
