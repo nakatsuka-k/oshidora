@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
 import { styles } from '../../app/styles'
+import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 
 export function SettingsScreen() {
   const cfg = useCmsApi()
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [maintenanceMessage, setMaintenanceMessage] = useState('')
@@ -56,12 +57,6 @@ export function SettingsScreen() {
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>設定</Text>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>メンテナンス</Text>

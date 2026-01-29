@@ -1,3 +1,4 @@
+import { ToastProvider } from './src/lib/toast'
 import { StatusBar } from 'expo-status-bar'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
@@ -570,18 +571,51 @@ function getRouteFromLocation(): RouteId {
   return getRouteFromPathname() ?? getRouteFromHash()
 }
 
-function setHashRoute(route: RouteId): void {
+function normalizeLegacyHashToPath(): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return
-  const next = route === 'login' ? '#/login' : `#/${route}`
-  if (window.location.hash === next) return
-  window.location.hash = next
+
+  const hash = String(window.location.hash || '').trim()
+  if (!hash || hash === '#') return
+  if (!hash.startsWith('#/')) return
+
+  const withoutHash = hash.replace(/^#\//, '')
+  const qIndex = withoutHash.indexOf('?')
+  const hashQuery = qIndex >= 0 ? withoutHash.slice(qIndex + 1) : ''
+  const pathPart = (qIndex >= 0 ? withoutHash.slice(0, qIndex) : withoutHash).split('#')[0]
+  const first = String(pathPart.split('/')[0] || '').trim()
+  if (!first) return
+
+  let nextSearch = window.location.search
+  if (hashQuery) {
+    try {
+      const merged = new URLSearchParams(window.location.search)
+      const fromHash = new URLSearchParams(hashQuery)
+      for (const [k, v] of fromHash.entries()) merged.set(k, v)
+      const s = merged.toString()
+      nextSearch = s ? `?${s}` : ''
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    window.history.replaceState({}, '', `/${first.toLowerCase()}` + nextSearch)
+  } catch {
+    // ignore
+  }
+
+  try {
+    window.location.hash = ''
+  } catch {
+    // ignore
+  }
 }
 
 function setPathRoute(route: RouteId): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return
   const nextPath = route === 'login' ? '/login' : route === 'dashboard' ? '/dashboard' : `/${route}`
   if (window.location.pathname === nextPath) return
-  window.history.pushState({}, '', nextPath + window.location.search + window.location.hash)
+  window.history.pushState({}, '', nextPath + window.location.search)
 }
 
 function getApiBaseFromLocation(): string {
@@ -593,6 +627,9 @@ function getApiBaseFromLocation(): string {
   const url = new URL(window.location.href)
   const q = String(url.searchParams.get('api') || '').trim()
   if (q) return q.replace(/\/$/, '')
+
+  const envBase = String((process as any)?.env?.EXPO_PUBLIC_API_BASE_URL || '').trim()
+  if (envBase) return envBase.replace(/\/$/, '')
 
   return 'https://api.oshidra.com'
 }
@@ -606,6 +643,9 @@ function getUploaderBaseFromLocation(): string {
   const url = new URL(window.location.href)
   const q = String(url.searchParams.get('uploader') || '').trim()
   if (q) return q.replace(/\/$/, '')
+
+  const envBase = String((process as any)?.env?.EXPO_PUBLIC_UPLOADER_BASE_URL || '').trim()
+  if (envBase) return envBase.replace(/\/$/, '')
 
   return 'https://assets-uploader.oshidra.com'
 }
@@ -3873,6 +3913,7 @@ export default function App() {
     const savedEmail = safeLocalStorageGet(STORAGE_EMAIL_KEY)
     const savedDevMode = safeLocalStorageGet(STORAGE_DEV_MODE_KEY)
     const savedMock = safeLocalStorageGet(STORAGE_MOCK_KEY)
+    normalizeLegacyHashToPath()
     const initialRoute = getRouteFromLocation()
 
     if (savedDevMode === '1') setDevMode(true)
@@ -3888,14 +3929,12 @@ export default function App() {
       const initial = initialRoute === 'login' ? 'dashboard' : initialRoute
       setRoute(initial)
       setPathRoute(initial)
-      if (initialRoute === 'login') setHashRoute('dashboard')
     } else {
       const allowUnauthed = initialRoute === 'login' || initialRoute === 'dev' || initialRoute === 'password-reset'
       const initial = allowUnauthed ? initialRoute : 'login'
       setRoute(initial)
       setScreen(initial === 'login' ? 'login' : 'app')
       setPathRoute(initial)
-      setHashRoute(initial)
     }
   }, [])
 
@@ -3903,6 +3942,7 @@ export default function App() {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return
 
     const syncRoute = () => {
+      normalizeLegacyHashToPath()
       const next = getRouteFromLocation()
 
       const allowUnauthed = next === 'login' || next === 'dev' || next === 'password-reset'
@@ -3911,7 +3951,6 @@ export default function App() {
         setRoute('login')
         setScreen('login')
         setPathRoute('login')
-        setHashRoute('login')
         return
       }
 
@@ -3919,7 +3958,6 @@ export default function App() {
         setRoute('dashboard')
         setScreen('app')
         setPathRoute('dashboard')
-        setHashRoute('dashboard')
         return
       }
 
@@ -3947,7 +3985,6 @@ export default function App() {
     setScreen('app')
     setRoute('dashboard')
     setPathRoute('dashboard')
-    setHashRoute('dashboard')
   }, [])
 
   const onLogout = useCallback(() => {
@@ -3959,7 +3996,6 @@ export default function App() {
     setScreen('login')
     setLoginBanner('')
     setPathRoute('login')
-    setHashRoute('login')
   }, [])
 
   const onSessionExpired = useCallback(() => {
@@ -3983,12 +4019,10 @@ export default function App() {
       setRoute('login')
       setScreen('login')
       setPathRoute('login')
-      setHashRoute('login')
       return
     }
     setRoute(next)
     setPathRoute(next)
-    setHashRoute(next)
     setScreen(next === 'login' || next === 'password-reset' ? 'login' : 'app')
   }, [token])
 
@@ -4133,6 +4167,7 @@ export default function App() {
   }, [debugOverlayPan])
 
   return (
+    <ToastProvider>
     <View style={styles.appRoot}>
       {screen === 'login' ? (
         route === 'password-reset' ? (
@@ -4189,53 +4224,9 @@ export default function App() {
         )
       ) : null}
 
-      <View pointerEvents="box-none" style={styles.debugOverlayWrap}>
-        {devMode && debugOverlayHidden ? (
-          <Pressable onPress={() => setDebugOverlayHidden(false)} style={styles.debugOverlayReopen}>
-            <Text style={styles.debugOverlayReopenText}>DEBUG</Text>
-          </Pressable>
-        ) : null}
-
-        {devMode && !debugOverlayHidden ? (
-          <Animated.View style={[styles.debugOverlayCard, { transform: debugOverlayPan.getTranslateTransform() }]}>
-            <View style={styles.debugOverlayHeader}>
-              <View
-                style={[
-                  styles.debugOverlayHeaderDragArea,
-                  Platform.OS === 'web'
-                    ? (({
-                        cursor: debugOverlayWebDragRef.current.active ? 'grabbing' : 'grab',
-                        userSelect: 'none',
-                        touchAction: 'none',
-                      } as unknown) as any)
-                    : null,
-                ]}
-                {...(Platform.OS === 'web' && debugOverlayWebDragHandlers
-                  ? debugOverlayWebDragHandlers
-                  : debugOverlayPanResponder.panHandlers)}
-              >
-                <Text style={styles.debugOverlayHeaderText}>DEBUG</Text>
-                <Text style={styles.debugOverlayHeaderHint}>ドラッグ可</Text>
-              </View>
-
-              <Pressable onPress={() => setDebugOverlayHidden(true)} style={styles.debugOverlayClose}>
-                <Text style={styles.debugOverlayCloseText}>×</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.debugOverlayRow}>
-              <Text style={styles.debugOverlayLabel}>MOCK</Text>
-              <Switch value={mockMode} onValueChange={onSetMockMode} />
-            </View>
-
-            <View style={styles.debugOverlayRow}>
-            </View>
-          </Animated.View>
-        ) : null}
-      </View>
-
       <StatusBar style="auto" />
-    </View>
+      </View>
+    </ToastProvider>
   )
 }
 

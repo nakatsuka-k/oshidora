@@ -1,12 +1,15 @@
-import { StyleSheet } from 'react-native'
+import { Platform, StyleSheet } from 'react-native'
 
 export const COLORS = {
   bg: '#f3f4f6',
-  sidebarBg: '#e5e7eb',
+  sidebarBg: '#f9fafb',
   text: '#111827',
   muted: '#6b7280',
   border: '#d1d5db',
   white: '#ffffff',
+  primary: '#2563eb',
+  primarySoft: '#eff6ff',
+  danger: '#dc2626',
 }
 
 export const LOGIN_COLORS = {
@@ -38,6 +41,7 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    ...(Platform.OS === 'web' ? ({ position: 'sticky', top: 0, zIndex: 10 } as any) : null),
   },
   headerLogo: {
     color: COLORS.text,
@@ -64,6 +68,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   logoutBtnText: {
     color: COLORS.text,
@@ -77,7 +82,7 @@ export const styles = StyleSheet.create({
   },
 
   sidebar: {
-    width: 260,
+    width: 280,
     borderRightWidth: 1,
     borderRightColor: COLORS.border,
     backgroundColor: COLORS.sidebarBg,
@@ -102,9 +107,10 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   sidebarItemActive: {
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.primarySoft,
   },
   sidebarItemLabel: {
     color: COLORS.text,
@@ -113,6 +119,7 @@ export const styles = StyleSheet.create({
   },
   sidebarItemLabelActive: {
     fontWeight: '900',
+    color: COLORS.primary,
   },
   sidebarItemIndent: {
     paddingLeft: 28,
@@ -280,6 +287,7 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   btnSecondaryText: {
     color: COLORS.text,
@@ -297,6 +305,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   selectText: {
     color: COLORS.text,
@@ -373,6 +382,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   dialogBtnText: {
     color: COLORS.text,
@@ -380,12 +390,12 @@ export const styles = StyleSheet.create({
     fontWeight: '900',
   },
   dialogBtnOk: {
-    backgroundColor: COLORS.text,
-    borderColor: COLORS.text,
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
   dialogBtnDanger: {
-    backgroundColor: '#ef4444',
-    borderColor: '#ef4444',
+    backgroundColor: COLORS.danger,
+    borderColor: COLORS.danger,
   },
   dialogBtnOkText: {
     color: COLORS.white,
@@ -466,7 +476,8 @@ export const styles = StyleSheet.create({
     borderTopColor: COLORS.border,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   pickerModalDoneText: {
     color: COLORS.white,
@@ -549,6 +560,7 @@ export const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
     backgroundColor: COLORS.white,
+    minHeight: 52,
   },
   tableRowInner: {
     flex: 1,
@@ -607,6 +619,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   smallBtnText: {
     color: COLORS.text,
@@ -617,7 +630,8 @@ export const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   smallBtnPrimaryText: {
     color: COLORS.white,
@@ -629,9 +643,10 @@ export const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
     borderWidth: 1,
-    borderColor: COLORS.text,
+    borderColor: COLORS.primary,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   btnPrimaryText: {
     color: COLORS.white,
@@ -666,12 +681,15 @@ export const styles = StyleSheet.create({
 
   contentScroll: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.bg,
   },
   contentInner: {
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    gap: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    gap: 16,
+    width: '100%',
+    maxWidth: 1200,
+    alignSelf: 'center',
   },
   pageHeaderRow: {
     flexDirection: 'row',
@@ -681,8 +699,9 @@ export const styles = StyleSheet.create({
   },
   pageTitle: {
     color: COLORS.text,
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
+    lineHeight: 28,
   },
   section: {
     borderWidth: 1,
@@ -691,10 +710,15 @@ export const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: COLORS.white,
     gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
   },
   sectionTitle: {
     color: COLORS.text,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '900',
   },
 
@@ -702,7 +726,7 @@ export const styles = StyleSheet.create({
     marginTop: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#f9fafb',
+    backgroundColor: COLORS.primarySoft,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -719,6 +743,7 @@ export const styles = StyleSheet.create({
     color: COLORS.muted,
     fontSize: 12,
     fontWeight: '800',
+    lineHeight: 16,
   },
   input: {
     borderWidth: 1,

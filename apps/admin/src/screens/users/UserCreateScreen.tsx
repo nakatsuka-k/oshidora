@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 import { isValidEmail } from '../../lib/validation'
 import { styles } from '../../ui/styles'
@@ -18,7 +19,7 @@ export function UserCreateScreen({
   const [password, setPassword] = useState('')
   const [emailVerified, setEmailVerified] = useState(false)
   const [smsAuthSkip, setSmsAuthSkip] = useState(false)
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const onSubmit = useCallback(() => {
@@ -66,12 +67,6 @@ export function UserCreateScreen({
         </Pressable>
         <Text style={styles.pageTitle}>ユーザー新規作成</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>入力</Text>

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Image, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { useBanner } from '../../lib/banner'
+
 type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
@@ -49,7 +51,7 @@ export function UnapprovedActorAccountsListScreen({
   onOpenDetail: (id: string) => void
 }) {
   const [rows, setRows] = useState<UnapprovedActorAccountRow[]>([])
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -90,12 +92,6 @@ export function UnapprovedActorAccountsListScreen({
       <View style={styles.pageHeaderRow}>
         <Text style={styles.pageTitle}>未承認俳優アカウント一覧</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
@@ -142,7 +138,7 @@ export function UnapprovedActorAccountDetailScreen({
   id: string
   onBack: () => void
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [item, setItem] = useState<null | { id: string; name: string; email: string; submittedAt: string; draft: any }>(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -229,12 +225,6 @@ export function UnapprovedActorAccountDetailScreen({
         <Text style={styles.pageTitle}>俳優アカウント詳細</Text>
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>申請情報</Text>
         <View style={styles.field}>
@@ -295,7 +285,7 @@ export function UnapprovedVideosListScreen({
   onOpenDetail: (id: string) => void
 }) {
   const [rows, setRows] = useState<UnapprovedVideoRow[]>([])
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -336,12 +326,6 @@ export function UnapprovedVideosListScreen({
       <View style={styles.pageHeaderRow}>
         <Text style={styles.pageTitle}>未承認動画一覧</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
@@ -388,7 +372,7 @@ export function UnapprovedVideoDetailScreen({
   id: string
   onBack: () => void
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [item, setItem] = useState<
     | null
@@ -489,12 +473,6 @@ export function UnapprovedVideoDetailScreen({
         <Text style={styles.pageTitle}>未承認動画 詳細</Text>
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>動画情報</Text>
         <View style={styles.field}>
@@ -569,7 +547,7 @@ export function ScheduledVideosListScreen({
   styles: any
   onOpenDetail: (id: string) => void
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<ScheduledVideoRow[]>([])
 
@@ -608,12 +586,6 @@ export function ScheduledVideosListScreen({
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>配信予定動画一覧</Text>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
@@ -658,7 +630,7 @@ export function ScheduledVideoDetailScreen({
   const [scheduledAt, setScheduledAt] = useState('')
   const [canceled, setCanceled] = useState(false)
   const [title, setTitle] = useState('')
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -715,12 +687,6 @@ export function ScheduledVideoDetailScreen({
         </Pressable>
         <Text style={styles.pageTitle}>配信予定動画 詳細・編集</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>表示/編集</Text>

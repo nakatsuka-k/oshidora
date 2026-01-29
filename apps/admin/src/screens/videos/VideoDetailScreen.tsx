@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
+import { Image, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
 import { MultiSelectField, type MultiSelectOption } from '../../app/components/MultiSelectField'
 import { SelectField } from '../../app/components/SelectField'
 import { styles } from '../../app/styles'
 import type { CmsApiConfig } from '../../lib/cmsApi'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
+import { useBanner } from '../../lib/banner'
 import { csvToIdList } from '../../lib/validation'
+import { FixedBottomBar } from '../../ui/FixedBottomBar'
 import { StreamCaptionsPanel } from './StreamCaptionsPanel'
 
 export function VideoDetailScreen({
@@ -37,7 +39,7 @@ export function VideoDetailScreen({
   const [reviewCount, setReviewCount] = useState(0)
   const [playsCount, setPlaysCount] = useState(0)
   const [commentsCount, setCommentsCount] = useState(0)
-  const [banner, setBanner] = useState('')
+  const [banner, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const [recommendations, setRecommendations] = useState<
@@ -86,28 +88,28 @@ export function VideoDetailScreen({
           (catsJson.items ?? []).map((c) => ({
             value: String(c.id ?? ''),
             label: String(c.name ?? '') || String(c.id ?? ''),
-            detail: `${String(c.id ?? '')}${c.enabled === false ? ' / 無効' : ''}`,
+            detail: `${c.enabled === false ? '無効' : ''}`,
           }))
         )
         setTagOptions(
           (tagsJson.items ?? []).map((t) => ({
             value: String(t.id ?? ''),
             label: String(t.name ?? '') || String(t.id ?? ''),
-            detail: String(t.id ?? ''),
+            detail: '',
           }))
         )
         setCastOptions(
           (castsJson.items ?? []).map((c) => ({
             value: String(c.id ?? ''),
             label: String(c.name ?? '') || String(c.id ?? ''),
-            detail: `${String(c.id ?? '')}${c.role ? ` / ${String(c.role)}` : ''}`,
+            detail: `${c.role ? String(c.role) : ''}`,
           }))
         )
         setGenreOptions(
           (genresJson.items ?? []).map((g) => ({
             value: String(g.id ?? ''),
             label: String(g.name ?? '') || String(g.id ?? ''),
-            detail: String(g.id ?? ''),
+            detail: '',
           }))
         )
       } catch {
@@ -322,7 +324,8 @@ export function VideoDetailScreen({
   }, [cfg, id, recommendations])
 
   return (
-    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+    <View style={{ flex: 1 }}>
+      <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.contentInner, { paddingBottom: 110 }]}>
       <View style={styles.pageHeaderRow}>
         <Pressable onPress={onBack} style={styles.smallBtn}>
           <Text style={styles.smallBtnText}>戻る</Text>
@@ -330,18 +333,8 @@ export function VideoDetailScreen({
         <Text style={styles.pageTitle}>動画詳細・編集</Text>
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
-        <View style={styles.field}>
-          <Text style={styles.label}>動画ID</Text>
-          <Text style={styles.readonlyText}>{id || '—'}</Text>
-        </View>
         <View style={styles.field}>
           <Text style={styles.label}>評価</Text>
           <Text
@@ -358,20 +351,30 @@ export function VideoDetailScreen({
           <TextInput value={desc} onChangeText={setDesc} style={[styles.input, { minHeight: 110 }]} multiline />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>Stream Video ID</Text>
+          <Text style={styles.label}>配信用ID（Stream）</Text>
           <TextInput value={streamVideoId} onChangeText={setStreamVideoId} style={styles.input} autoCapitalize="none" />
         </View>
         <StreamCaptionsPanel cfg={cfg as unknown as CmsApiConfig} streamVideoId={streamVideoId} />
         <View style={styles.field}>
-          <Text style={styles.label}>サムネURL</Text>
+          <Text style={styles.label}>サムネイル</Text>
           <TextInput value={thumbnailUrl} onChangeText={setThumbnailUrl} style={styles.input} autoCapitalize="none" />
         </View>
+        {thumbnailUrl.trim() ? (
+          <View style={styles.field}>
+            <Text style={styles.label}>プレビュー</Text>
+            <Image
+              source={{ uri: thumbnailUrl.trim() }}
+              style={{ width: 240, height: 135, borderRadius: 10, backgroundColor: '#e5e7eb' }}
+              resizeMode="cover"
+            />
+          </View>
+        ) : null}
         <View style={styles.field}>
-          <Text style={styles.label}>話数（episodeNo）</Text>
+          <Text style={styles.label}>話数</Text>
           <TextInput value={episodeNoText} onChangeText={setEpisodeNoText} style={styles.input} keyboardType="numeric" />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>配信予定日時（ISO文字列）</Text>
+          <Text style={styles.label}>配信予定日時</Text>
           <TextInput
             value={scheduledAt}
             onChangeText={setScheduledAt}
@@ -390,7 +393,7 @@ export function VideoDetailScreen({
           placeholder="選択"
           options={categoryOptions}
           onChange={(ids) => setCategoryIdsText(ids.join(', '))}
-          searchPlaceholder="カテゴリ検索（名前 / ID）"
+          searchPlaceholder="カテゴリ検索（名前）"
         />
         <MultiSelectField
           label="タグ（複数選択）"
@@ -398,7 +401,7 @@ export function VideoDetailScreen({
           placeholder="選択"
           options={tagOptions}
           onChange={(ids) => setTagIdsText(ids.join(', '))}
-          searchPlaceholder="タグ検索（名前 / ID）"
+          searchPlaceholder="タグ検索（名前）"
         />
         <MultiSelectField
           label="出演者（複数選択）"
@@ -406,7 +409,7 @@ export function VideoDetailScreen({
           placeholder="選択"
           options={castOptions}
           onChange={(ids) => setCastIdsText(ids.join(', '))}
-          searchPlaceholder="出演者検索（名前 / ID）"
+          searchPlaceholder="出演者検索（名前）"
         />
         <MultiSelectField
           label="ジャンル（複数選択）"
@@ -414,22 +417,9 @@ export function VideoDetailScreen({
           placeholder="選択"
           options={genreOptions}
           onChange={(ids) => setGenreIdsText(ids.join(', '))}
-          searchPlaceholder="ジャンル検索（名前 / ID）"
+          searchPlaceholder="ジャンル検索（名前）"
         />
-        <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
-            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
-          </Pressable>
-          {onGoComments && workId && id ? (
-            <Pressable
-              disabled={busy}
-              onPress={() => onGoComments(workId, id)}
-              style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}
-            >
-              <Text style={styles.btnSecondaryText}>コメント一覧へ</Text>
-            </Pressable>
-          ) : null}
-        </View>
+        <View style={{ height: 8 }} />
       </View>
 
       <View style={styles.section}>
@@ -534,6 +524,24 @@ export function VideoDetailScreen({
           </Pressable>
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+
+      <FixedBottomBar>
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+          </Pressable>
+          {onGoComments && workId && id ? (
+            <Pressable
+              disabled={busy}
+              onPress={() => onGoComments(workId, id)}
+              style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}
+            >
+              <Text style={styles.btnSecondaryText}>コメント一覧へ</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </FixedBottomBar>
+    </View>
   )
 }

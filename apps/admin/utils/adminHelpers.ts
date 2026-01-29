@@ -265,6 +265,9 @@ export function getApiBaseFromLocation(): string {
   const q = String(url.searchParams.get('api') || '').trim()
   if (q) return q.replace(/\/$/, '')
 
+  const envBase = String((process as any)?.env?.EXPO_PUBLIC_API_BASE_URL || '').trim()
+  if (envBase) return envBase.replace(/\/$/, '')
+
   return 'https://api.oshidra.com'
 }
 
@@ -277,6 +280,9 @@ export function getUploaderBaseFromLocation(): string {
   const url = new URL(window.location.href)
   const q = String(url.searchParams.get('uploader') || '').trim()
   if (q) return q.replace(/\/$/, '')
+
+  const envBase = String((process as any)?.env?.EXPO_PUBLIC_UPLOADER_BASE_URL || '').trim()
+  if (envBase) return envBase.replace(/\/$/, '')
 
   return 'https://assets-uploader.oshidra.com'
 }

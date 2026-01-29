@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, Text, TextInput, View } from 'react-native'
 
 import { styles } from '../../app/styles'
 import { STORAGE_EMAIL_KEY } from '../../constants/storage'
+import { useBanner } from '../../lib/banner'
 import { safeLocalStorageSet } from '../../lib/storage'
 import { isValidEmail } from '../../lib/validation'
 
@@ -24,7 +25,11 @@ export function LoginScreen({
   const [remember, setRemember] = useState(false)
 
   const [busy, setBusy] = useState(false)
-  const [banner, setBanner] = useState(initialBanner)
+  const [, setBanner] = useBanner()
+
+  useEffect(() => {
+    if (initialBanner) setBanner(initialBanner)
+  }, [initialBanner, setBanner])
 
   const canSubmit = useMemo(() => email.trim().length > 0 && password.length > 0 && !busy, [busy, email, password])
 
@@ -96,12 +101,6 @@ export function LoginScreen({
       <View style={styles.loginCard}>
         <Text style={styles.loginTitle}>ログイン</Text>
         <Text style={styles.loginDesc}>管理画面にログインします</Text>
-
-        {banner ? (
-          <View style={styles.banner}>
-            <Text style={styles.bannerText}>{banner}</Text>
-          </View>
-        ) : null}
 
         <View style={styles.form}>
           <View style={styles.field}>

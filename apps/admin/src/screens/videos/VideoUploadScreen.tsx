@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
+import { Image, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
 import { MultiSelectField, type MultiSelectOption } from '../../app/components/MultiSelectField'
 import { SelectField } from '../../app/components/SelectField'
 import { styles } from '../../app/styles'
 import type { CmsApiConfig } from '../../lib/cmsApi'
 import { cmsFetchJson, cmsFetchJsonWithBase, useCmsApi } from '../../lib/cmsApi'
+import { useBanner } from '../../lib/banner'
 import { csvToIdList } from '../../lib/validation'
+import { FixedBottomBar } from '../../ui/FixedBottomBar'
 import { StreamCaptionsPanel } from './StreamCaptionsPanel'
 
 const tus: typeof import('tus-js-client') | null = Platform.OS === 'web' ? (require('tus-js-client') as any) : null
@@ -23,12 +25,10 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
 
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
   const [thumbnailUploading, setThumbnailUploading] = useState(false)
-  const [thumbnailUploadMsg, setThumbnailUploadMsg] = useState('')
 
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadPct, setUploadPct] = useState(0)
   const [uploadState, setUploadState] = useState<'idle' | 'creating' | 'uploading' | 'done' | 'error'>('idle')
-  const [uploadMsg, setUploadMsg] = useState('')
   const uploadRef = useRef<any>(null)
 
   const [streamProbe, setStreamProbe] = useState<{
@@ -44,7 +44,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
   const [castIdsText, setCastIdsText] = useState('')
   const [genreIdsText, setGenreIdsText] = useState('')
 
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const [workOptions, setWorkOptions] = useState<Array<{ label: string; value: string }>>([])
@@ -83,28 +83,28 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           (catsJson.items ?? []).map((c) => ({
             value: String(c.id ?? ''),
             label: String(c.name ?? '') || String(c.id ?? ''),
-            detail: `${String(c.id ?? '')}${c.enabled === false ? ' / 無効' : ''}`,
+            detail: `${c.enabled === false ? '無効' : ''}`,
           }))
         )
         setTagOptions(
           (tagsJson.items ?? []).map((t) => ({
             value: String(t.id ?? ''),
             label: String(t.name ?? '') || String(t.id ?? ''),
-            detail: String(t.id ?? ''),
+            detail: '',
           }))
         )
         setCastOptions(
           (castsJson.items ?? []).map((c) => ({
             value: String(c.id ?? ''),
             label: String(c.name ?? '') || String(c.id ?? ''),
-            detail: `${String(c.id ?? '')}${c.role ? ` / ${String(c.role)}` : ''}`,
+            detail: `${c.role ? String(c.role) : ''}`,
           }))
         )
         setGenreOptions(
           (genresJson.items ?? []).map((g) => ({
             value: String(g.id ?? ''),
             label: String(g.name ?? '') || String(g.id ?? ''),
-            detail: String(g.id ?? ''),
+            detail: '',
           }))
         )
       } catch {
@@ -145,7 +145,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
         setBusy(false)
       }
     })()
-  }, [castIdsText, categoryIdsText, cfg, desc, episodeNoText, genreIdsText, publish, streamVideoId, tagIdsText, thumbnailUrl, title, workId])
+  }, [castIdsText, categoryIdsText, cfg, desc, episodeNoText, genreIdsText, publish, setBanner, streamVideoId, tagIdsText, thumbnailUrl, title, workId])
 
   const stopUpload = useCallback(() => {
     try {
@@ -158,21 +158,21 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
     uploadRef.current = null
     setUploadState('idle')
     setUploadPct(0)
-    setUploadMsg('')
-  }, [])
+    setBanner('アップロードを中止しました')
+  }, [setBanner])
 
   const uploadThumbnail = useCallback(() => {
     if (Platform.OS !== 'web') {
-      setThumbnailUploadMsg('サムネイル画像アップロードはWeb版管理画面のみ対応です')
+      setBanner('サムネイル画像アップロードはWeb版管理画面のみ対応です')
       return
     }
     if (!thumbnailFile) {
-      setThumbnailUploadMsg('画像ファイルを選択してください')
+      setBanner('画像ファイルを選択してください')
       return
     }
 
     setThumbnailUploading(true)
-    setThumbnailUploadMsg('画像アップロード中…')
+    setBanner('画像アップロード中…')
     void (async () => {
       try {
         const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
@@ -193,42 +193,42 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
         }
 
         setThumbnailUrl(res.data.url)
-        setThumbnailUploadMsg('画像アップロード完了')
+        setBanner('画像アップロード完了')
       } catch (e) {
-        setThumbnailUploadMsg(e instanceof Error ? e.message : String(e))
+        setBanner(e instanceof Error ? e.message : String(e))
       } finally {
         setThumbnailUploading(false)
       }
     })()
-  }, [cfg, thumbnailFile])
+  }, [cfg, setBanner, thumbnailFile])
 
   const startStreamUpload = useCallback(() => {
     if (Platform.OS !== 'web') {
       setUploadState('error')
-      setUploadMsg('アップロードはWeb版管理画面のみ対応です')
+      setBanner('アップロードはWeb版管理画面のみ対応です')
       return
     }
     if (!uploadFile) {
       setUploadState('error')
-      setUploadMsg('動画ファイルを選択してください')
+      setBanner('動画ファイルを選択してください')
       return
     }
     if (!tus) {
       setUploadState('error')
-      setUploadMsg('tus uploader が初期化できませんでした')
+      setBanner('tus uploader が初期化できませんでした')
       return
     }
 
     const maxBytes = 30 * 1024 * 1024 * 1024
     if (typeof uploadFile.size === 'number' && uploadFile.size > maxBytes) {
       setUploadState('error')
-      setUploadMsg('ファイルが大きすぎます（最大30GB）')
+      setBanner('ファイルが大きすぎます（最大30GB）')
       return
     }
 
     setUploadState('creating')
     setUploadPct(0)
-    setUploadMsg('アップロードURL発行中…')
+    setBanner('アップロードURL発行中…')
 
     void (async () => {
       try {
@@ -237,7 +237,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
         let createdUid = ''
 
         setUploadState('uploading')
-        setUploadMsg('アップロード開始中…')
+        setBanner('アップロード開始中…')
 
         const uploader = new tus.Upload(uploadFile, {
           endpoint: tusEndpoint,
@@ -286,7 +286,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           },
           onError: (err: any) => {
             setUploadState('error')
-            setUploadMsg(err instanceof Error ? err.message : String(err))
+            setBanner(err instanceof Error ? err.message : String(err))
           },
           onProgress: (bytesUploaded: number, bytesTotal: number) => {
             const pct = bytesTotal > 0 ? Math.floor((bytesUploaded / bytesTotal) * 100) : 0
@@ -308,7 +308,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
             }
             setUploadState('done')
             setUploadPct(100)
-            setUploadMsg('アップロード完了（Stream側の処理が終わるまで少し待つ場合があります）')
+            setBanner('アップロード完了（Stream側の処理が終わるまで少し待つ場合があります）')
           },
         })
 
@@ -316,10 +316,10 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
         uploader.start()
       } catch (e) {
         setUploadState('error')
-        setUploadMsg(e instanceof Error ? e.message : String(e))
+        setBanner(e instanceof Error ? e.message : String(e))
       }
     })()
-  }, [cfg, uploadFile])
+  }, [cfg, setBanner, uploadFile])
 
   useEffect(() => {
     if (!streamVideoId.trim()) {
@@ -381,19 +381,14 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
   )
 
   return (
-    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+    <View style={{ flex: 1 }}>
+    <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.contentInner, { paddingBottom: 110 }]}>
       <View style={styles.pageHeaderRow}>
         <Pressable onPress={onBack} style={styles.smallBtn}>
           <Text style={styles.smallBtnText}>戻る</Text>
         </Pressable>
         <Text style={styles.pageTitle}>動画アップロード</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>入力</Text>
@@ -416,7 +411,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
                     setUploadFile(file)
                     setUploadPct(0)
                     setUploadState('idle')
-                    setUploadMsg('')
+                    setBanner('')
                   }}
                 />
               </View>
@@ -458,7 +453,6 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
                 </View>
               ) : null}
 
-              {uploadMsg ? <Text style={[styles.selectMenuDetailText, { marginTop: 8 }]}>{uploadMsg}</Text> : null}
               {streamVideoId ? (
                 <View style={{ marginTop: 6 }}>
                   <Text style={styles.selectMenuDetailText}>{`Stream Video ID: ${streamVideoId}`}</Text>
@@ -505,7 +499,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
         </View>
         <StreamCaptionsPanel cfg={cfg as unknown as CmsApiConfig} streamVideoId={streamVideoId} />
         <View style={styles.field}>
-          <Text style={styles.label}>サムネURL</Text>
+          <Text style={styles.label}>サムネイル</Text>
           <Text style={styles.selectMenuDetailText}>推奨サイズ: 16:9（例: 1280×720）</Text>
           {Platform.OS === 'web' ? (
             <View style={{ marginTop: 6 }}>
@@ -518,7 +512,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
                 onChange={(e: any) => {
                   const file = e?.target?.files?.[0] ?? null
                   setThumbnailFile(file)
-                  setThumbnailUploadMsg('')
+                  setBanner('')
                 }}
               />
               <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
@@ -529,13 +523,17 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
                 >
                   <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : '画像をアップロードしてURLに反映'}</Text>
                 </Pressable>
-                {thumbnailUploadMsg ? (
-                  <Text style={[styles.selectMenuDetailText, { marginLeft: 10, alignSelf: 'center' }]}>{thumbnailUploadMsg}</Text>
-                ) : null}
               </View>
             </View>
           ) : null}
-          <TextInput value={thumbnailUrl} onChangeText={setThumbnailUrl} placeholder="https://..." style={styles.input} autoCapitalize="none" />
+          {thumbnailUrl.trim() ? (
+            <Image
+              source={{ uri: thumbnailUrl.trim() }}
+              style={{ width: 240, height: 135, borderRadius: 10, backgroundColor: '#e5e7eb', marginTop: 10 }}
+              resizeMode="cover"
+            />
+          ) : null}
+          <Text style={[styles.selectMenuDetailText, { marginTop: 8 }]}>URLはアップロード後に自動で設定されます</Text>
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>話数（episodeNo）</Text>
@@ -551,7 +549,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           placeholder="選択"
           options={categoryOptions}
           onChange={(ids) => setCategoryIdsText(ids.join(', '))}
-          searchPlaceholder="カテゴリ検索（名前 / ID）"
+          searchPlaceholder="カテゴリ検索（名前）"
         />
         <MultiSelectField
           label="タグ（複数選択）"
@@ -559,7 +557,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           placeholder="選択"
           options={tagOptions}
           onChange={(ids) => setTagIdsText(ids.join(', '))}
-          searchPlaceholder="タグ検索（名前 / ID）"
+          searchPlaceholder="タグ検索（名前）"
         />
         <MultiSelectField
           label="出演者（複数選択）"
@@ -567,7 +565,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           placeholder="選択"
           options={castOptions}
           onChange={(ids) => setCastIdsText(ids.join(', '))}
-          searchPlaceholder="出演者検索（名前 / ID）"
+          searchPlaceholder="出演者検索（名前）"
         />
         <MultiSelectField
           label="ジャンル（複数選択）"
@@ -575,14 +573,20 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
           placeholder="選択"
           options={genreOptions}
           onChange={(ids) => setGenreIdsText(ids.join(', '))}
-          searchPlaceholder="ジャンル検索（名前 / ID）"
+          searchPlaceholder="ジャンル検索（名前）"
         />
-        <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={onCreate} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
-            <Text style={styles.btnPrimaryText}>{busy ? '登録中…' : '登録'}</Text>
-          </Pressable>
-        </View>
+        <View style={{ height: 8 }} />
       </View>
+
     </ScrollView>
+
+    <FixedBottomBar>
+      <View style={styles.filterActions}>
+        <Pressable disabled={busy} onPress={onCreate} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+          <Text style={styles.btnPrimaryText}>{busy ? '登録中…' : '登録'}</Text>
+        </Pressable>
+      </View>
+    </FixedBottomBar>
+    </View>
   )
 }

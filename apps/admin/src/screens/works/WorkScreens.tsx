@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { useBanner } from '../../lib/banner'
+
 type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
@@ -35,7 +37,7 @@ export function WorksListScreen({
 }) {
   const [rows, setRows] = useState<WorkRow[]>([])
   const [busy, setBusy] = useState(false)
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
 
   useEffect(() => {
     let mounted = true
@@ -67,11 +69,6 @@ export function WorksListScreen({
           <Text style={styles.smallBtnPrimaryText}>新規作成</Text>
         </Pressable>
       </View>
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
@@ -120,13 +117,12 @@ export function WorkEditScreen({
   const [thumbnailUrl, setThumbnailUrl] = useState('')
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
   const [thumbnailUploading, setThumbnailUploading] = useState(false)
-  const [thumbnailUploadMsg, setThumbnailUploadMsg] = useState('')
   const [categoryIdsText, setCategoryIdsText] = useState('')
   const [tagIdsText, setTagIdsText] = useState('')
   const [castIdsText, setCastIdsText] = useState('')
   const [published, setPublished] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
 
   const [categoryOptions, setCategoryOptions] = useState<MultiSelectOption[]>([])
   const [tagOptions, setTagOptions] = useState<MultiSelectOption[]>([])
@@ -250,16 +246,16 @@ export function WorkEditScreen({
 
   const uploadThumbnail = useCallback(() => {
     if (Platform.OS !== 'web') {
-      setThumbnailUploadMsg('サムネイル画像アップロードはWeb版管理画面のみ対応です')
+      setBanner('サムネイル画像アップロードはWeb版管理画面のみ対応です')
       return
     }
     if (!thumbnailFile) {
-      setThumbnailUploadMsg('画像ファイルを選択してください')
+      setBanner('画像ファイルを選択してください')
       return
     }
 
     setThumbnailUploading(true)
-    setThumbnailUploadMsg('画像アップロード中…')
+    setBanner('画像アップロード中…')
     void (async () => {
       try {
         const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
@@ -280,14 +276,14 @@ export function WorkEditScreen({
         }
 
         setThumbnailUrl(res.data.url)
-        setThumbnailUploadMsg('画像アップロード完了')
+        setBanner('画像アップロード完了')
       } catch (e) {
-        setThumbnailUploadMsg(e instanceof Error ? e.message : String(e))
+        setBanner(e instanceof Error ? e.message : String(e))
       } finally {
         setThumbnailUploading(false)
       }
     })()
-  }, [cfg, cmsFetchJsonWithBase, thumbnailFile])
+  }, [cfg, cmsFetchJsonWithBase, setBanner, thumbnailFile])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -297,12 +293,6 @@ export function WorkEditScreen({
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
@@ -334,7 +324,6 @@ export function WorkEditScreen({
                 onChange={(e: any) => {
                   const file = e?.target?.files?.[0] ?? null
                   setThumbnailFile(file)
-                  setThumbnailUploadMsg('')
                 }}
               />
               <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
@@ -347,9 +336,6 @@ export function WorkEditScreen({
                     {thumbnailUploading ? '画像アップロード中…' : '画像をアップロードしてURLに反映'}
                   </Text>
                 </Pressable>
-                {thumbnailUploadMsg ? (
-                  <Text style={[styles.selectMenuDetailText, { marginLeft: 10, alignSelf: 'center' }]}>{thumbnailUploadMsg}</Text>
-                ) : null}
               </View>
             </View>
           ) : null}

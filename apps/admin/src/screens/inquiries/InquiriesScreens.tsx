@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 
 import { styles } from '../../app/styles'
+import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 import { SelectField } from '../../ui/fields'
 
 export function InquiriesListScreen({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
   const cfg = useCmsApi()
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<Array<{ id: string; subject: string; status: string; createdAt?: string }>>([])
 
@@ -57,12 +58,6 @@ export function InquiriesListScreen({ onOpenDetail }: { onOpenDetail: (id: strin
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>お問い合わせ一覧</Text>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.table}>
         {busy ? (
           <View style={styles.placeholderBox}>
@@ -91,7 +86,7 @@ export function InquiriesListScreen({ onOpenDetail }: { onOpenDetail: (id: strin
 
 export function InquiryDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
   const cfg = useCmsApi()
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
@@ -155,12 +150,6 @@ export function InquiryDetailScreen({ id, onBack }: { id: string; onBack: () => 
         </Pressable>
         <Text style={styles.pageTitle}>お問い合わせ詳細</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>内容</Text>

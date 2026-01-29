@@ -125,12 +125,6 @@ export function UsersListScreen({
         ) : null}
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>フィルタ</Text>
         <View style={styles.filtersGrid}>
@@ -245,9 +239,6 @@ export function UsersListScreen({
                 <View style={styles.colName}>
                   <Text style={styles.tableCellText} numberOfLines={1}>
                     {r.name || '—'}
-                  </Text>
-                  <Text style={styles.tableDetail} numberOfLines={1}>
-                    {r.id}
                   </Text>
                 </View>
                 <View style={styles.colEmail}>

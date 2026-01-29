@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 
 import { styles } from '../../app/styles'
+import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 
 type CastStaffRow = {
@@ -23,7 +24,7 @@ export function CastStaffListScreen({
   const cfg = useCmsApi()
   const [qName, setQName] = useState('')
   const [rows, setRows] = useState<CastStaffRow[]>([])
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -62,12 +63,6 @@ export function CastStaffListScreen({
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>検索</Text>
@@ -141,7 +136,7 @@ export function CastStaffDetailScreen({
   const [stats, setStats] = useState<{ favoritesCount: number; worksCount: number; videosCount: number } | null>(null)
   const [works, setWorks] = useState<Array<{ id: string; title: string; roleName: string }>>([])
   const [videos, setVideos] = useState<Array<{ id: string; title: string; workId: string; workTitle: string; roleName: string }>>([])
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -220,12 +215,6 @@ export function CastStaffDetailScreen({
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>プロフィール</Text>

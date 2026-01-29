@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
 import { styles } from '../../app/styles'
+import { useBanner } from '../../lib/banner'
 
 type CmsApiConfig = {
   apiBase: string
@@ -27,7 +28,7 @@ export function GenresListScreen({
 }) {
   const [rows, setRows] = useState<GenreRow[]>([])
   const [busy, setBusy] = useState(false)
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -60,12 +61,6 @@ export function GenresListScreen({
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
@@ -110,7 +105,7 @@ export function GenreEditScreen({
   const [name, setName] = useState('')
   const [enabled, setEnabled] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
 
   useEffect(() => {
     if (!id) {
@@ -178,12 +173,6 @@ export function GenreEditScreen({
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>

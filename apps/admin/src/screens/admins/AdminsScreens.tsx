@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-nati
 
 import { SelectField } from '../../app/components/SelectField'
 import { styles } from '../../app/styles'
+import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 import { isValidEmail } from '../../lib/validation'
 
@@ -16,7 +17,7 @@ export function AdminsListScreen({
   onNew: () => void
 }) {
   const cfg = useCmsApi()
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<AdminRow[]>([])
 
@@ -58,12 +59,6 @@ export function AdminsListScreen({
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
@@ -108,7 +103,7 @@ export function AdminEditScreen({
   const [disabled, setDisabled] = useState(false)
   const [password, setPassword] = useState('')
 
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -201,12 +196,6 @@ export function AdminEditScreen({
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>入力</Text>

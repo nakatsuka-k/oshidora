@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { useBanner } from '../../lib/banner'
+
 type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
@@ -51,7 +53,7 @@ export function CommentsPendingListScreen({
   styles: any
   onOpenDetail: (id: string) => void
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<CommentRow[]>([])
 
@@ -84,17 +86,11 @@ export function CommentsPendingListScreen({
     return () => {
       mounted = false
     }
-  }, [cfg, cmsFetchJson])
+  }, [cfg, cmsFetchJson, setBanner])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>未承認/未対応コメント一覧</Text>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
@@ -140,7 +136,7 @@ export function CommentApproveScreen({
 }) {
   const [decision, setDecision] = useState<'公開済み' | '対応済み非公開' | ''>('')
   const [reason, setReason] = useState('')
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [item, setItem] = useState<null | { id: string; targetTitle: string; author: string; body: string; createdAt: string; status: CommentRow['status'] }>(
     null
@@ -175,7 +171,7 @@ export function CommentApproveScreen({
     return () => {
       mounted = false
     }
-  }, [cfg, cmsFetchJson, id])
+  }, [cfg, cmsFetchJson, id, setBanner])
 
   const onSubmit = useCallback(() => {
     if (!decision) {
@@ -206,7 +202,7 @@ export function CommentApproveScreen({
         setBusy(false)
       }
     })()
-  }, [cfg, cmsFetchJson, decision, id, reason])
+  }, [cfg, cmsFetchJson, decision, id, reason, setBanner])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -216,12 +212,6 @@ export function CommentApproveScreen({
         </Pressable>
         <Text style={styles.pageTitle}>コメント詳細（承認/否認）</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>表示</Text>
@@ -296,7 +286,7 @@ export function CommentsListScreen({
   initialContentId?: string
   initialEpisodeId?: string
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [qStatus, setQStatus] = useState<'' | 'pending' | 'approved' | 'rejected'>('')
   const [qContentId, setQContentId] = useState(initialContentId ? String(initialContentId) : '')
@@ -337,17 +327,11 @@ export function CommentsListScreen({
     return () => {
       mounted = false
     }
-  }, [cfg, cmsFetchJson, qContentId, qEpisodeId, qStatus])
+  }, [cfg, cmsFetchJson, qContentId, qEpisodeId, qStatus, setBanner])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>コメント一覧</Text>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>検索</Text>
@@ -419,7 +403,7 @@ export function CommentEditScreen({
   const [status, setStatus] = useState<'approved' | 'rejected'>('approved')
   const [deleted, setDeleted] = useState(false)
   const [note, setNote] = useState('')
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -447,7 +431,7 @@ export function CommentEditScreen({
     return () => {
       mounted = false
     }
-  }, [cfg, cmsFetchJson, id])
+  }, [cfg, cmsFetchJson, id, setBanner])
 
   const onSave = useCallback(() => {
     if (!id) return
@@ -477,12 +461,6 @@ export function CommentEditScreen({
         </Pressable>
         <Text style={styles.pageTitle}>コメント編集</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>操作</Text>

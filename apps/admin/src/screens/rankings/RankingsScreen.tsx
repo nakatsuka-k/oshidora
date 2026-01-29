@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 
 import { styles } from '../../app/styles'
+import { useBanner } from '../../lib/banner'
 
 type CmsApiConfig = {
   apiBase: string
@@ -23,7 +24,7 @@ export function RankingsScreen({
   type: 'videos' | 'coins' | 'actors' | 'directors' | 'writers'
   title: string
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [asOf, setAsOf] = useState('')
   const [items, setItems] = useState<Array<{ rank: number; label: string; value: number }>>([])
@@ -55,12 +56,6 @@ export function RankingsScreen({
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>{title}</Text>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>集計日時</Text>

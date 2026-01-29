@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Image, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { useBanner } from '../../lib/banner'
+
 type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
@@ -98,7 +100,7 @@ export function VideoListScreen({
   const [qTo, setQTo] = useState('')
 
   const [rows, setRows] = useState<VideoRow[]>([])
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const loadVideos = useCallback(
@@ -285,12 +287,6 @@ export function VideoListScreen({
           <Text style={styles.smallBtnPrimaryText}>動画アップロード</Text>
         </Pressable>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>検索・絞り込み</Text>
@@ -512,7 +508,7 @@ export function VideoDetailScreen({
   const [reviewCount, setReviewCount] = useState(0)
   const [playsCount, setPlaysCount] = useState(0)
   const [commentsCount, setCommentsCount] = useState(0)
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const [recommendations, setRecommendations] = useState<
@@ -831,12 +827,6 @@ export function VideoDetailScreen({
         <Text style={styles.pageTitle}>動画詳細・編集</Text>
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
         <View style={styles.field}>
@@ -1082,12 +1072,10 @@ export function VideoUploadScreen({
 
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
   const [thumbnailUploading, setThumbnailUploading] = useState(false)
-  const [thumbnailUploadMsg, setThumbnailUploadMsg] = useState('')
 
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadPct, setUploadPct] = useState(0)
   const [uploadState, setUploadState] = useState<'idle' | 'creating' | 'uploading' | 'done' | 'error'>('idle')
-  const [uploadMsg, setUploadMsg] = useState('')
   const uploadRef = useRef<any>(null)
 
   const [streamProbe, setStreamProbe] = useState<{
@@ -1103,7 +1091,7 @@ export function VideoUploadScreen({
   const [castIdsText, setCastIdsText] = useState('')
   const [genreIdsText, setGenreIdsText] = useState('')
 
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const [workOptions, setWorkOptions] = useState<Array<{ label: string; value: string }>>([])
@@ -1237,21 +1225,21 @@ export function VideoUploadScreen({
     uploadRef.current = null
     setUploadState('idle')
     setUploadPct(0)
-    setUploadMsg('')
-  }, [])
+    setBanner('アップロードを中止しました')
+  }, [setBanner])
 
   const uploadThumbnail = useCallback(() => {
     if (Platform.OS !== 'web') {
-      setThumbnailUploadMsg('サムネイル画像アップロードはWeb版管理画面のみ対応です')
+      setBanner('サムネイル画像アップロードはWeb版管理画面のみ対応です')
       return
     }
     if (!thumbnailFile) {
-      setThumbnailUploadMsg('画像ファイルを選択してください')
+      setBanner('画像ファイルを選択してください')
       return
     }
 
     setThumbnailUploading(true)
-    setThumbnailUploadMsg('画像アップロード中…')
+    setBanner('画像アップロード中…')
     void (async () => {
       try {
         const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
@@ -1272,42 +1260,42 @@ export function VideoUploadScreen({
         }
 
         setThumbnailUrl(res.data.url)
-        setThumbnailUploadMsg('画像アップロード完了')
+        setBanner('画像アップロード完了')
       } catch (e) {
-        setThumbnailUploadMsg(e instanceof Error ? e.message : String(e))
+        setBanner(e instanceof Error ? e.message : String(e))
       } finally {
         setThumbnailUploading(false)
       }
     })()
-  }, [cfg, cmsFetchJsonWithBase, thumbnailFile])
+  }, [cfg, cmsFetchJsonWithBase, setBanner, thumbnailFile])
 
   const startStreamUpload = useCallback(() => {
     if (Platform.OS !== 'web') {
       setUploadState('error')
-      setUploadMsg('アップロードはWeb版管理画面のみ対応です')
+      setBanner('アップロードはWeb版管理画面のみ対応です')
       return
     }
     if (!uploadFile) {
       setUploadState('error')
-      setUploadMsg('動画ファイルを選択してください')
+      setBanner('動画ファイルを選択してください')
       return
     }
     if (!tus) {
       setUploadState('error')
-      setUploadMsg('tus uploader が初期化できませんでした')
+      setBanner('tus uploader が初期化できませんでした')
       return
     }
 
     const maxBytes = 30 * 1024 * 1024 * 1024
     if (typeof uploadFile.size === 'number' && uploadFile.size > maxBytes) {
       setUploadState('error')
-      setUploadMsg('ファイルが大きすぎます（最大30GB）')
+      setBanner('ファイルが大きすぎます（最大30GB）')
       return
     }
 
     setUploadState('creating')
     setUploadPct(0)
-    setUploadMsg('アップロードURL発行中…')
+    setBanner('アップロードURL発行中…')
 
     void (async () => {
       try {
@@ -1316,7 +1304,7 @@ export function VideoUploadScreen({
         let createdUid = ''
 
         setUploadState('uploading')
-        setUploadMsg('アップロード開始中…')
+        setBanner('アップロード開始中…')
 
         const uploader = new tus.Upload(uploadFile, {
           endpoint: tusEndpoint,
@@ -1365,7 +1353,7 @@ export function VideoUploadScreen({
           },
           onError: (err: any) => {
             setUploadState('error')
-            setUploadMsg(err instanceof Error ? err.message : String(err))
+            setBanner(err instanceof Error ? err.message : String(err))
           },
           onProgress: (bytesUploaded: number, bytesTotal: number) => {
             const pct = bytesTotal > 0 ? Math.floor((bytesUploaded / bytesTotal) * 100) : 0
@@ -1387,7 +1375,7 @@ export function VideoUploadScreen({
             }
             setUploadState('done')
             setUploadPct(100)
-            setUploadMsg('アップロード完了（Stream側の処理が終わるまで少し待つ場合があります）')
+            setBanner('アップロード完了（Stream側の処理が終わるまで少し待つ場合があります）')
           },
         })
 
@@ -1395,10 +1383,10 @@ export function VideoUploadScreen({
         uploader.start()
       } catch (e) {
         setUploadState('error')
-        setUploadMsg(e instanceof Error ? e.message : String(e))
+        setBanner(e instanceof Error ? e.message : String(e))
       }
     })()
-  }, [cfg, tus, uploadFile])
+  }, [cfg, setBanner, tus, uploadFile])
 
   useEffect(() => {
     if (!streamVideoId.trim()) {
@@ -1463,12 +1451,6 @@ export function VideoUploadScreen({
         <Text style={styles.pageTitle}>動画アップロード</Text>
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>入力</Text>
         <SelectField label="作品" value={workId} placeholder="選択" options={workOptions} onChange={setWorkId} />
@@ -1490,7 +1472,7 @@ export function VideoUploadScreen({
                     setUploadFile(file)
                     setUploadPct(0)
                     setUploadState('idle')
-                    setUploadMsg('')
+                    setBanner('')
                   }}
                 />
               </View>
@@ -1535,7 +1517,6 @@ export function VideoUploadScreen({
                 </View>
               ) : null}
 
-              {uploadMsg ? <Text style={[styles.selectMenuDetailText, { marginTop: 8 }]}>{uploadMsg}</Text> : null}
               {streamVideoId ? (
                 <View style={{ marginTop: 6 }}>
                   <Text style={styles.selectMenuDetailText}>{`Stream Video ID: ${streamVideoId}`}</Text>
@@ -1607,7 +1588,7 @@ export function VideoUploadScreen({
                 onChange={(e: any) => {
                   const file = e?.target?.files?.[0] ?? null
                   setThumbnailFile(file)
-                  setThumbnailUploadMsg('')
+                  setBanner('')
                 }}
               />
               <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
@@ -1618,9 +1599,6 @@ export function VideoUploadScreen({
                 >
                   <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : '画像をアップロードしてURLに反映'}</Text>
                 </Pressable>
-                {thumbnailUploadMsg ? (
-                  <Text style={[styles.selectMenuDetailText, { marginLeft: 10, alignSelf: 'center' }]}>{thumbnailUploadMsg}</Text>
-                ) : null}
               </View>
             </View>
           ) : null}

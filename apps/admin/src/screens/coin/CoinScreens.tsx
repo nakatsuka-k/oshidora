@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 
 import { styles } from '../../app/styles'
+import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 
 type CoinSettingRow = { id: string; price: string; place: string; target: string; period: string }
@@ -14,7 +15,7 @@ export function CoinSettingsListScreen({
   onNew: () => void
 }) {
   const cfg = useCmsApi()
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<CoinSettingRow[]>([])
 
@@ -57,12 +58,6 @@ export function CoinSettingsListScreen({
         </Pressable>
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
         <View style={styles.table}>
@@ -100,7 +95,7 @@ export function CoinSettingEditScreen({
   onBack: () => void
 }) {
   const cfg = useCmsApi()
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const [priceYenText, setPriceYenText] = useState('')
@@ -185,12 +180,6 @@ export function CoinSettingEditScreen({
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>

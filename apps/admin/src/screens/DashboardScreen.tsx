@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 
 import type { RouteId } from '../lib/routes'
+import { useBanner } from '../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../lib/cmsApi'
 import { styles } from '../app/styles'
 
@@ -28,7 +29,7 @@ export function DashboardScreen({
   onOpenScheduledDetail?: (id: string) => void
 }) {
   const cfg = useCmsApi()
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const [scheduledRows, setScheduledRows] = useState<Array<{ id: string; title: string; scheduledAt: string; status: string }>>([])
@@ -147,12 +148,6 @@ export function DashboardScreen({
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>ダッシュボード</Text>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>サマリー情報</Text>

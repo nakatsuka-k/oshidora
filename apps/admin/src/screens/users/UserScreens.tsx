@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { useBanner } from '../../lib/banner'
+
 type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
@@ -39,7 +41,7 @@ export function UsersListScreen({
   onOpenDetail: (id: string) => void
   onNew?: () => void
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<UserRow[]>([])
 
@@ -91,12 +93,6 @@ export function UsersListScreen({
           </Pressable>
         ) : null}
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>フィルタ</Text>
@@ -184,7 +180,7 @@ export function UserCreateScreen({
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const onSubmit = useCallback(() => {
@@ -227,12 +223,6 @@ export function UserCreateScreen({
         <Text style={styles.pageTitle}>ユーザー新規作成</Text>
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>入力</Text>
         <View style={styles.field}>
@@ -271,7 +261,7 @@ export function UserDetailScreen({
   id: string
   onBack: () => void
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [item, setItem] = useState<null | {
     id: string
@@ -323,12 +313,6 @@ export function UserDetailScreen({
         </Pressable>
         <Text style={styles.pageTitle}>ユーザー詳細</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>基本情報</Text>

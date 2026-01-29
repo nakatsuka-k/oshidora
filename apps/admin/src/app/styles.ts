@@ -1,12 +1,15 @@
-import { StyleSheet } from 'react-native'
+import { Platform, StyleSheet } from 'react-native'
 
 export const COLORS = {
   bg: '#f3f4f6',
-  sidebarBg: '#e5e7eb',
+  sidebarBg: '#f9fafb',
   text: '#111827',
   muted: '#6b7280',
   border: '#d1d5db',
   white: '#ffffff',
+  primary: '#2563eb',
+  primarySoft: '#eff6ff',
+  danger: '#dc2626',
 }
 
 export const styles = StyleSheet.create({
@@ -24,6 +27,9 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    ...(Platform.OS === 'web'
+      ? ({ position: 'sticky', top: 0, zIndex: 10 } as any)
+      : null),
   },
   headerLogo: {
     color: COLORS.text,
@@ -50,6 +56,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   logoutText: {
     color: COLORS.text,
@@ -64,11 +71,12 @@ export const styles = StyleSheet.create({
     backgroundColor: COLORS.bg,
   },
   sidebar: {
-    width: '20%',
-    minWidth: 220,
+    width: 280,
     backgroundColor: COLORS.sidebarBg,
-    paddingHorizontal: 16,
-    paddingVertical: 18,
+    borderRightWidth: 1,
+    borderRightColor: COLORS.border,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
   },
   sidebarTitle: {
     color: COLORS.text,
@@ -102,10 +110,11 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.sidebarBg,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   sidebarItemActive: {
-    borderColor: COLORS.text,
-    backgroundColor: COLORS.white,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primarySoft,
   },
   sidebarItemText: {
     color: COLORS.text,
@@ -114,10 +123,11 @@ export const styles = StyleSheet.create({
   },
   sidebarItemTextActive: {
     fontWeight: '900',
+    color: COLORS.primary,
   },
   main: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.bg,
   },
 
   devFab: {
@@ -130,6 +140,7 @@ export const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   devFabText: {
     color: COLORS.text,
@@ -293,6 +304,7 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   btnSecondaryText: {
     color: COLORS.text,
@@ -310,6 +322,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   selectText: {
     color: COLORS.text,
@@ -436,6 +449,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   dialogBtnText: {
     color: COLORS.text,
@@ -649,6 +663,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   smallBtnText: {
     color: COLORS.text,
@@ -659,7 +674,8 @@ export const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   smallBtnPrimaryText: {
     color: COLORS.white,
@@ -696,7 +712,8 @@ export const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: '#b91c1c',
+    backgroundColor: COLORS.danger,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   smallBtnDangerText: {
     color: COLORS.white,
@@ -717,6 +734,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   pageBtnText: {
     color: COLORS.text,
@@ -749,12 +767,15 @@ export const styles = StyleSheet.create({
 
   contentScroll: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.bg,
   },
   contentInner: {
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    gap: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    gap: 16,
+    width: '100%',
+    maxWidth: 1200,
+    alignSelf: 'center',
   },
   pageHeaderRow: {
     flexDirection: 'row',
@@ -764,8 +785,9 @@ export const styles = StyleSheet.create({
   },
   pageTitle: {
     color: COLORS.text,
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
+    lineHeight: 28,
   },
   section: {
     borderWidth: 1,
@@ -774,10 +796,15 @@ export const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: COLORS.white,
     gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
   },
   sectionTitle: {
     color: COLORS.text,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '900',
   },
 
@@ -795,6 +822,11 @@ export const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: COLORS.white,
     gap: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 1,
   },
   kpiLabel: {
     color: COLORS.muted,
@@ -812,6 +844,7 @@ export const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: COLORS.white,
   },
   tableRow: {
     flexDirection: 'row',
@@ -822,6 +855,7 @@ export const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
     backgroundColor: COLORS.white,
+    minHeight: 52,
   },
   tableLeft: {
     flex: 1,
@@ -866,6 +900,11 @@ export const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: COLORS.white,
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 1,
   },
   shortcutText: {
     color: COLORS.text,
@@ -887,6 +926,7 @@ export const styles = StyleSheet.create({
     color: COLORS.muted,
     fontSize: 12,
     fontWeight: '800',
+    lineHeight: 18,
   },
 
   // Login
@@ -921,7 +961,7 @@ export const styles = StyleSheet.create({
     marginTop: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#f9fafb',
+    backgroundColor: COLORS.primarySoft,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -942,6 +982,7 @@ export const styles = StyleSheet.create({
     color: COLORS.muted,
     fontSize: 12,
     fontWeight: '800',
+    lineHeight: 16,
   },
   input: {
     borderWidth: 1,
@@ -1008,7 +1049,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   linkText: {
-    color: COLORS.muted,
+    color: COLORS.primary,
     fontSize: 12,
     fontWeight: '700',
     textDecorationLine: 'underline',
@@ -1021,7 +1062,8 @@ export const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
   },
   btnPrimaryText: {
     color: COLORS.white,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Platform, Pressable, Text, TextInput, View } from 'react-native'
 
 import { styles } from '../../app/styles'
+import { useBanner } from '../../lib/banner'
 
 function getTokenFromLocation(): string {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return ''
@@ -43,7 +44,7 @@ export function PasswordResetScreen({
   const [newPassword, setNewPassword] = useState('')
   const [newPassword2, setNewPassword2] = useState('')
   const [busy, setBusy] = useState(false)
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
 
   useEffect(() => {
     setToken(getTokenFromLocation())
@@ -60,8 +61,11 @@ export function PasswordResetScreen({
       })
       const json = (await res.json().catch(() => ({}))) as any
       if (!res.ok) throw new Error(json?.error ? String(json.error) : '送信に失敗しました')
-      setBanner('再設定用のメールを送信しました（届かない場合は設定やメールアドレスを確認してください）')
-      if (json?.debugLink) setBanner(`再設定用のメールを送信しました（DEBUG: ${String(json.debugLink)}）`)
+      setBanner(
+        json?.debugLink
+          ? `再設定用のメールを送信しました（DEBUG: ${String(json.debugLink)}）`
+          : '再設定用のメールを送信しました（届かない場合は設定やメールアドレスを確認してください）'
+      )
     } catch (e) {
       setBanner(e instanceof Error ? e.message : String(e))
     } finally {
@@ -108,12 +112,6 @@ export function PasswordResetScreen({
       <View style={styles.loginCard}>
         <Text style={styles.loginTitle}>パスワード再発行</Text>
         <Text style={styles.loginDesc}>管理者パスワードを再設定します</Text>
-
-        {banner ? (
-          <View style={styles.banner}>
-            <Text style={styles.bannerText}>{banner}</Text>
-          </View>
-        ) : null}
 
         {!token ? (
           <View style={styles.form}>

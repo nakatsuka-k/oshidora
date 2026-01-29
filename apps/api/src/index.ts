@@ -317,11 +317,23 @@ const ALLOWED_ORIGINS = new Set([
   'https://admin.oshidra.com',
   'http://localhost:3000',
   'http://localhost:5173',
+  // Local dev (start.sh)
+  'http://localhost:8081',
+  'http://localhost:8082',
+  'http://localhost:8083',
+  'http://127.0.0.1:8081',
+  'http://127.0.0.1:8082',
+  'http://127.0.0.1:8083',
 ])
 
 function getAllowedOrigin(origin: string | null) {
   if (!origin) return null
   const trimmed = origin.trim()
+
+  // Allow loopback origins for local development (any port).
+  // This only affects browser access from the same machine.
+  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(trimmed)) return trimmed
+
   return ALLOWED_ORIGINS.has(trimmed) ? trimmed : null
 }
 

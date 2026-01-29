@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Platform, Pressable, Switch, Text, TextInput, View } from 'react-native'
 
 import type { CmsApiConfig } from '../../lib/cmsApi'
+import { useBanner } from '../../lib/banner'
 import { cmsFetchJson } from '../../lib/cmsApi'
 import { styles } from '../../app/styles'
 
@@ -9,14 +10,13 @@ export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig;
   const videoId = String(streamVideoId || '').trim()
   const [items, setItems] = useState<any[]>([])
   const [busy, setBusy] = useState(false)
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
 
   const [lang, setLang] = useState('ja')
   const [label, setLabel] = useState('日本語')
   const [isDefault, setIsDefault] = useState(true)
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [uploadMsg, setUploadMsg] = useState('')
 
   const refresh = useCallback(async () => {
     if (!videoId) return
@@ -30,24 +30,24 @@ export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig;
     } finally {
       setBusy(false)
     }
-  }, [cfg, videoId])
+  }, [cfg, setBanner, videoId])
 
   const upload = useCallback(async () => {
     if (Platform.OS !== 'web') {
-      setUploadMsg('字幕アップロードはWeb版管理画面のみ対応です')
+      setBanner('字幕アップロードはWeb版管理画面のみ対応です')
       return
     }
     if (!videoId) {
-      setUploadMsg('Stream Video ID を設定してください')
+      setBanner('Stream Video ID を設定してください')
       return
     }
     if (!file) {
-      setUploadMsg('WebVTT（.vtt）ファイルを選択してください')
+      setBanner('WebVTT（.vtt）ファイルを選択してください')
       return
     }
 
     setUploading(true)
-    setUploadMsg('字幕アップロード中…')
+    setBanner('字幕アップロード中…')
     try {
       const base = String(cfg.apiBase || '').replace(/\/$/, '')
       if (!base) throw new Error('API Base が未設定です')
@@ -72,14 +72,14 @@ export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig;
         throw new Error(String(json?.error || `HTTP ${res.status}`))
       }
 
-      setUploadMsg('字幕をアップロードしました')
+      setBanner('字幕をアップロードしました')
       await refresh()
     } catch (e) {
-      setUploadMsg(e instanceof Error ? e.message : String(e))
+      setBanner(e instanceof Error ? e.message : String(e))
     } finally {
       setUploading(false)
     }
-  }, [cfg.apiBase, cfg.mock, cfg.token, file, isDefault, label, lang, refresh, videoId])
+  }, [cfg.apiBase, cfg.mock, cfg.token, file, isDefault, label, lang, refresh, setBanner, videoId])
 
   useEffect(() => {
     if (!videoId) return
@@ -104,7 +104,7 @@ export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig;
                 onChange={(e: any) => {
                   const f = e?.target?.files?.[0] ?? null
                   setFile(f)
-                  setUploadMsg('')
+                  setBanner('')
                 }}
               />
             </View>
@@ -139,9 +139,6 @@ export function StreamCaptionsPanel({ cfg, streamVideoId }: { cfg: CmsApiConfig;
               <Text style={styles.btnSecondaryText}>{busy ? '取得中…' : '字幕一覧を更新'}</Text>
             </Pressable>
           </View>
-
-          {uploadMsg ? <Text style={[styles.selectMenuDetailText, { marginTop: 8 }]}>{uploadMsg}</Text> : null}
-          {banner ? <Text style={[styles.selectMenuDetailText, { marginTop: 8 }]}>{banner}</Text> : null}
 
           <View style={[styles.table, { marginTop: 10 }]}>
             {(items ?? []).map((c: any, idx: number) => {

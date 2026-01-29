@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { useBanner } from '../../lib/banner'
+
 type CmsApiConfig = {
   apiBase: string
   uploaderBase: string
@@ -65,7 +67,7 @@ export function NoticesListScreen({
   onOpenDetail: (id: string) => void
   onNew: () => void
 }) {
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<NoticeRow[]>([])
 
@@ -118,12 +120,6 @@ export function NoticesListScreen({
           <Text style={styles.smallBtnPrimaryText}>新規作成</Text>
         </Pressable>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>一覧</Text>
@@ -194,7 +190,7 @@ export function NoticeEditScreen({
   const [mailHtml, setMailHtml] = useState('')
   const [status, setStatus] = useState<NoticeStatus>('draft')
 
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const appliedTags = useMemo(() => csvToIdList(tagsCsv), [csvToIdList, tagsCsv])
@@ -365,12 +361,6 @@ export function NoticeEditScreen({
         </Pressable>
         <Text style={styles.pageTitle}>{title}</Text>
       </View>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>

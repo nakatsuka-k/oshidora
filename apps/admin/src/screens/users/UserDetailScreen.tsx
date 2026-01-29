@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
+import { useBanner } from '../../lib/banner'
+import { FixedBottomBar } from '../../ui/FixedBottomBar'
 import { styles } from '../../ui/styles'
 
 export function UserDetailScreen({
@@ -14,7 +16,7 @@ export function UserDetailScreen({
   startInEdit?: boolean
 }) {
   const cfg = useCmsApi()
-  const [banner, setBanner] = useState('')
+  const [banner, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   type FavoriteCastItem = {
@@ -240,7 +242,8 @@ export function UserDetailScreen({
   }, [cfg, editAvatarUrl, editBirthDate, editDisplayName, editEmail, editEmailVerified, editFavoriteGenres, editFullName, editFullNameKana, editPhone, editPhoneVerified, editSmsAuthSkip, id])
 
   return (
-    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
+    <View style={{ flex: 1 }}>
+      <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.contentInner, { paddingBottom: editMode ? 110 : 24 }]}>
       <View style={styles.pageHeaderRow}>
         <Pressable onPress={onBack} style={styles.smallBtn}>
           <Text style={styles.smallBtnText}>戻る</Text>
@@ -270,18 +273,8 @@ export function UserDetailScreen({
         )}
       </View>
 
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>基本情報</Text>
-        <View style={styles.field}>
-          <Text style={styles.label}>ユーザーID</Text>
-          <Text style={styles.readonlyText}>{item?.id || id || '—'}</Text>
-        </View>
         <View style={styles.field}>
           <Text style={styles.label}>メールアドレス</Text>
           {editMode ? (
@@ -347,11 +340,7 @@ export function UserDetailScreen({
       {editMode ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>操作</Text>
-          <View style={styles.filterActions}>
-            <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
-              <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
-            </Pressable>
-          </View>
+          <View style={{ height: 8 }} />
         </View>
       ) : null}
 
@@ -565,6 +554,26 @@ export function UserDetailScreen({
             </View>
           )}
         </View>
-    </ScrollView>
+      </ScrollView>
+
+      {editMode ? (
+        <FixedBottomBar>
+          <View style={styles.filterActions}>
+            <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+              <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                resetFormFromItem(item)
+                setEditMode(false)
+              }}
+              style={styles.btnSecondary}
+            >
+              <Text style={styles.btnSecondaryText}>キャンセル</Text>
+            </Pressable>
+          </View>
+        </FixedBottomBar>
+      ) : null}
+    </View>
   )
 }

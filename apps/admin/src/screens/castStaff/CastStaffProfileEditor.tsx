@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Image, Platform, Pressable, Text, TextInput, View } from 'react-native'
 
 import { type CmsApiConfig, cmsFetchJson, cmsFetchJsonWithBase } from '../../lib/cmsApi'
+import { useBanner } from '../../lib/banner'
 
 type SnsItem = { label: string; url: string }
 
@@ -409,7 +410,7 @@ export function CastStaffProfileEditor(props: {
 }) {
   const { cfg, castId, styles, onSaved } = props
 
-  const [banner, setBanner] = useState('')
+  const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
 
   const [displayName, setDisplayName] = useState('')
@@ -706,12 +707,6 @@ export function CastStaffProfileEditor(props: {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>キャストプロフィール</Text>
-
-      {banner ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{banner}</Text>
-        </View>
-      ) : null}
 
       {castId ? (
         <View style={styles.field}>
