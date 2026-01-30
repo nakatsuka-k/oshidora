@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Platform, Pressable, Text, TextInput, View } from 'react-native'
 
-import { styles } from '../../app/styles'
+import { COLORS, styles } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
 
 function getTokenFromLocation(): string {
@@ -109,13 +109,20 @@ export function PasswordResetScreen({
     <View style={styles.loginRoot}>
       <View style={styles.loginCard}>
         <Text style={styles.loginTitle}>パスワード再発行</Text>
-        <Text style={styles.loginDesc}>管理者パスワードを再設定します</Text>
+        <Text style={styles.loginDesc}>再設定</Text>
 
         {!token ? (
           <View style={styles.form}>
             <View style={styles.field}>
               <Text style={styles.label}>メールアドレス</Text>
-              <TextInput value={email} onChangeText={setEmail} placeholder="admin@example.com" autoCapitalize="none" style={styles.input} />
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="admin@example.com"
+                placeholderTextColor={COLORS.placeholder}
+                autoCapitalize="none"
+                style={styles.input}
+              />
             </View>
             <View style={styles.actions}>
               <Pressable

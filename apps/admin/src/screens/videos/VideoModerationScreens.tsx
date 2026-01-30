@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Image, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
+import { Image, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
 import { useBanner } from '../../lib/banner'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
+import { FixedBottomBar } from '../../ui/FixedBottomBar'
 
 type CmsApiConfig = {
   apiBase: string
@@ -52,6 +54,7 @@ export function UnapprovedActorAccountsListScreen({
   const [rows, setRows] = useState<UnapprovedActorAccountRow[]>([])
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
+  const [openList, setOpenList] = useState(true)
 
   useEffect(() => {
     let mounted = true
@@ -89,11 +92,19 @@ export function UnapprovedActorAccountsListScreen({
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <View style={styles.pageHeaderRow}>
-        <Text style={styles.pageTitle}>未承認俳優アカウント一覧</Text>
+        <View style={{ flex: 1, gap: 6 } as any}>
+          <Text style={styles.pageTitle}>俳優申請</Text>
+          <Text style={styles.pageSubtitle ?? styles.pageLead}>未承認</Text>
+        </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <CollapsibleSection
+        title="一覧"
+        subtitle={rows.length ? `${rows.length}件` : '—'}
+        open={openList}
+        onToggle={() => setOpenList((v) => !v)}
+        styles={styles}
+      >
         <View style={styles.table}>
           {busy && rows.length === 0 ? (
             <View style={styles.placeholderBox}>
@@ -117,7 +128,7 @@ export function UnapprovedActorAccountsListScreen({
             </Pressable>
           ))}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -141,6 +152,8 @@ export function UnapprovedActorAccountDetailScreen({
   const [busy, setBusy] = useState(false)
   const [item, setItem] = useState<null | { id: string; name: string; email: string; submittedAt: string; draft: any }>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [openInfo, setOpenInfo] = useState(true)
+  const [openActions, setOpenActions] = useState(true)
 
   useEffect(() => {
     let mounted = true
@@ -221,11 +234,13 @@ export function UnapprovedActorAccountDetailScreen({
         <Pressable onPress={onBack} style={styles.smallBtn}>
           <Text style={styles.smallBtnText}>戻る</Text>
         </Pressable>
-        <Text style={styles.pageTitle}>俳優アカウント詳細</Text>
+        <View style={{ flex: 1, gap: 6 } as any}>
+          <Text style={styles.pageTitle}>俳優申請</Text>
+          <Text style={styles.pageSubtitle ?? styles.pageLead}>詳細</Text>
+        </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>申請情報</Text>
+      <CollapsibleSection title="申請" open={openInfo} onToggle={() => setOpenInfo((v) => !v)} styles={styles}>
         <View style={styles.field}>
           <Text style={styles.label}>ID</Text>
           <Text style={styles.readonlyText}>{id || '—'}</Text>
@@ -248,10 +263,9 @@ export function UnapprovedActorAccountDetailScreen({
             <Text style={styles.readonlyText}>{JSON.stringify(item.draft)}</Text>
           </View>
         ) : null}
-      </View>
+      </CollapsibleSection>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>操作</Text>
+      <CollapsibleSection title="操作" open={openActions} onToggle={() => setOpenActions((v) => !v)} styles={styles}>
         <View style={styles.filterActions}>
           <Pressable disabled={busy} onPress={() => void approve()} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '処理中…' : '承認'}</Text>
@@ -267,7 +281,7 @@ export function UnapprovedActorAccountDetailScreen({
             <Text style={styles.btnSecondaryText}>{busy ? '処理中…' : '否認'}</Text>
           </Pressable>
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -286,6 +300,7 @@ export function UnapprovedVideosListScreen({
   const [rows, setRows] = useState<UnapprovedVideoRow[]>([])
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
+  const [openList, setOpenList] = useState(true)
 
   useEffect(() => {
     let mounted = true
@@ -323,11 +338,19 @@ export function UnapprovedVideosListScreen({
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <View style={styles.pageHeaderRow}>
-        <Text style={styles.pageTitle}>未承認動画一覧</Text>
+        <View style={{ flex: 1, gap: 6 } as any}>
+          <Text style={styles.pageTitle}>動画承認</Text>
+          <Text style={styles.pageSubtitle ?? styles.pageLead}>未承認</Text>
+        </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <CollapsibleSection
+        title="一覧"
+        subtitle={rows.length ? `${rows.length}件` : '—'}
+        open={openList}
+        onToggle={() => setOpenList((v) => !v)}
+        styles={styles}
+      >
         <View style={styles.table}>
           {busy && rows.length === 0 ? (
             <View style={styles.placeholderBox}>
@@ -351,7 +374,7 @@ export function UnapprovedVideosListScreen({
             </Pressable>
           ))}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -387,6 +410,8 @@ export function UnapprovedVideoDetailScreen({
       }
   >(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [openInfo, setOpenInfo] = useState(true)
+  const [openActions, setOpenActions] = useState(true)
 
   useEffect(() => {
     let mounted = true
@@ -469,11 +494,13 @@ export function UnapprovedVideoDetailScreen({
         <Pressable onPress={onBack} style={styles.smallBtn}>
           <Text style={styles.smallBtnText}>戻る</Text>
         </Pressable>
-        <Text style={styles.pageTitle}>未承認動画 詳細</Text>
+        <View style={{ flex: 1, gap: 6 } as any}>
+          <Text style={styles.pageTitle}>動画承認</Text>
+          <Text style={styles.pageSubtitle ?? styles.pageLead}>詳細</Text>
+        </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>動画情報</Text>
+      <CollapsibleSection title="動画" open={openInfo} onToggle={() => setOpenInfo((v) => !v)} styles={styles}>
         <View style={styles.field}>
           <Text style={styles.label}>動画ID</Text>
           <Text style={styles.readonlyText}>{id || '—'}</Text>
@@ -510,10 +537,9 @@ export function UnapprovedVideoDetailScreen({
             <Text style={styles.readonlyText}>{item.streamVideoId}</Text>
           </View>
         ) : null}
-      </View>
+      </CollapsibleSection>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>操作</Text>
+      <CollapsibleSection title="操作" open={openActions} onToggle={() => setOpenActions((v) => !v)} styles={styles}>
         <View style={styles.filterActions}>
           <Pressable disabled={busy} onPress={() => void approve()} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '処理中…' : '承認'}</Text>
@@ -528,7 +554,7 @@ export function UnapprovedVideoDetailScreen({
             <Text style={styles.btnSecondaryText}>{busy ? '処理中…' : '否認'}</Text>
           </Pressable>
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -549,6 +575,7 @@ export function ScheduledVideosListScreen({
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<ScheduledVideoRow[]>([])
+  const [openList, setOpenList] = useState(true)
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -584,10 +611,20 @@ export function ScheduledVideosListScreen({
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
-      <Text style={styles.pageTitle}>配信予定動画一覧</Text>
+      <View style={styles.pageHeaderRow}>
+        <View style={{ flex: 1, gap: 6 } as any}>
+          <Text style={styles.pageTitle}>配信予定</Text>
+          <Text style={styles.pageSubtitle ?? styles.pageLead}>一覧</Text>
+        </View>
+      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <CollapsibleSection
+        title="一覧"
+        subtitle={rows.length ? `${rows.length}件` : '—'}
+        open={openList}
+        onToggle={() => setOpenList((v) => !v)}
+        styles={styles}
+      >
         <View style={styles.table}>
           {busy ? (
             <View style={styles.placeholderBox}>
@@ -608,7 +645,7 @@ export function ScheduledVideosListScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -631,6 +668,27 @@ export function ScheduledVideoDetailScreen({
   const [title, setTitle] = useState('')
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
+  const [openEdit, setOpenEdit] = useState(true)
+
+  const [initialKey, setInitialKey] = useState('')
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+
+  const currentKey = JSON.stringify({ scheduledAt: String(scheduledAt ?? '').trim(), canceled: Boolean(canceled) })
+  const dirty = Boolean(initialKey) && initialKey !== currentKey
+  const justSaved = Boolean(savedAt && Date.now() - savedAt < 1800)
+
+  useEffect(() => {
+    if (!dirty) return
+    if (Platform.OS !== 'web') return
+    if (typeof window === 'undefined') return
+    const handler = (e: any) => {
+      e.preventDefault()
+      e.returnValue = ''
+      return ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
 
   useEffect(() => {
     if (!id) return
@@ -643,8 +701,11 @@ export function ScheduledVideoDetailScreen({
         if (!mounted) return
         const it = json.item
         setTitle(String(it?.title ?? ''))
-        setScheduledAt(it?.scheduledAt ? String(it.scheduledAt).slice(0, 19).replace('T', ' ') : '')
-        setCanceled(String(it?.status ?? 'scheduled') === 'cancelled')
+        const nextScheduledAt = it?.scheduledAt ? String(it.scheduledAt).slice(0, 19).replace('T', ' ') : ''
+        const nextCanceled = String(it?.status ?? 'scheduled') === 'cancelled'
+        setScheduledAt(nextScheduledAt)
+        setCanceled(nextCanceled)
+        setInitialKey(JSON.stringify({ scheduledAt: String(nextScheduledAt ?? '').trim(), canceled: Boolean(nextCanceled) }))
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -669,6 +730,8 @@ export function ScheduledVideoDetailScreen({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ scheduledAt: scheduledAt.trim() || null, status: canceled ? 'cancelled' : 'scheduled' }),
         })
+        setInitialKey(JSON.stringify({ scheduledAt: String(scheduledAt ?? '').trim(), canceled: Boolean(canceled) }))
+        setSavedAt(Date.now())
         setBanner('保存しました')
       } catch (e) {
         setBanner(e instanceof Error ? e.message : String(e))
@@ -679,38 +742,61 @@ export function ScheduledVideoDetailScreen({
   }, [canceled, cfg, cmsFetchJson, id, scheduledAt])
 
   return (
-    <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
-      <View style={styles.pageHeaderRow}>
-        <Pressable onPress={onBack} style={styles.smallBtn}>
-          <Text style={styles.smallBtnText}>戻る</Text>
-        </Pressable>
-        <Text style={styles.pageTitle}>配信予定動画 詳細・編集</Text>
-      </View>
+    <View style={{ flex: 1 }}>
+      <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.contentInner, { paddingBottom: 110 }] as any}>
+        <View style={styles.pageHeaderRow}>
+          <Pressable onPress={onBack} style={styles.smallBtn}>
+            <Text style={styles.smallBtnText}>戻る</Text>
+          </Pressable>
+          <View style={{ flex: 1, gap: 6 } as any}>
+            <Text style={styles.pageTitle}>配信予定</Text>
+            <Text style={styles.pageSubtitle ?? styles.pageLead}>詳細・編集</Text>
+          </View>
+          {dirty ? <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '800' } as any}>未保存</Text> : null}
+        </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>表示/編集</Text>
-        <View style={styles.field}>
-          <Text style={styles.label}>ID</Text>
-          <Text style={styles.readonlyText}>{id || '—'}</Text>
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>タイトル</Text>
-          <Text style={styles.readonlyText}>{title || '—'}</Text>
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>配信予定日時</Text>
-          <TextInput value={scheduledAt} onChangeText={setScheduledAt} style={styles.input} />
-        </View>
-        <View style={styles.devRow}>
-          <Text style={styles.devLabel}>配信キャンセル</Text>
-          <Switch value={canceled} onValueChange={setCanceled} />
-        </View>
-        <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+        <CollapsibleSection
+          title="編集"
+          open={openEdit}
+          onToggle={() => setOpenEdit((v) => !v)}
+          styles={styles}
+          badges={
+            justSaved
+              ? [{ kind: 'saved', label: '保存しました' }]
+              : dirty
+                ? [{ kind: 'dirty', label: '未保存' }]
+                : undefined
+          }
+        >
+          <View style={styles.field}>
+            <Text style={styles.label}>ID</Text>
+            <Text style={styles.readonlyText}>{id || '—'}</Text>
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>タイトル</Text>
+            <Text style={styles.readonlyText}>{title || '—'}</Text>
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>配信予定日時</Text>
+            <TextInput value={scheduledAt} onChangeText={setScheduledAt} style={styles.input} />
+          </View>
+          <View style={styles.devRow}>
+            <Text style={styles.devLabel}>配信キャンセル</Text>
+            <Switch value={canceled} onValueChange={(v) => setCanceled(Boolean(v))} />
+          </View>
+        </CollapsibleSection>
+      </ScrollView>
+
+      <FixedBottomBar>
+        <View style={[styles.filterActions, { justifyContent: 'space-between' } as any]}>
+          <Pressable disabled={busy} onPress={onBack} style={styles.btnSecondary}>
+            <Text style={styles.btnSecondaryText}>戻る</Text>
+          </Pressable>
+          <Pressable disabled={busy || !dirty} onPress={onSave} style={[styles.btnPrimary, busy || !dirty ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
-      </View>
-    </ScrollView>
+      </FixedBottomBar>
+    </View>
   )
 }

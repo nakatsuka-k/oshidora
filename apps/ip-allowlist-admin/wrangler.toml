@@ -1,0 +1,16 @@
+name = "oshidra-ip-allowlist-admin"
+main = "src/index.ts"
+compatibility_date = "2026-01-02"
+
+# Expose a predictable URL like:
+# https://oshidra-ip-allowlist-admin.<your-subdomain>.workers.dev/
+workers_dev = true
+
+account_id = "c6270d2ac0aefb2ca6ce6831cbc9ca30"
+
+# Shared D1 with the main API/router.
+[[d1_databases]]
+binding = "DB"
+database_name = "oshidora-db"
+database_id = "1f7de46f-7b0c-4150-ae76-6dd762a23f71"
+

@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-nati
 
 import { styles } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
 
 type CmsApiConfig = {
   apiBase: string
@@ -28,6 +29,8 @@ export function CastCategoriesListScreen({
   const [rows, setRows] = useState<CastCategoryRow[]>([])
   const [busy, setBusy] = useState(false)
   const [, setBanner] = useBanner()
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ list: true })
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -61,8 +64,14 @@ export function CastCategoriesListScreen({
         </Pressable>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <Text style={styles.pageSubtitle}>カテゴリを選んで編集</Text>
+
+      <CollapsibleSection
+        title="一覧"
+        subtitle="選んで編集へ"
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+      >
         <View style={styles.table}>
           {busy ? (
             <View style={styles.placeholderBox}>
@@ -83,7 +92,7 @@ export function CastCategoriesListScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }

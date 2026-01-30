@@ -16,7 +16,10 @@ import {
   View,
 } from 'react-native'
 
+import { CollapsibleSection } from './src/ui/CollapsibleSection'
 import { WebDropZone } from './src/ui/WebDropZone'
+
+import { resetUnauthorizedEventEmission } from './src/lib/cmsApi'
 
 import {
   CategoriesListScreen as CatalogCategoriesListScreen,
@@ -73,6 +76,7 @@ import {
 } from './src/screens/videos/VideoModerationScreens'
 import {
   WorkEditScreen as ExtractedWorkEditScreen,
+  WorkPreviewScreen as ExtractedWorkPreviewScreen,
   WorksListScreen as ExtractedWorksListScreen,
 } from './src/screens/works/WorkScreens'
 
@@ -104,6 +108,7 @@ type RouteId =
   // 作品管理
   | 'works'
   | 'work-detail'
+  | 'work-preview'
   | 'work-new'
   // コメント管理
   | 'comments-pending'
@@ -327,7 +332,9 @@ async function cmsFetchJsonWithBase<T>(
 
   if (!res.ok) {
     const DEFAULT_ERROR = '通信に失敗しました。時間をおいて再度お試しください'
-    const msg = json && json.error ? String(json.error) : DEFAULT_ERROR
+    const rawMsg = json && json.error ? String(json.error) : DEFAULT_ERROR
+    const normalized = rawMsg.trim().toLowerCase()
+    const msg = normalized === 'not_found' || normalized === 'not found' ? '見つかりませんでした' : rawMsg
     throw new Error(msg)
   }
   return json as T
@@ -592,7 +599,12 @@ function normalizeLegacyHashToPath(): void {
   const qIndex = withoutHash.indexOf('?')
   const hashQuery = qIndex >= 0 ? withoutHash.slice(qIndex + 1) : ''
   const pathPart = (qIndex >= 0 ? withoutHash.slice(0, qIndex) : withoutHash).split('#')[0]
-  const first = String(pathPart.split('/')[0] || '').trim()
+  const parts = pathPart
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  const first = String(parts[0] || '').trim()
   if (!first) return
 
   let nextSearch = window.location.search
@@ -608,8 +620,17 @@ function normalizeLegacyHashToPath(): void {
     }
   }
 
+  const nextPath = (() => {
+    const key = first.toLowerCase()
+    if (key === 'video-detail') {
+      const id = parts[1] || ''
+      return buildVideoDetailPath(id)
+    }
+    return `/${key}`
+  })()
+
   try {
-    window.history.replaceState({}, '', `/${first.toLowerCase()}` + nextSearch)
+    window.history.replaceState({}, '', nextPath + nextSearch)
   } catch {
     // ignore
   }
@@ -622,10 +643,44 @@ function normalizeLegacyHashToPath(): void {
 }
 
 function setPathRoute(route: RouteId): void {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return
   const nextPath = route === 'login' ? '/login' : route === 'dashboard' ? '/dashboard' : `/${route}`
-  if (window.location.pathname === nextPath) return
-  window.history.pushState({}, '', nextPath + window.location.search)
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    const curPath = String(window.location.pathname || '')
+    if (curPath === nextPath || curPath.startsWith(nextPath + '/')) return
+  }
+  setPathname(nextPath)
+}
+
+function setPathname(pathname: string, opts?: { replace?: boolean; preserveSearch?: boolean }): void {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return
+  const raw = String(pathname || '').trim()
+  const nextPath = raw ? (raw.startsWith('/') ? raw : `/${raw}`) : '/'
+  const search = opts?.preserveSearch === false ? '' : window.location.search
+  const nextUrl = nextPath + search
+  const curUrl = window.location.pathname + window.location.search
+  if (curUrl === nextUrl) return
+  if (opts?.replace) window.history.replaceState({}, '', nextUrl)
+  else window.history.pushState({}, '', nextUrl)
+}
+
+function normalizeSlugSegment(name: string): string {
+  return String(name || '')
+    .trim()
+    .replace(/\s+/g, '-')
+}
+
+function buildVideoDetailPath(id: string): string {
+  const vid = String(id || '').trim()
+  if (!vid) return '/video-detail'
+  return `/video-detail/${encodeURIComponent(vid)}`
+}
+
+function buildCategoryDetailPath(id: string, name?: string): string {
+  const cid = String(id || '').trim()
+  if (!cid) return '/category-detail'
+  const slug = normalizeSlugSegment(String(name || '').trim())
+  const base = `/category-detail/${encodeURIComponent(cid)}`
+  return slug ? `${base}/${encodeURIComponent(slug)}` : base
 }
 
 function getApiBaseFromLocation(): string {
@@ -716,14 +771,17 @@ function Sidebar({
   entries,
   activeId,
   onNavigate,
+  headerAddon,
 }: {
   entries: SidebarEntry[]
   activeId: RouteId
   onNavigate: (id: RouteId) => void
+  headerAddon?: ReactNode
 }) {
   return (
     <View style={styles.sidebar}>
       <Text style={styles.sidebarTitle}>管理メニュー</Text>
+      {headerAddon ? <View style={{ marginTop: 10 }}>{headerAddon}</View> : null}
       <View style={styles.sidebarDivider} />
       <ScrollView
         style={[styles.sidebarList, Platform.OS === 'web' ? ({ overflowY: 'auto' } as any) : null]}
@@ -778,6 +836,7 @@ function sidebarActiveRoute(route: RouteId): RouteId {
     case 'unapproved-actor-account-detail':
       return 'unapproved-actor-accounts'
     case 'work-detail':
+    case 'work-preview':
     case 'work-new':
       return 'works'
     case 'comment-approve':
@@ -874,6 +933,8 @@ function DashboardScreen({
     () => [
       { id: 's_add_work', label: '作品を追加', route: 'works' },
       { id: 's_add_video', label: '動画を追加', route: 'videos' },
+      { id: 's_users', label: 'ユーザーを探す', route: 'users' },
+      { id: 's_user_new', label: 'ユーザーを作成', route: 'user-new' },
       { id: 's_comment_approve', label: 'コメント承認', route: 'comments-pending' },
       { id: 's_cast_register', label: 'キャスト登録', route: 'castStaff' },
       { id: 's_coin_withdraw', label: 'コイン換金処理', route: 'coin' },
@@ -998,7 +1059,6 @@ function DashboardScreen({
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
-      <Text style={styles.pageTitle}>ダッシュボード</Text>
 
       {banner ? (
         <View style={styles.banner}>
@@ -1006,21 +1066,63 @@ function DashboardScreen({
         </View>
       ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>サマリー情報</Text>
-        <View style={styles.kpiGrid}>
-          {kpis.map((it) => (
-            <Pressable key={it.id} onPress={() => onNavigate(it.route)} style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>{it.label}</Text>
-              <Text style={styles.kpiValue}>{it.value}</Text>
+      <View style={[styles.plainSection, styles.plainSectionFirst]}>
+        <View style={styles.plainSectionTitleRow}>
+          <Text style={styles.plainSectionTitle}>承認・対応待ち</Text>
+        </View>
+
+        <View style={styles.table}>
+          {busy && activities.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読込中…</Text>
+            </View>
+          ) : null}
+          {activities.map((a) => (
+            <Pressable key={a.id} onPress={() => onNavigate(a.route)} style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>{a.label}</Text>
+                <Text style={styles.tableDetail}>{a.detail}</Text>
+              </View>
+              <View style={styles.tableRight}>
+                {typeof a.pendingCount === 'number' ? (
+                  <Text style={[styles.pendingText, a.pendingCount > 0 ? styles.pendingTextEmph : null]}>
+                    未対応 {a.pendingCount}
+                  </Text>
+                ) : null}
+                <Text style={styles.linkText}>開く</Text>
+              </View>
             </Pressable>
           ))}
         </View>
       </View>
 
-      <View style={styles.section}>
+      <View style={styles.plainSection}>
+        <View style={styles.plainSectionTitleRow}>
+          <Text style={styles.plainSectionTitle}>全体の状況</Text>
+          <Text style={styles.plainSectionDesc}>数字をクリックすると該当画面へ移動します</Text>
+        </View>
+
+        <View style={styles.table}>
+          {kpis.map((it) => (
+            <Pressable key={it.id} onPress={() => onNavigate(it.route)} style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>{it.label}</Text>
+              </View>
+              <View style={styles.tableRight}>
+                <Text style={styles.tableLabel}>{it.value}</Text>
+                <Text style={styles.linkText}>開く</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.plainSection}>
         <View style={styles.pageHeaderRow}>
-          <Text style={styles.sectionTitle}>配信予定動画（直近）</Text>
+          <View style={{ flex: 1, gap: 4 } as any}>
+            <Text style={styles.plainSectionTitle}>近日配信の予定を確認する</Text>
+            <Text style={styles.plainSectionDesc}>直近5件を表示しています</Text>
+          </View>
           <Pressable onPress={() => onNavigate('videos-scheduled')} style={styles.smallBtnPrimary}>
             <Text style={styles.smallBtnPrimaryText}>一覧へ</Text>
           </Pressable>
@@ -1057,34 +1159,11 @@ function DashboardScreen({
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>最近のアクティビティ</Text>
-        <View style={styles.table}>
-          {busy && activities.length === 0 ? (
-            <View style={styles.placeholderBox}>
-              <Text style={styles.placeholderText}>読込中…</Text>
-            </View>
-          ) : null}
-          {activities.map((a) => (
-            <Pressable key={a.id} onPress={() => onNavigate(a.route)} style={styles.tableRow}>
-              <View style={styles.tableLeft}>
-                <Text style={styles.tableLabel}>{a.label}</Text>
-                <Text style={styles.tableDetail}>{a.detail}</Text>
-              </View>
-              <View style={styles.tableRight}>
-                {typeof a.pendingCount === 'number' ? (
-                  <Text style={[styles.pendingText, a.pendingCount > 0 ? styles.pendingTextEmph : null]}>
-                    未対応 {a.pendingCount}
-                  </Text>
-                ) : null}
-              </View>
-            </Pressable>
-          ))}
+      <View style={styles.plainSection}>
+        <View style={styles.plainSectionTitleRow}>
+          <Text style={styles.plainSectionTitle}>よく使う作業へすぐ移動する</Text>
+          <Text style={styles.plainSectionDesc}>迷ったらここから目的の画面へ</Text>
         </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>管理ショートカット</Text>
         <View style={styles.shortcutGrid}>
           {shortcuts.map((s) => (
             <Pressable key={s.id} onPress={() => onNavigate(s.route)} style={styles.shortcutCard}>
@@ -1101,9 +1180,12 @@ function PlaceholderScreen({ title }: { title: string }) {
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>{title}</Text>
-      <View style={styles.placeholderBox}>
-        <Text style={styles.placeholderText}>未実装</Text>
-      </View>
+      <Text style={styles.pageSubtitle}>この画面はまだ準備中</Text>
+      <CollapsibleSection title="状態" subtitle="未実装" open={true} onToggle={() => {}}>
+        <View style={styles.placeholderBox}>
+          <Text style={styles.placeholderText}>未実装</Text>
+        </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -1112,14 +1194,17 @@ function NotFoundScreen({ onGoDashboard }: { onGoDashboard: () => void }) {
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>404</Text>
-      <View style={styles.placeholderBox}>
-        <Text style={styles.placeholderText}>ページが見つかりません</Text>
-        <View style={styles.filterActions}>
-          <Pressable onPress={onGoDashboard} style={styles.btnPrimary}>
-            <Text style={styles.btnPrimaryText}>ダッシュボードへ戻る</Text>
-          </Pressable>
+      <Text style={styles.pageSubtitle}>ページが見つかりません</Text>
+      <CollapsibleSection title="案内" subtitle="トップへ戻る" open={true} onToggle={() => {}}>
+        <View style={styles.placeholderBox}>
+          <Text style={styles.placeholderText}>ページが見つかりません</Text>
+          <View style={styles.filterActions}>
+            <Pressable onPress={onGoDashboard} style={styles.btnPrimary}>
+              <Text style={styles.btnPrimaryText}>ダッシュボードへ戻る</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -1128,14 +1213,17 @@ function MaintenanceModeScreen({ message, onGoSettings }: { message: string; onG
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>メンテナンス中</Text>
-      <View style={styles.placeholderBox}>
-        <Text style={styles.placeholderText}>{message || 'メンテナンス中です。しばらくお待ちください。'}</Text>
-        <View style={styles.filterActions}>
-          <Pressable onPress={onGoSettings} style={styles.btnSecondary}>
-            <Text style={styles.btnSecondaryText}>設定へ</Text>
-          </Pressable>
+      <Text style={styles.pageSubtitle}>運用設定から解除できます</Text>
+      <CollapsibleSection title="表示" subtitle="メッセージ" open={true} onToggle={() => {}}>
+        <View style={styles.placeholderBox}>
+          <Text style={styles.placeholderText}>{message || 'メンテナンス中です。しばらくお待ちください。'}</Text>
+          <View style={styles.filterActions}>
+            <Pressable onPress={onGoSettings} style={styles.btnSecondary}>
+              <Text style={styles.btnSecondaryText}>設定へ</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -2331,7 +2419,8 @@ function PickupScreen() {
     void loadSelected()
   }, [loadSelected])
 
-  const runSearch = useCallback(async () => {
+  const runSearch = useCallback(
+    async (opts?: { limit?: number }) => {
     setBusy(true)
     setBanner('')
     try {
@@ -2340,7 +2429,7 @@ function PickupScreen() {
       if (qCast.trim()) params.set('cast', qCast.trim())
       if (qCategory.trim()) params.set('category', qCategory.trim())
       if (qTag.trim()) params.set('tag', qTag.trim())
-      params.set('limit', '80')
+      params.set('limit', String(Math.max(1, Math.min(200, opts?.limit ?? 80))))
       const json = await cmsFetchJson<{ items: FeaturedVideoItem[] }>(cfg, `/cms/videos/search?${params.toString()}`)
       setSearchRows(Array.isArray(json.items) ? json.items : [])
     } catch (e) {
@@ -2348,7 +2437,16 @@ function PickupScreen() {
     } finally {
       setBusy(false)
     }
-  }, [cfg, q, qCast, qCategory, qTag])
+    },
+    [cfg, q, qCast, qCategory, qTag]
+  )
+
+  useEffect(() => {
+    if (addMode !== 'video') return
+    if (searchRows.length > 0) return
+    if (q.trim() || qCast.trim() || qCategory.trim() || qTag.trim()) return
+    void runSearch({ limit: 3 })
+  }, [addMode, q, qCast, qCategory, qTag, runSearch, searchRows.length])
 
   const resetSearch = useCallback(() => {
     setQ('')
@@ -2367,13 +2465,26 @@ function PickupScreen() {
     return s
   }, [selectedRows])
 
-  const addVideo = useCallback((it: FeaturedVideoItem) => {
-    setSelectedRows((prev) => {
-      if (prev.some((p) => p.kind === 'video' && (p.videoId || p.id) === it.id)) return prev
-      const next: PickupVideoItem = { ...it, kind: 'video', videoId: it.id }
-      return [...prev, next]
-    })
-  }, [])
+  const addVideo = useCallback(
+    (it: FeaturedVideoItem) => {
+      setBanner('')
+      setSelectedRows((prev) => {
+        if (prev.some((p) => p.kind === 'video' && (p.videoId || p.id) === it.id)) return prev
+
+        // Home renders pickup as *works* and de-duplicates by workId.
+        // Keep Admin selection consistent so ordering/count doesn't appear "out of sync".
+        const workId = String((it as any).workId ?? '').trim()
+        if (workId && prev.some((p) => p.kind === 'video' && String((p as any).workId ?? '').trim() === workId)) {
+          setBanner('同一作品からはピックアップ動画を1件のみ選択できます（ホーム側で重複は表示されません）')
+          return prev
+        }
+
+        const next: PickupVideoItem = { ...it, kind: 'video', videoId: it.id }
+        return [...prev, next]
+      })
+    },
+    [setBanner]
+  )
 
   const addLink = useCallback(() => {
     const url = linkUrl.trim()
@@ -2604,7 +2715,7 @@ function PickupScreen() {
           </View>
 
           <View style={styles.filterActions}>
-            <Pressable disabled={busy} onPress={runSearch} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Pressable disabled={busy} onPress={() => void runSearch()} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
               <Text style={styles.btnPrimaryText}>{busy ? '検索中…' : '検索'}</Text>
             </Pressable>
             <Pressable onPress={resetSearch} style={styles.btnSecondary}>
@@ -2619,7 +2730,7 @@ function PickupScreen() {
             {searchRows.length === 0 ? (
               <View style={styles.tableRow}>
                 <View style={styles.tableLeft}>
-                  <Text style={styles.tableDetail}>検索結果がありません</Text>
+                  <Text style={styles.tableDetail}>見つかりませんでした</Text>
                 </View>
               </View>
             ) : (
@@ -3043,13 +3154,48 @@ function CastStaffDetailScreen({
   )
 }
 
-type CoinSettingRow = { id: string; price: string; place: string; target: string; period: string }
+type CoinSettingRow = { id: string; price: string; coinAmount: string; period: string }
+
+function formatCoinPeriod(startsAt: unknown, endsAt: unknown) {
+  const s = String(startsAt ?? '').trim()
+  const e = String(endsAt ?? '').trim()
+  if (!s && !e) return '常時'
+  if (s && e) return `${s} 〜 ${e}`
+  if (s) return `${s} 〜`
+  return `〜 ${e}`
+}
+
+function isValidYmd(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s)
+}
+
+function DateInput({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.input as any}>
+        {
+          // eslint-disable-next-line react/no-unknown-property
+        }
+        <input
+          type="date"
+          value={value}
+          disabled={Boolean(disabled)}
+          onChange={(e: any) => onChange(String(e?.target?.value ?? ''))}
+          style={{ width: '100%', height: '100%', border: 'none', outline: 'none', background: 'transparent', color: 'inherit', font: 'inherit' } as any}
+        />
+      </View>
+    )
+  }
+
+  return <TextInput value={value} onChangeText={onChange} style={styles.input} editable={!disabled} placeholder="YYYY-MM-DD" />
+}
 
 function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: string) => void; onNew: () => void }) {
   const cfg = useCmsApi()
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<CoinSettingRow[]>([])
+  const [openList, setOpenList] = useState(true)
 
   useEffect(() => {
     let mounted = true
@@ -3063,9 +3209,8 @@ function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: st
           (json.items ?? []).map((r) => ({
             id: String(r.id ?? ''),
             price: `¥${Number(r.priceYen ?? 0).toLocaleString('ja-JP')}`,
-            place: String(r.place ?? ''),
-            target: String(r.target ?? ''),
-            period: String(r.period ?? ''),
+            coinAmount: `${Number(r.coinAmount ?? 0).toLocaleString('ja-JP')}pt`,
+            period: formatCoinPeriod(r.startsAt, r.endsAt),
           }))
         )
       } catch (e) {
@@ -3090,14 +3235,21 @@ function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: st
         </Pressable>
       </View>
 
+      <Text style={styles.pageSubtitle}>商品と期間を管理</Text>
+
       {banner ? (
         <View style={styles.banner}>
           <Text style={styles.bannerText}>{banner}</Text>
         </View>
       ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <CollapsibleSection
+        title="一覧"
+        subtitle="価格 / 付与ポイント / 期間"
+        open={openList}
+        onToggle={() => setOpenList((v) => !v)}
+        badges={busy ? [{ kind: 'info', label: '読込中' }] : []}
+      >
         <View style={styles.table}>
           {busy ? (
             <View style={styles.placeholderBox}>
@@ -3107,8 +3259,8 @@ function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: st
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
-                <Text style={styles.tableLabel}>{`${r.price} / ${r.target}`}</Text>
-                <Text style={styles.tableDetail}>{`${r.id} / ${r.place} / ${r.period}`}</Text>
+                <Text style={styles.tableLabel}>{`${r.price} / ${r.coinAmount}`}</Text>
+                <Text style={styles.tableDetail}>{`${r.id} / ${r.period}`}</Text>
               </View>
             </Pressable>
           ))}
@@ -3118,7 +3270,7 @@ function CoinSettingsListScreen({ onOpenDetail, onNew }: { onOpenDetail: (id: st
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -3129,16 +3281,23 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
   const [busy, setBusy] = useState(false)
 
   const [priceYenText, setPriceYenText] = useState('')
-  const [place, setPlace] = useState('')
-  const [target, setTarget] = useState('')
-  const [period, setPeriod] = useState('')
+  const [coinAmountText, setCoinAmountText] = useState('')
+  const [startsAt, setStartsAt] = useState('')
+  const [endsAt, setEndsAt] = useState('')
+  const [noPeriod, setNoPeriod] = useState(true)
+
+  const [initialKey, setInitialKey] = useState('')
+  const [openBasics, setOpenBasics] = useState(true)
+  const [openPeriod, setOpenPeriod] = useState(true)
 
   useEffect(() => {
     if (!id) {
       setPriceYenText('')
-      setPlace('')
-      setTarget('')
-      setPeriod('')
+      setCoinAmountText('')
+      setStartsAt('')
+      setEndsAt('')
+      setNoPeriod(true)
+      setInitialKey(JSON.stringify({ priceYenText: '', coinAmountText: '', startsAt: '', endsAt: '', noPeriod: true }))
       return
     }
 
@@ -3150,10 +3309,18 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
         const json = await cmsFetchJson<{ item: any }>(cfg, `/cms/coin-settings/${encodeURIComponent(id)}`)
         if (!mounted) return
         const it = json.item
-        setPriceYenText(String(it?.priceYen ?? ''))
-        setPlace(String(it?.place ?? ''))
-        setTarget(String(it?.target ?? ''))
-        setPeriod(String(it?.period ?? ''))
+        const p = String(it?.priceYen ?? '')
+        const c = String(it?.coinAmount ?? '')
+        const s = String(it?.startsAt ?? '').trim()
+        const e = String(it?.endsAt ?? '').trim()
+        const np = !s && !e
+
+        setPriceYenText(p)
+        setCoinAmountText(c)
+        setStartsAt(s)
+        setEndsAt(e)
+        setNoPeriod(np)
+        setInitialKey(JSON.stringify({ priceYenText: p, coinAmountText: c, startsAt: s, endsAt: e, noPeriod: np }))
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -3167,23 +3334,58 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
     }
   }, [cfg, id])
 
+  const currentKey = JSON.stringify({ priceYenText, coinAmountText, startsAt, endsAt, noPeriod })
+  const dirty = Boolean(initialKey) && currentKey !== initialKey
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return
+    if (typeof window === 'undefined') return
+    const handler = (e: any) => {
+      if (!dirty) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
+
   const onSave = useCallback(() => {
     const priceYen = Math.floor(Number(priceYenText || 0))
     if (!Number.isFinite(priceYen) || priceYen <= 0) {
       setBanner('価格（円）を入力してください')
       return
     }
+
+    const coinAmount = Math.floor(Number(coinAmountText || 0))
+    if (!Number.isFinite(coinAmount) || coinAmount <= 0) {
+      setBanner('取得ポイントを入力してください')
+      return
+    }
+
+    const s = noPeriod ? '' : String(startsAt || '').trim()
+    const e = noPeriod ? '' : String(endsAt || '').trim()
+    if ((s && !isValidYmd(s)) || (e && !isValidYmd(e))) {
+      setBanner('開始日/終了日は YYYY-MM-DD 形式で入力してください')
+      return
+    }
+    if (s && e && e < s) {
+      setBanner('終了日は開始日以降を指定してください')
+      return
+    }
+
     setBusy(true)
     setBanner('')
     void (async () => {
       try {
-        const payload = { priceYen, place, target, period }
+        const payload = { priceYen, coinAmount, startsAt: s, endsAt: e }
         if (id) {
-          await cmsFetchJson(cfg, `/cms/coin-settings/${encodeURIComponent(id)}`, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
+          await cmsFetchJson(cfg, `/cms/coin-settings/${encodeURIComponent(id)}`,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }
+          )
         } else {
           await cmsFetchJson(cfg, '/cms/coin-settings', {
             method: 'POST',
@@ -3193,6 +3395,8 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
           onBack()
           return
         }
+
+        setInitialKey(JSON.stringify({ priceYenText, coinAmountText, startsAt: s, endsAt: e, noPeriod }))
         setBanner('保存しました')
       } catch (e) {
         setBanner(e instanceof Error ? e.message : String(e))
@@ -3200,7 +3404,7 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
         setBusy(false)
       }
     })()
-  }, [cfg, id, onBack, period, place, priceYenText, target])
+  }, [cfg, coinAmountText, endsAt, id, noPeriod, onBack, priceYenText, startsAt])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -3208,7 +3412,11 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
         <Pressable onPress={onBack} style={styles.smallBtn}>
           <Text style={styles.smallBtnText}>戻る</Text>
         </Pressable>
-        <Text style={styles.pageTitle}>{title}</Text>
+        <View style={{ flex: 1, minWidth: 0 } as any}>
+          <Text style={styles.pageTitle}>{title}</Text>
+          <Text style={styles.pageSubtitle}>価格・ポイント・期間</Text>
+        </View>
+        {dirty ? <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '900' } as any}>未保存</Text> : null}
       </View>
 
       {banner ? (
@@ -3217,8 +3425,13 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
         </View>
       ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>編集</Text>
+      <CollapsibleSection
+        title="基本"
+        subtitle="価格 / 付与ポイント"
+        open={openBasics}
+        onToggle={() => setOpenBasics((v) => !v)}
+        badges={dirty ? [{ kind: 'dirty', label: '未保存' }] : []}
+      >
         {id ? (
           <View style={styles.field}>
             <Text style={styles.label}>ID</Text>
@@ -3227,37 +3440,86 @@ function CoinSettingEditScreen({ title, id, onBack }: { title: string; id: strin
         ) : null}
         <View style={styles.field}>
           <Text style={styles.label}>価格（円）</Text>
-          <TextInput value={priceYenText} onChangeText={setPriceYenText} style={styles.input} keyboardType={Platform.OS === 'web' ? undefined : 'number-pad'} />
+          <TextInput
+            value={priceYenText}
+            onChangeText={setPriceYenText}
+            style={styles.input}
+            keyboardType={Platform.OS === 'web' ? undefined : 'number-pad'}
+          />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>表示場所</Text>
-          <TextInput value={place} onChangeText={setPlace} style={styles.input} />
+          <Text style={styles.label}>取得ポイント</Text>
+          <TextInput
+            value={coinAmountText}
+            onChangeText={setCoinAmountText}
+            style={styles.input}
+            keyboardType={Platform.OS === 'web' ? undefined : 'number-pad'}
+          />
         </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>対象</Text>
-          <TextInput value={target} onChangeText={setTarget} style={styles.input} />
-        </View>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="期間"
+        subtitle={noPeriod ? '常時' : '開始/終了日'}
+        open={openPeriod}
+        onToggle={() => setOpenPeriod((v) => !v)}
+      >
         <View style={styles.field}>
           <Text style={styles.label}>期間</Text>
-          <TextInput value={period} onChangeText={setPeriod} style={styles.input} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 } as any}>
+            <Pressable
+              onPress={() => {
+                setNoPeriod((v) => {
+                  const next = !v
+                  if (next) {
+                    setStartsAt('')
+                    setEndsAt('')
+                  }
+                  return next
+                })
+              }}
+              style={[styles.smallBtn, { paddingVertical: 8 } as any]}
+            >
+              <Text style={styles.smallBtnText}>{noPeriod ? '期間指定なし' : '期間指定あり'}</Text>
+            </Pressable>
+            <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>
+              {noPeriod ? '常時有効' : '開始/終了日を指定'}
+            </Text>
+          </View>
         </View>
-        <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
-            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
-          </Pressable>
+        <View style={styles.field}>
+          <Text style={styles.label}>開始日</Text>
+          <DateInput value={startsAt} onChange={setStartsAt} disabled={noPeriod} />
         </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>終了日</Text>
+          <DateInput value={endsAt} onChange={setEndsAt} disabled={noPeriod} />
+        </View>
+      </CollapsibleSection>
+
+      <View style={styles.filterActions}>
+        {dirty && !busy ? (
+          <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '800' } as any}>未保存の変更があります</Text>
+        ) : null}
+        <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+          <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+        </Pressable>
       </View>
     </ScrollView>
   )
 }
 
-type AdminRow = { id: string; name: string; email: string; role: string; disabled: boolean }
 function SettingsScreen() {
   const cfg = useCmsApi()
   const [banner, setBanner] = useState('')
   const [busy, setBusy] = useState(false)
   const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [maintenanceMessage, setMaintenanceMessage] = useState('')
+  const [initialKey, setInitialKey] = useState('')
+  const [openMaintenance, setOpenMaintenance] = useState(true)
+
+  const currentKey = JSON.stringify({ maintenanceMode, maintenanceMessage })
+  const dirty = Boolean(initialKey) && currentKey !== initialKey
 
   useEffect(() => {
     let mounted = true
@@ -3267,8 +3529,11 @@ function SettingsScreen() {
       try {
         const json = await cmsFetchJson<{ maintenanceMode: boolean; maintenanceMessage: string }>(cfg, '/cms/settings')
         if (!mounted) return
-        setMaintenanceMode(Boolean(json.maintenanceMode))
-        setMaintenanceMessage(String(json.maintenanceMessage ?? ''))
+        const mm = Boolean(json.maintenanceMode)
+        const msg = String(json.maintenanceMessage ?? '')
+        setMaintenanceMode(mm)
+        setMaintenanceMessage(msg)
+        setInitialKey(JSON.stringify({ maintenanceMode: mm, maintenanceMessage: msg }))
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -3282,6 +3547,18 @@ function SettingsScreen() {
     }
   }, [cfg])
 
+  useEffect(() => {
+    if (Platform.OS !== 'web') return
+    if (typeof window === 'undefined') return
+    const handler = (e: any) => {
+      if (!dirty) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
+
   const onSave = useCallback(() => {
     setBusy(true)
     setBanner('')
@@ -3292,6 +3569,7 @@ function SettingsScreen() {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ maintenanceMode, maintenanceMessage }),
         })
+        setInitialKey(JSON.stringify({ maintenanceMode, maintenanceMessage }))
         setBanner('保存しました')
       } catch (e) {
         setBanner(e instanceof Error ? e.message : String(e))
@@ -3304,6 +3582,7 @@ function SettingsScreen() {
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>設定</Text>
+      <Text style={styles.pageSubtitle}>運用</Text>
 
       {banner ? (
         <View style={styles.banner}>
@@ -3311,9 +3590,13 @@ function SettingsScreen() {
         </View>
       ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>メンテナンス</Text>
-
+      <CollapsibleSection
+        title="メンテナンス"
+        subtitle="モード切替 / 表示メッセージ"
+        open={openMaintenance}
+        onToggle={() => setOpenMaintenance((v) => !v)}
+        badges={dirty ? [{ kind: 'dirty', label: '未保存' }] : []}
+      >
         {busy ? (
           <View style={styles.placeholderBox}>
             <Text style={styles.placeholderText}>読み込み中…</Text>
@@ -3336,11 +3619,14 @@ function SettingsScreen() {
         </View>
 
         <View style={styles.filterActions}>
+          {dirty && !busy ? (
+            <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '800' } as any}>未保存の変更があります</Text>
+          ) : null}
           <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
             <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
           </Pressable>
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -3462,6 +3748,7 @@ function AppShell({
   const [userBackRoute, setUserBackRoute] = useState<RouteId>('users')
   const [selectedNoticeId, setSelectedNoticeId] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
+  const [selectedCategoryName, setSelectedCategoryName] = useState('')
   const [categoryBackRoute, setCategoryBackRoute] = useState<RouteId>('categories')
   const [selectedTagId, setSelectedTagId] = useState('')
   const [tagBackRoute, setTagBackRoute] = useState<RouteId>('tags')
@@ -3480,28 +3767,92 @@ function AppShell({
   const cfg = useCmsApi()
   const { confirm } = useDialog()
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return
+    if (route !== 'category-detail') return
+
+    const path = String(window.location.pathname || '').replace(/^\//, '')
+    const segs = path.split('?')[0].split('#')[0].split('/').filter(Boolean)
+    const isCategoryDetail = String(segs[0] || '').toLowerCase() === 'category-detail'
+    if (!isCategoryDetail) return
+
+    let parsedId = ''
+    if (segs[1]) {
+      try {
+        parsedId = decodeURIComponent(String(segs[1] || ''))
+      } catch {
+        parsedId = String(segs[1] || '')
+      }
+    }
+
+    if (!parsedId) {
+      try {
+        const url = new URL(window.location.href)
+        parsedId = String(url.searchParams.get('id') || '').trim()
+      } catch {
+        // ignore
+      }
+    }
+
+    if (parsedId && parsedId !== selectedCategoryId) {
+      setSelectedCategoryId(parsedId)
+    }
+  }, [route, selectedCategoryId])
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return
+    if (route !== 'video-detail') return
+
+    const path = String(window.location.pathname || '').replace(/^\//, '')
+    const segs = path.split('?')[0].split('#')[0].split('/').filter(Boolean)
+    const isVideoDetail = String(segs[0] || '').toLowerCase() === 'video-detail'
+    if (!isVideoDetail) return
+
+    let parsedId = ''
+    if (segs[1]) {
+      try {
+        parsedId = decodeURIComponent(String(segs[1] || ''))
+      } catch {
+        parsedId = String(segs[1] || '')
+      }
+    }
+
+    if (!parsedId) {
+      try {
+        const url = new URL(window.location.href)
+        parsedId = String(url.searchParams.get('videoId') || url.searchParams.get('id') || '').trim()
+      } catch {
+        // ignore
+      }
+    }
+
+    if (parsedId && parsedId !== selectedVideoId) {
+      setSelectedVideoId(parsedId)
+    }
+  }, [route, selectedVideoId])
+
   const menu = useMemo<SidebarEntry[]>(
     () => [
       { kind: 'item', id: 'dashboard', label: 'ダッシュボード' },
 
-      { kind: 'group', label: '動画管理' },
-      { kind: 'item', id: 'videos-scheduled', label: '配信予定動画一覧' },
+      { kind: 'group', label: '運用（よく使う）' },
+      { kind: 'item', id: 'works', label: '作品一覧' },
       { kind: 'item', id: 'videos', label: '動画一覧' },
+      { kind: 'item', id: 'videos-scheduled', label: '配信予定動画一覧' },
+      { kind: 'item', id: 'comments-pending', label: '未承認コメント一覧' },
+      { kind: 'item', id: 'comments', label: 'コメント一覧' },
+      { kind: 'item', id: 'users', label: 'ユーザー一覧' },
+      { kind: 'item', id: 'inquiries', label: 'お問い合わせ一覧' },
+      { kind: 'item', id: 'castStaff', label: 'キャスト・スタッフ管理' },
+
+      { kind: 'group', label: '動画管理' },
       { kind: 'item', id: 'video-categories', label: '動画カテゴリ一覧' },
       { kind: 'item', id: 'video-tags', label: '動画タグ一覧' },
       { kind: 'item', id: 'unapproved-videos', label: '未承認動画一覧' },
       { kind: 'item', id: 'recommend', label: 'おすすめ動画' },
       { kind: 'item', id: 'pickup', label: 'ピックアップ' },
 
-      { kind: 'group', label: '作品管理' },
-      { kind: 'item', id: 'works', label: '作品一覧' },
-
-      { kind: 'group', label: 'コメント管理' },
-      { kind: 'item', id: 'comments-pending', label: '未承認コメント一覧' },
-      { kind: 'item', id: 'comments', label: 'コメント一覧' },
-
       { kind: 'group', label: 'ユーザー管理' },
-      { kind: 'item', id: 'users', label: 'ユーザー一覧' },
       { kind: 'item', id: 'user-new', label: 'ユーザー新規作成' },
       { kind: 'item', id: 'unapproved-actor-accounts', label: '未承認俳優アカウント一覧' },
 
@@ -3526,12 +3877,12 @@ function AppShell({
       { kind: 'item', id: 'admins', label: '管理者一覧' },
 
       { kind: 'group', label: 'その他' },
-      { kind: 'item', id: 'castStaff', label: 'キャスト・スタッフ管理' },
-      { kind: 'item', id: 'inquiries', label: 'お問い合わせ一覧' },
       { kind: 'item', id: 'settings', label: '設定' },
     ],
     []
   )
+
+  // Focus-mode sidebar (compact menu) was removed.
 
   const content = useMemo(() => {
     switch (route) {
@@ -3554,15 +3905,31 @@ function AppShell({
           <ExtractedWorksListScreen
             cfg={cfg}
             cmsFetchJson={cmsFetchJson}
+            confirm={confirm}
             styles={styles}
             onNew={() => {
               setSelectedWorkId('')
               onNavigate('work-new')
             }}
-            onOpenDetail={(id) => {
+            onOpenPreview={(id) => {
+              setSelectedWorkId(id)
+              onNavigate('work-preview')
+            }}
+            onOpenEdit={(id) => {
               setSelectedWorkId(id)
               onNavigate('work-detail')
             }}
+          />
+        )
+      case 'work-preview':
+        return (
+          <ExtractedWorkPreviewScreen
+            cfg={cfg}
+            cmsFetchJson={cmsFetchJson}
+            styles={styles}
+            id={selectedWorkId}
+            onBack={() => onNavigate('works')}
+            onEdit={() => onNavigate('work-detail')}
           />
         )
       case 'work-detail':
@@ -3626,7 +3993,13 @@ function AppShell({
             styles={styles}
             SelectField={SelectField}
             onGoUpload={() => onNavigate('video-upload')}
-            onOpenDetail={(id) => {
+            onOpenEdit={(id) => {
+              setPathname(buildVideoDetailPath(id))
+              setSelectedVideoId(id)
+              onNavigate('video-detail')
+            }}
+            onOpenPreview={(id) => {
+              setPathname(`${buildVideoDetailPath(id)}?section=preview`)
               setSelectedVideoId(id)
               onNavigate('video-detail')
             }}
@@ -3640,13 +4013,16 @@ function AppShell({
             cmsFetchJson={cmsFetchJson}
             onNew={() => {
               setSelectedCategoryId('')
+              setSelectedCategoryName('')
               setCategoryBackRoute('video-categories')
               onNavigate('category-new')
             }}
-            onOpenDetail={(id) => {
-              setSelectedCategoryId(id)
+            onOpenDetail={(row) => {
+              setSelectedCategoryId(row.id)
+              setSelectedCategoryName(row.name)
               setCategoryBackRoute('video-categories')
               onNavigate('category-detail')
+              setPathname(buildCategoryDetailPath(row.id, row.name), { replace: true })
             }}
           />
         )
@@ -3675,6 +4051,7 @@ function AppShell({
             cmsFetchJson={cmsFetchJson}
             cmsFetchJsonWithBase={cmsFetchJsonWithBase}
             csvToIdList={csvToIdList}
+            tus={tus}
             styles={styles}
             SelectField={SelectField}
             MultiSelectField={MultiSelectField}
@@ -3686,6 +4063,7 @@ function AppShell({
               onNavigate('comments')
             }}
             onOpenVideo={(id) => {
+              setPathname(buildVideoDetailPath(id))
               setSelectedVideoId(id)
               onNavigate('video-detail')
             }}
@@ -3842,6 +4220,7 @@ function AppShell({
             cmsFetchJson={cmsFetchJson}
             styles={styles}
             SelectField={SelectField}
+            confirm={confirm}
             initialContentId={commentsFilterContentId}
             initialEpisodeId={commentsFilterEpisodeId}
             onOpenEdit={(id) => {
@@ -3962,13 +4341,16 @@ function AppShell({
             cmsFetchJson={cmsFetchJson}
             onNew={() => {
               setSelectedCategoryId('')
+              setSelectedCategoryName('')
               setCategoryBackRoute('categories')
               onNavigate('category-new')
             }}
-            onOpenDetail={(id) => {
-              setSelectedCategoryId(id)
+            onOpenDetail={(row) => {
+              setSelectedCategoryId(row.id)
+              setSelectedCategoryName(row.name)
               setCategoryBackRoute('categories')
               onNavigate('category-detail')
+              setPathname(buildCategoryDetailPath(row.id, row.name), { replace: true })
             }}
           />
         )
@@ -3980,6 +4362,11 @@ function AppShell({
             title="カテゴリ詳細・編集"
             id={selectedCategoryId}
             onBack={() => onNavigate(categoryBackRoute)}
+            onLoadedCategory={(cat) => {
+              if (!cat?.id) return
+              setSelectedCategoryName(cat.name)
+              setPathname(buildCategoryDetailPath(cat.id, cat.name), { replace: true })
+            }}
             onOpenVideo={(id) => {
               setSelectedVideoId(id)
               onNavigate('video-detail')
@@ -3994,6 +4381,12 @@ function AppShell({
             title="カテゴリ新規作成"
             id=""
             onBack={() => onNavigate(categoryBackRoute)}
+            onLoadedCategory={(cat) => {
+              if (!cat?.id) return
+              setSelectedCategoryId(cat.id)
+              setSelectedCategoryName(cat.name)
+              setPathname(buildCategoryDetailPath(cat.id, cat.name), { replace: true })
+            }}
             onOpenVideo={(id) => {
               setSelectedVideoId(id)
               onNavigate('video-detail')
@@ -4055,7 +4448,7 @@ function AppShell({
               setCastCategoryBackRoute('cast-categories')
               onNavigate('cast-category-new')
             }}
-            onOpenEdit={(id) => {
+            onOpenEdit={(id: string) => {
               setSelectedCastCategoryId(id)
               setCastCategoryBackRoute('cast-categories')
               onNavigate('cast-category-detail')
@@ -4151,7 +4544,11 @@ function AppShell({
 
   return (
     <View style={styles.dashboardRoot}>
-      <Sidebar entries={menu} activeId={sidebarActiveRoute(route)} onNavigate={onNavigate} />
+      <Sidebar
+        entries={menu}
+        activeId={sidebarActiveRoute(route)}
+        onNavigate={onNavigate}
+      />
       <View style={styles.main}>
         <AppHeader adminName={adminName} onLogout={onLogout} />
         {content}
@@ -4218,6 +4615,10 @@ function LoginScreen({
 
     setBusy(true)
     try {
+      // Ensure a stale remembered token never interferes with a fresh login.
+      safeLocalStorageRemove(STORAGE_KEY)
+      resetUnauthorizedEventEmission()
+
       const token = await loginViaApi()
       safeLocalStorageSet(STORAGE_EMAIL_KEY, normalizedEmail)
       onLoggedIn(token, remember)
@@ -4377,6 +4778,7 @@ export default function App() {
   }, [token])
 
   const onLoggedIn = useCallback((nextToken: string, remember: boolean) => {
+    resetUnauthorizedEventEmission()
     setToken(nextToken)
     if (remember) safeLocalStorageSet(STORAGE_KEY, nextToken)
     else safeLocalStorageRemove(STORAGE_KEY)
@@ -4388,6 +4790,7 @@ export default function App() {
   }, [])
 
   const onLogout = useCallback(() => {
+    resetUnauthorizedEventEmission()
     setToken('')
     setAdminEmail('')
     safeLocalStorageRemove(STORAGE_KEY)
@@ -4399,6 +4802,7 @@ export default function App() {
   }, [])
 
   const onSessionExpired = useCallback(() => {
+    resetUnauthorizedEventEmission()
     unauthorizedEventEmitted = false
     onLogout()
     setLoginBanner('セッションが切れました')
@@ -4629,8 +5033,13 @@ const COLORS = {
   sidebarBg: '#e5e7eb',
   text: '#111827',
   muted: '#6b7280',
+  placeholder: '#9ca3af',
   border: '#d1d5db',
   white: '#ffffff',
+  primary: '#2563eb',
+  primarySoft: '#eff6ff',
+  danger: '#b91c1c',
+  dangerSoft: '#fff1f2',
 }
 
 const styles = StyleSheet.create({
@@ -5432,6 +5841,24 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '900',
   },
+  pageSubtitle: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: -6,
+  },
+  pageLead: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
   section: {
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -5444,6 +5871,77 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 13,
     fontWeight: '900',
+  },
+
+  // Divider-based (non-card) sections
+  plainSection: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingTop: 18,
+    marginTop: 10,
+    gap: 12,
+  },
+  plainSectionFirst: {
+    borderTopWidth: 0,
+    paddingTop: 0,
+    marginTop: 0,
+  },
+  plainSectionTitleRow: {
+    gap: 6,
+  },
+  plainSectionTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  plainSectionDesc: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+
+  warningPill: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    backgroundColor: COLORS.dangerSoft,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  warningPillText: {
+    color: COLORS.danger,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
+  stickyBar: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    backgroundColor: COLORS.white,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 14,
+    ...(Platform.OS === 'web' ? ({ position: 'sticky', bottom: 0, zIndex: 30 } as any) : null),
+  },
+  stickyBarInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  stickyBarHint: {
+    flex: 1,
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  stickyBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
 
   kpiGrid: {
@@ -5706,5 +6204,199 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     fontSize: 11,
     fontWeight: '700',
+  },
+
+  // Helper text
+  helperText: {
+    marginTop: 6,
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // Works (management list)
+  workListWrap: {
+    gap: 12,
+  },
+  workCard: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: COLORS.white,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  workCardUnpublished: {
+    backgroundColor: '#f9fafb',
+  },
+  workThumb: {
+    width: 112,
+    height: 63,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+    overflow: 'hidden',
+  },
+  workThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  workThumbPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.bg,
+  },
+  workThumbPlaceholderText: {
+    color: COLORS.placeholder,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  workCardBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    minWidth: 0,
+  },
+  workInfoCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 8,
+  },
+  workTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  workActionCol: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+  },
+  workTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  workMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+  },
+  workMetaText: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  workActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    alignItems: 'center',
+  },
+
+  // Compact action buttons (works list)
+  workActionBtn: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: COLORS.white,
+  },
+  workActionBtnText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  workActionBtnPrimary: {
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: COLORS.primary,
+  },
+  workActionBtnPrimaryText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
+  workActionBtnDanger: {
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: COLORS.danger,
+  },
+  workActionBtnDangerText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  workActionBtnDangerOutline: {
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: 'transparent',
+  },
+  workActionBtnDangerOutlineText: {
+    color: COLORS.danger,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
+  // Status badge
+  statusPill: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: COLORS.bg,
+  },
+  statusPillText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  statusPillPublished: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#bbf7d0',
+  },
+  statusPillUnpublished: {
+    backgroundColor: '#f3f4f6',
+    borderColor: '#e5e7eb',
+  },
+  statusPillDanger: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
+  },
+
+  // Works preview
+  workPreviewHero: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  workPreviewThumb: {
+    width: 240,
+    height: 135,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+    overflow: 'hidden',
+  },
+  workPreviewThumbImage: {
+    width: '100%',
+    height: '100%',
   },
 })

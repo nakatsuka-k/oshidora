@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Image, Platform, Pressable, Text, TextInput, View } from 'react-native'
 
+import { COLORS } from '../../app/styles'
 import { type CmsApiConfig, cmsFetchJson, cmsFetchJsonWithBase } from '../../lib/cmsApi'
 import { useBanner } from '../../lib/banner'
 import { WebDropZone } from '../../ui/WebDropZone'
@@ -784,7 +785,13 @@ export function CastStaffProfileEditor(props: {
 
       <View style={styles.field}>
         <Text style={styles.label}>役割</Text>
-        <TextInput value={role} onChangeText={setRole} style={styles.input} placeholder="例: 俳優/監督/脚本" />
+        <TextInput
+          value={role}
+          onChangeText={setRole}
+          style={styles.input}
+          placeholder="例: 俳優/監督/脚本"
+          placeholderTextColor={COLORS.placeholder}
+        />
       </View>
 
       <View style={styles.field}>
@@ -947,7 +954,14 @@ export function CastStaffProfileEditor(props: {
       <View style={styles.field}>
         <Text style={styles.label}>生年月日</Text>
         <Text style={styles.selectMenuDetailText}>※形式: YYYY-MM-DD</Text>
-        <TextInput value={birthDate} onChangeText={setBirthDate} style={styles.input} placeholder="1990-01-23" autoCapitalize="none" />
+        <TextInput
+          value={birthDate}
+          onChangeText={setBirthDate}
+          style={styles.input}
+          placeholder="1990-01-23"
+          placeholderTextColor={COLORS.placeholder}
+          autoCapitalize="none"
+        />
       </View>
 
       <View style={styles.field}>
@@ -957,7 +971,14 @@ export function CastStaffProfileEditor(props: {
 
       <View style={styles.field}>
         <Text style={styles.label}>血液型</Text>
-        <TextInput value={bloodType} onChangeText={setBloodType} style={styles.input} placeholder="A/B/O/AB" autoCapitalize="characters" />
+        <TextInput
+          value={bloodType}
+          onChangeText={setBloodType}
+          style={styles.input}
+          placeholder="A/B/O/AB"
+          placeholderTextColor={COLORS.placeholder}
+          autoCapitalize="characters"
+        />
       </View>
 
       <View style={styles.field}>
@@ -985,11 +1006,24 @@ export function CastStaffProfileEditor(props: {
               <View style={{ gap: 8 } as any}>
                 <View style={styles.field}>
                   <Text style={styles.label}>種別</Text>
-                  <TextInput value={row.label} onChangeText={(v) => updateSnsRow(idx, { label: v })} style={styles.input} placeholder="X" />
+                  <TextInput
+                    value={row.label}
+                    onChangeText={(v) => updateSnsRow(idx, { label: v })}
+                    style={styles.input}
+                    placeholder="X"
+                    placeholderTextColor={COLORS.placeholder}
+                  />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.label}>URL</Text>
-                  <TextInput value={row.url} onChangeText={(v) => updateSnsRow(idx, { url: v })} style={styles.input} placeholder="https://..." autoCapitalize="none" />
+                  <TextInput
+                    value={row.url}
+                    onChangeText={(v) => updateSnsRow(idx, { url: v })}
+                    style={styles.input}
+                    placeholder="https://..."
+                    placeholderTextColor={COLORS.placeholder}
+                    autoCapitalize="none"
+                  />
                 </View>
               </View>
             </View>

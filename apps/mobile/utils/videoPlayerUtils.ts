@@ -225,6 +225,12 @@ export async function resolvePlaybackUrl(
     iframeUrl?: string
   }>(`${apiBaseUrl}/v1/stream/hmac-signed-playback/${encodeURIComponent(videoId)}`, { headers })
 
+  // If the API explicitly says the video isn't ready yet (e.g. 503), do not fall back to unsigned URLs.
+  // Those URLs would just fail and can cause repeated attempts.
+  if (!hmacSigned.ok && hmacSigned.status === 503) {
+    return { url: '', kind: 'error', error: 'no-url' }
+  }
+
   if (hmacSigned.ok) {
     const mp4 = hmacSigned.data?.mp4Url
     const hls = hmacSigned.data?.hlsUrl

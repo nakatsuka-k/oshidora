@@ -21,6 +21,14 @@ export function useBanner(initialValue = '') {
   useEffect(() => {
     const m = String(banner || '').trim()
     if (!m) return
+
+    // Session-expired is handled globally by redirecting to /login with a banner.
+    // Showing an extra toast here is noisy, especially when testing production API from localhost.
+    if (m === 'セッションが切れました') {
+      setBanner('')
+      return
+    }
+
     if (m === lastRef.current) return
     lastRef.current = m
     toast.show(m, { kind: guessKind(m) })

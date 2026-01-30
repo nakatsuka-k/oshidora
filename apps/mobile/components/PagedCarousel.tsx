@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject, ReactNode } from 'react'
 import {
   type LayoutChangeEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleProp,
@@ -11,6 +12,7 @@ import {
   ViewStyle,
 } from 'react-native'
 import { THEME } from './theme'
+import { useWebDragToScroll } from '../utils/useWebDragToScroll'
 
 export type PagedCarouselController = {
   scrollToIndex: (index: number, animated?: boolean) => void
@@ -41,7 +43,9 @@ export function PagedCarousel<TItem>({
   const [containerWidth, setContainerWidth] = useState<number | null>(null)
   const pageWidth = Math.max(1, containerWidth ?? width)
 
-  const scrollRef = useRef<ScrollView | null>(null)
+  const drag = useWebDragToScroll({ suppressPressMs: 250 })
+  const scrollRef = drag.scrollRef
+  const lastReportedIndexRef = useRef<number>(index)
 
   const safeIndex = useMemo(() => {
     if (items.length <= 0) return 0
@@ -68,6 +72,10 @@ export function PagedCarousel<TItem>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeIndex, pageWidth])
 
+  useEffect(() => {
+    lastReportedIndexRef.current = safeIndex
+  }, [safeIndex])
+
   const onLayout = (e: LayoutChangeEvent) => {
     const nextWidth = Math.round(e.nativeEvent.layout.width)
     if (!Number.isFinite(nextWidth) || nextWidth <= 0) return
@@ -86,11 +94,28 @@ export function PagedCarousel<TItem>({
         decelerationRate="fast"
         snapToAlignment="start"
         showsHorizontalScrollIndicator={false}
+        style={[styles.scroll, Platform.OS === 'web' ? ({ cursor: 'grab' } as any) : null]}
+        {...(Platform.OS === 'web'
+          ? ({ onMouseDownCapture: drag.onMouseDown, onPointerDownCapture: drag.onPointerDown } as any)
+          : null)}
+        onStartShouldSetResponderCapture={drag.shouldSetResponderCapture}
+        onResponderGrant={drag.onResponderGrant}
+        onScroll={(e) => {
+          drag.onScroll(e)
+          const x = e?.nativeEvent?.contentOffset?.x
+          if (typeof x !== 'number') return
+          const next = Math.round(x / pageWidth)
+          const clamped = Math.max(0, Math.min(next, Math.max(0, items.length - 1)))
+          if (clamped !== lastReportedIndexRef.current) {
+            lastReportedIndexRef.current = clamped
+            onIndexChange(clamped)
+          }
+        }}
+        scrollEventThrottle={16}
         onMomentumScrollEnd={(e) => {
           const next = Math.round(e.nativeEvent.contentOffset.x / pageWidth)
           onIndexChange(next)
         }}
-        style={styles.scroll}
       >
         {items.map((item, i) => (
           <View key={i} style={[styles.page, { width: pageWidth }]}>

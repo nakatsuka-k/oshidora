@@ -9,6 +9,7 @@ export type TopScreenProps = {
   onPressTab: (key: TabKey) => void
   onOpenVideo: (id: string) => void
   onOpenRanking: () => void
+  onOpenCastProfile: (cast: { id: string; name: string }) => void
   onOpenFavorites: () => void
   onOpenNotice: () => void
 }

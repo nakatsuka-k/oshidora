@@ -310,6 +310,28 @@ async function makeStreamSignedToken(params: {
 
 const app = new Hono<Env>()
 
+app.onError((err, c) => {
+  const origin = getAllowedOrigin(c.req.header('Origin') ?? null)
+  if (origin) {
+    c.res.headers.set('Access-Control-Allow-Origin', origin)
+    c.res.headers.set('Vary', 'Origin')
+    c.res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control, Pragma, X-Admin-Key, X-Mock')
+    c.res.headers.set('Access-Control-Max-Age', '86400')
+  }
+
+  // CMS responses must never be cached.
+  if (String(c.req.path ?? '').startsWith('/cms/')) {
+    c.res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    c.res.headers.set('Pragma', 'no-cache')
+    c.res.headers.set('Expires', '0')
+  }
+
+  // Avoid leaking internal details unless debug responses are explicitly enabled.
+  const msg = shouldReturnDebugCodes(c.env) ? String((err as any)?.message ?? err) : 'internal_error'
+  return c.json({ error: msg }, 500)
+})
+
 const ALLOWED_ORIGINS = new Set([
   'https://oshidra.com',
   'https://www.oshidra.com',
@@ -332,7 +354,36 @@ function getAllowedOrigin(origin: string | null) {
 
   // Allow loopback origins for local development (any port).
   // This only affects browser access from the same machine.
-  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(trimmed)) return trimmed
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(\:\d+)?$/i.test(trimmed)) return trimmed
+
+  // Allow local-network origins for development (e.g., testing admin on a phone over Wi‑Fi).
+  // These origins are only reachable within the private network, and CMS requests still require a Bearer token.
+  try {
+    const u = new URL(trimmed)
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      const host = (u.hostname || '').toLowerCase()
+
+      // mDNS hostnames commonly used on local networks (e.g., http://my-mac.local:8082)
+      if (host.endsWith('.local')) return trimmed
+
+      // RFC1918 private IPv4 ranges
+      const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+      if (m) {
+        const a = Number(m[1])
+        const b = Number(m[2])
+        const c = Number(m[3])
+        const d = Number(m[4])
+        const ok = [a, b, c, d].every((n) => Number.isFinite(n) && n >= 0 && n <= 255)
+        if (ok) {
+          if (a === 10) return trimmed
+          if (a === 192 && b === 168) return trimmed
+          if (a === 172 && b >= 16 && b <= 31) return trimmed
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
 
   return ALLOWED_ORIGINS.has(trimmed) ? trimmed : null
 }
@@ -387,7 +438,7 @@ app.use('*', async (c, next) => {
       res.headers.set('Access-Control-Allow-Origin', origin)
       res.headers.set('Vary', 'Origin')
       res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-      res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key, X-Mock')
+      res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control, Pragma, X-Admin-Key, X-Mock')
       res.headers.set('Access-Control-Max-Age', '86400')
     }
     return res as any
@@ -399,7 +450,7 @@ app.use('*', async (c, next) => {
     c.res.headers.set('Access-Control-Allow-Origin', origin)
     c.res.headers.set('Vary', 'Origin')
     c.res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key, X-Mock')
+    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control, Pragma, X-Admin-Key, X-Mock')
     c.res.headers.set('Access-Control-Max-Age', '86400')
   }
 })
@@ -982,6 +1033,7 @@ app.get('/cms/rankings/:type', async (c) => {
               title: r.label,
               description: '',
               thumbnailUrl: '',
+              createdAt: '2026-01-12T00:00:00.000Z',
             },
           }
         }
@@ -1020,14 +1072,14 @@ app.get('/cms/rankings/:type', async (c) => {
       )
     )
 
-    const videoById = new Map<string, { id: string; title: string; description: string; thumbnailUrl: string }>()
+    const videoById = new Map<string, { id: string; title: string; description: string; thumbnailUrl: string; createdAt: string }>()
     const castById = new Map<string, { id: string; name: string; role: string; thumbnailUrl: string }>()
 
     if ((type === 'videos' || type === 'coins') && entityIds.length) {
       const placeholders = entityIds.map(() => '?').join(',')
       const videos = await d1All(
         db,
-        `SELECT id, title, description, thumbnail_url FROM videos WHERE id IN (${placeholders})`,
+        `SELECT id, title, description, thumbnail_url, created_at FROM videos WHERE id IN (${placeholders})`,
         entityIds
       )
       for (const v of videos as any[]) {
@@ -1038,6 +1090,7 @@ app.get('/cms/rankings/:type', async (c) => {
           title: String((v as any)?.title ?? ''),
           description: String((v as any)?.description ?? ''),
           thumbnailUrl: String((v as any)?.thumbnail_url ?? ''),
+          createdAt: String((v as any)?.created_at ?? ''),
         })
       }
     }
@@ -1514,22 +1567,25 @@ app.get('/cms/coin-settings', async (c) => {
   if (isMockRequest(c) || !c.env.DB) {
     return c.json({
       items: [
-        { id: 'COIN001', priceYen: 480, place: 'アプリ', target: '全ユーザー', period: '常時', createdAt: '', updatedAt: '' },
-        { id: 'COIN002', priceYen: 1200, place: 'アプリ', target: '全ユーザー', period: '常時', createdAt: '', updatedAt: '' },
+        { id: 'COIN001', priceYen: 480, coinAmount: 100, startsAt: '', endsAt: '', createdAt: '', updatedAt: '' },
+        { id: 'COIN002', priceYen: 1200, coinAmount: 300, startsAt: '', endsAt: '', createdAt: '', updatedAt: '' },
       ],
     })
   }
 
   const db = c.env.DB as D1Database
   try {
-    const rows = await d1All(db, 'SELECT id, price_yen, place, target, period, created_at, updated_at FROM coin_settings ORDER BY price_yen ASC, created_at DESC')
+    const rows = await d1All(
+      db,
+      'SELECT id, price_yen, coin_amount, starts_at, ends_at, created_at, updated_at FROM coin_settings ORDER BY price_yen ASC, created_at DESC'
+    )
     return c.json({
       items: rows.map((r: any) => ({
         id: String(r.id ?? ''),
         priceYen: Number(r.price_yen ?? 0),
-        place: String(r.place ?? ''),
-        target: String(r.target ?? ''),
-        period: String(r.period ?? ''),
+        coinAmount: Number(r.coin_amount ?? 0),
+        startsAt: String(r.starts_at ?? ''),
+        endsAt: String(r.ends_at ?? ''),
         createdAt: String(r.created_at ?? ''),
         updatedAt: String(r.updated_at ?? ''),
       })),
@@ -1547,20 +1603,20 @@ app.get('/cms/coin-settings/:id', async (c) => {
   if (!id) return c.json({ error: 'id is required' }, 400)
 
   if (isMockRequest(c) || !c.env.DB) {
-    return c.json({ item: { id, priceYen: 480, place: 'アプリ', target: '全ユーザー', period: '常時' } })
+    return c.json({ item: { id, priceYen: 480, coinAmount: 100, startsAt: '', endsAt: '' } })
   }
 
   const db = c.env.DB as D1Database
   try {
-    const row = await d1First(db, 'SELECT id, price_yen, place, target, period, created_at, updated_at FROM coin_settings WHERE id = ? LIMIT 1', [id])
+    const row = await d1First(db, 'SELECT id, price_yen, coin_amount, starts_at, ends_at, created_at, updated_at FROM coin_settings WHERE id = ? LIMIT 1', [id])
     if (!row) return c.json({ error: 'not_found' }, 404)
     return c.json({
       item: {
         id: String((row as any).id ?? ''),
         priceYen: Number((row as any).price_yen ?? 0),
-        place: String((row as any).place ?? ''),
-        target: String((row as any).target ?? ''),
-        period: String((row as any).period ?? ''),
+        coinAmount: Number((row as any).coin_amount ?? 0),
+        startsAt: String((row as any).starts_at ?? ''),
+        endsAt: String((row as any).ends_at ?? ''),
         createdAt: String((row as any).created_at ?? ''),
         updatedAt: String((row as any).updated_at ?? ''),
       },
@@ -1577,20 +1633,25 @@ app.post('/cms/coin-settings', async (c) => {
   if (!c.env.DB) return c.json({ error: 'DB is not configured' }, 500)
   const db = c.env.DB as D1Database
 
-  type Body = { priceYen?: unknown; place?: unknown; target?: unknown; period?: unknown }
+  type Body = { priceYen?: unknown; coinAmount?: unknown; startsAt?: unknown; endsAt?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const priceYen = Math.max(0, Math.floor(Number(body.priceYen ?? 0)))
-  const place = clampText(body.place, 40)
-  const target = clampText(body.target, 40)
-  const period = clampText(body.period, 80)
+  const coinAmount = Math.max(0, Math.floor(Number(body.coinAmount ?? 0)))
+  const startsAt = clampText(body.startsAt, 10)
+  const endsAt = clampText(body.endsAt, 10)
   if (!Number.isFinite(priceYen) || priceYen <= 0) return c.json({ error: 'priceYen is required' }, 400)
+  if (!Number.isFinite(coinAmount) || coinAmount <= 0) return c.json({ error: 'coinAmount is required' }, 400)
+  if ((startsAt && !/^\d{4}-\d{2}-\d{2}$/.test(startsAt)) || (endsAt && !/^\d{4}-\d{2}-\d{2}$/.test(endsAt))) {
+    return c.json({ error: 'startsAt/endsAt must be YYYY-MM-DD or empty' }, 400)
+  }
+  if (startsAt && endsAt && endsAt < startsAt) return c.json({ error: 'endsAt must be >= startsAt' }, 400)
 
   const id = uuidOrFallback('coin')
   const now = nowIso()
   try {
     await db
-      .prepare('INSERT INTO coin_settings (id, price_yen, place, target, period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(id, priceYen, place || '', target || '', period || '', now, now)
+      .prepare('INSERT INTO coin_settings (id, price_yen, coin_amount, starts_at, ends_at, place, target, period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, priceYen, coinAmount, startsAt || '', endsAt || '', '', '', '', now, now)
       .run()
     return c.json({ ok: true, id })
   } catch (err) {
@@ -1607,20 +1668,68 @@ app.put('/cms/coin-settings/:id', async (c) => {
   const id = String(c.req.param('id') ?? '').trim()
   if (!id) return c.json({ error: 'id is required' }, 400)
 
-  type Body = { priceYen?: unknown; place?: unknown; target?: unknown; period?: unknown }
+  type Body = { priceYen?: unknown; coinAmount?: unknown; startsAt?: unknown; endsAt?: unknown }
   const body = (await c.req.json().catch(() => ({}))) as Body
   const priceYen = body.priceYen === undefined ? null : Math.max(0, Math.floor(Number(body.priceYen ?? 0)))
-  const place = body.place === undefined ? null : clampText(body.place, 40)
-  const target = body.target === undefined ? null : clampText(body.target, 40)
-  const period = body.period === undefined ? null : clampText(body.period, 80)
+  const coinAmount = body.coinAmount === undefined ? null : Math.max(0, Math.floor(Number(body.coinAmount ?? 0)))
+  const startsAt = body.startsAt === undefined ? null : clampText(body.startsAt, 10)
+  const endsAt = body.endsAt === undefined ? null : clampText(body.endsAt, 10)
+  if (startsAt != null && startsAt && !/^\d{4}-\d{2}-\d{2}$/.test(startsAt)) return c.json({ error: 'startsAt must be YYYY-MM-DD or empty' }, 400)
+  if (endsAt != null && endsAt && !/^\d{4}-\d{2}-\d{2}$/.test(endsAt)) return c.json({ error: 'endsAt must be YYYY-MM-DD or empty' }, 400)
+  if (startsAt != null && endsAt != null && startsAt && endsAt && endsAt < startsAt) return c.json({ error: 'endsAt must be >= startsAt' }, 400)
   const updatedAt = nowIso()
 
   try {
     await db
-      .prepare('UPDATE coin_settings SET price_yen = COALESCE(?, price_yen), place = COALESCE(?, place), target = COALESCE(?, target), period = COALESCE(?, period), updated_at = ? WHERE id = ?')
-      .bind(priceYen, place, target, period, updatedAt, id)
+      .prepare(
+        'UPDATE coin_settings SET price_yen = COALESCE(?, price_yen), coin_amount = COALESCE(?, coin_amount), starts_at = COALESCE(?, starts_at), ends_at = COALESCE(?, ends_at), updated_at = ? WHERE id = ?'
+      )
+      .bind(priceYen, coinAmount, startsAt, endsAt, updatedAt, id)
       .run()
     return c.json({ ok: true })
+  } catch (err) {
+    if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
+    throw err
+  }
+})
+
+// Coin packs (App)
+app.get('/api/coin-packs', async (c) => {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const isActive = (startsAt: string, endsAt: string) => {
+    const s = String(startsAt || '').trim()
+    const e = String(endsAt || '').trim()
+    if (s && /^\d{4}-\d{2}-\d{2}$/.test(s) && s > today) return false
+    if (e && /^\d{4}-\d{2}-\d{2}$/.test(e) && e < today) return false
+    return true
+  }
+
+  if (isMockRequest(c) || !c.env.DB) {
+    return c.json({
+      items: [
+        { packId: 'COIN001', coinAmount: 100, priceJpy: 480 },
+        { packId: 'COIN002', coinAmount: 300, priceJpy: 1200, bonusLabel: '10%お得' },
+      ],
+    })
+  }
+
+  const db = c.env.DB as D1Database
+  try {
+    const rows = await d1All(db, 'SELECT id, price_yen, coin_amount, starts_at, ends_at FROM coin_settings ORDER BY price_yen ASC, created_at DESC')
+    const items = (rows as any[])
+      .map((r) => ({
+        packId: String(r.id ?? ''),
+        coinAmount: Number(r.coin_amount ?? 0),
+        priceJpy: Number(r.price_yen ?? 0),
+        startsAt: String(r.starts_at ?? ''),
+        endsAt: String(r.ends_at ?? ''),
+      }))
+      .filter((v) => v.packId && Number.isFinite(v.coinAmount) && v.coinAmount > 0 && Number.isFinite(v.priceJpy) && v.priceJpy > 0)
+      .filter((v) => isActive(v.startsAt, v.endsAt))
+      .map(({ startsAt: _s, endsAt: _e, ...rest }) => rest)
+
+    return c.json({ items })
   } catch (err) {
     if (d1LikelyNotMigratedError(err)) return jsonD1SetupError(c, err)
     throw err
@@ -4765,13 +4874,14 @@ app.get('/cms/videos/search', async (c) => {
   const limitParsed = limitRaw ? Number.parseInt(limitRaw, 10) : 50
   const limit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 200) : 50
 
-  const where: string[] = ['1=1']
+  const where: string[] = ['COALESCE(v.deleted, 0) = 0']
   const binds: any[] = []
 
   if (q) {
     const like = `%${q}%`
-    where.push('(v.title LIKE ? OR w.title LIKE ?)')
-    binds.push(like, like)
+    // Match by video id, title, description, or work title.
+    where.push('(v.id LIKE ? OR v.title LIKE ? OR v.description LIKE ? OR COALESCE(w.title, \'\') LIKE ?)')
+    binds.push(like, like, like, like)
   }
   if (cast) {
     const like = `%${cast}%`
@@ -5938,6 +6048,27 @@ app.post('/cms/stream/captions/:videoId', async (c) => {
   const videoId = c.req.param('videoId')?.trim()
   if (!videoId) return c.json({ error: 'videoId is required' }, 400)
 
+  // Backward-compatible endpoint: language comes from form data.
+  return await upsertStreamCaptionFromCmsRequest(c, { videoId, languageFromPath: null })
+})
+
+// Cloudflare Docs compatible: upload/replace a caption file by language tag.
+app.put('/cms/stream/captions/:videoId/:language', async (c) => {
+  const auth = await requireCmsAdmin(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+
+  const videoId = c.req.param('videoId')?.trim()
+  const language = c.req.param('language')?.trim()
+  if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+  if (!language) return c.json({ error: 'language is required' }, 400)
+
+  return await upsertStreamCaptionFromCmsRequest(c, { videoId, languageFromPath: language })
+})
+
+async function upsertStreamCaptionFromCmsRequest(
+  c: any,
+  params: { videoId: string; languageFromPath: string | null }
+) {
   const accountId = (c.env.CLOUDFLARE_ACCOUNT_ID_FOR_STREAM || c.env.CLOUDFLARE_ACCOUNT_ID || '').trim()
   const token = (c.env.CLOUDFLARE_STREAM_API_TOKEN || '').trim()
   if (!accountId || !token) {
@@ -5962,8 +6093,8 @@ app.post('/cms/stream/captions/:videoId', async (c) => {
     return c.json({ error: 'file is required' }, 400)
   }
 
-  const languageRaw = String(form.get('language') ?? form.get('lang') ?? 'ja').trim()
-  const labelRaw = String(form.get('label') ?? '日本語').trim()
+  const languageRaw = params.languageFromPath ?? String(form.get('language') ?? form.get('lang') ?? 'ja').trim()
+  const labelRaw = String(form.get('label') ?? '').trim()
   const isDefaultRaw = String(form.get('default') ?? '').trim().toLowerCase()
   const isDefault = isDefaultRaw === '1' || isDefaultRaw === 'true' || isDefaultRaw === 'yes' || isDefaultRaw === 'on'
 
@@ -5976,128 +6107,26 @@ app.post('/cms/stream/captions/:videoId', async (c) => {
     return c.json({ error: 'WebVTT (.vtt) file is required' }, 400)
   }
 
-  // Cloudflare Stream captions API expects a URL to a WebVTT file.
-  // Upload the VTT to R2 first, then register the caption in Stream.
-
   const bodyBytes = await file.arrayBuffer()
   if (bodyBytes.byteLength > 10 * 1024 * 1024) return c.json({ error: 'file too large (max 10MB)' }, 413)
 
-  const keyRaw = `captions/${videoId}/${crypto.randomUUID()}.vtt`
-  const contentType = 'text/vtt'
+  const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${params.videoId}/captions/${encodeURIComponent(language)}`
+  const formOut = new FormData()
+  const safeFile = new File([bodyBytes], String(file.name || 'captions.vtt'), {
+    type: (file.type || 'text/vtt').toLowerCase() || 'text/vtt',
+  })
+  formOut.append('file', safeFile)
+  if (label) formOut.append('label', label)
+  formOut.append('default', isDefault ? '1' : '0')
 
-  // Stream captions API requires a URL. We serve the uploaded VTT via this API with
-  // an HMAC-signed, time-limited URL so we don't depend on public R2 bucket access.
-  const secret = getAuthJwtSecret(c.env)
-  if (!secret) return c.json({ error: 'AUTH_JWT_SECRET is not configured' }, 500)
-  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 // 24h
-  const unsigned = `captions:${keyRaw}:${exp}`
-  const sig = await hs256Sign(secret, unsigned)
-  const origin = new URL(c.req.url).origin
-  const publicUrl = `${origin}/v1/public/captions?key=${encodeURIComponent(keyRaw)}&exp=${exp}&sig=${encodeURIComponent(sig)}`
-
-  // Prefer R2 binding if available (more reliable; no access keys required).
-  if (c.env.BUCKET) {
-    try {
-      await c.env.BUCKET.put(keyRaw, bodyBytes, {
-        httpMetadata: {
-          contentType,
-        },
-      })
-    } catch (err) {
-      return c.json(
-        {
-          error: 'Failed to upload captions file to R2',
-          details: String((err as any)?.message ?? err).slice(0, 1000),
-        },
-        502
-      )
-    }
-  } else {
-    // Fallback: server-side signed PUT to the R2 S3 API.
-    const r2AccountId = (c.env.CLOUDFLARE_ACCOUNT_ID || '').trim()
-    const accessKeyId = (c.env.R2_ACCESS_KEY_ID || '').trim()
-    const secretAccessKey = (c.env.R2_SECRET_ACCESS_KEY || '').trim()
-    const bucket = (c.env.R2_BUCKET || 'assets').trim() || 'assets'
-
-    if (!r2AccountId) return c.json({ error: 'CLOUDFLARE_ACCOUNT_ID is required for R2 upload' }, 500)
-    if (!accessKeyId || !secretAccessKey) {
-      return c.json({ error: 'R2 credentials are not configured (and BUCKET binding is missing)' }, 501)
-    }
-
-    const key = awsEncodePathPreserveSlash(keyRaw)
-    const host = `${r2AccountId}.r2.cloudflarestorage.com`
-    const canonicalUri = `/${bucket}/${key}`
-    const targetUrl = `https://${host}${canonicalUri}`
-
-    const amzDate = amzDateNow()
-    const dateStamp = amzDate.slice(0, 8)
-    const payloadHash = await sha256HexBytes(bodyBytes)
-
-    const { authorization } = await awsV4Signature({
-      method: 'PUT',
-      canonicalUri,
-      host,
-      contentType,
-      amzDate,
-      dateStamp,
-      accessKeyId,
-      secretAccessKey,
-      region: 'auto',
-      service: 's3',
-      payloadHash,
-    })
-
-    let r2Resp: Response
-    try {
-      r2Resp = await fetch(targetUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': contentType,
-          'x-amz-date': amzDate,
-          'x-amz-content-sha256': payloadHash,
-          Authorization: authorization,
-        },
-        body: bodyBytes,
-      })
-    } catch (err) {
-      return c.json(
-        {
-          error: 'Failed to upload captions file to R2',
-          details: String((err as any)?.message ?? err).slice(0, 1000),
-        },
-        502
-      )
-    }
-
-    if (!r2Resp.ok) {
-      const text = await r2Resp.text().catch(() => '')
-      const status = (r2Resp.status >= 400 && r2Resp.status <= 599 ? r2Resp.status : 502) as any
-      return c.json(
-        {
-          error: 'Failed to upload captions file to R2',
-          status: r2Resp.status,
-          details: text.slice(0, 1000),
-        },
-        status
-      )
-    }
-  }
-
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}/captions`
   let resp: Response
   try {
-    resp = await fetch(url, {
-      method: 'POST',
+    resp = await fetch(cfUrl, {
+      method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        url: publicUrl,
-        language,
-        label,
-        default: isDefault,
-      }),
+      body: formOut,
     })
   } catch (err) {
     return c.json(
@@ -6109,11 +6138,13 @@ app.post('/cms/stream/captions/:videoId', async (c) => {
     )
   }
 
-  const data = (await resp.json().catch(() => null)) as
+  const text = await resp.text().catch(() => '')
+  const data = (text ? (JSON.parse(text) as any) : null) as
     | {
         success: boolean
         result?: any
         errors?: any[]
+        messages?: any[]
       }
     | null
 
@@ -6124,7 +6155,137 @@ app.post('/cms/stream/captions/:videoId', async (c) => {
         error: 'Failed to upload Stream captions',
         status: resp.status,
         errors: data?.errors ?? [],
-        hint: 'If errors mention fetching the VTT URL, confirm this API is publicly reachable and not blocked by IP allowlists.',
+        details: String(text || '').slice(0, 800),
+      },
+      status
+    )
+  }
+
+  return c.json({ videoId: params.videoId, language, result: data?.result ?? null })
+}
+
+// CMS: Fetch caption VTT from Cloudflare Stream (for editing/debugging).
+app.get('/cms/stream/captions/:videoId/:language/vtt', async (c) => {
+  const auth = await requireCmsAdmin(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+
+  const videoId = c.req.param('videoId')?.trim()
+  const language = c.req.param('language')?.trim()
+  if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+  if (!language) return c.json({ error: 'language is required' }, 400)
+
+  const accountId = (c.env.CLOUDFLARE_ACCOUNT_ID_FOR_STREAM || c.env.CLOUDFLARE_ACCOUNT_ID || '').trim()
+  const token = (c.env.CLOUDFLARE_STREAM_API_TOKEN || '').trim()
+  if (!accountId || !token) {
+    return c.json(
+      {
+        error: 'Cloudflare Stream is not configured',
+        required: ['CLOUDFLARE_ACCOUNT_ID(_FOR_STREAM)', 'CLOUDFLARE_STREAM_API_TOKEN'],
+      },
+      500
+    )
+  }
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}/captions/${encodeURIComponent(language)}/vtt`
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+  } catch (err) {
+    return c.json(
+      {
+        error: 'Failed to fetch Stream captions VTT',
+        details: String((err as any)?.message ?? err).slice(0, 500),
+      },
+      502
+    )
+  }
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    const status = (resp.status >= 400 && resp.status <= 599 ? resp.status : 502) as any
+    return c.json(
+      {
+        error: 'Failed to fetch Stream captions VTT',
+        status: resp.status,
+        details: text.slice(0, 800),
+      },
+      status
+    )
+  }
+
+  const vtt = await resp.text().catch(() => '')
+  return new Response(vtt, {
+    headers: {
+      'Content-Type': 'text/vtt; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  })
+})
+
+// CMS: Delete a caption track.
+app.delete('/cms/stream/captions/:videoId/:language', async (c) => {
+  const auth = await requireCmsAdmin(c)
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status)
+
+  const videoId = c.req.param('videoId')?.trim()
+  const language = c.req.param('language')?.trim()
+  if (!videoId) return c.json({ error: 'videoId is required' }, 400)
+  if (!language) return c.json({ error: 'language is required' }, 400)
+
+  const accountId = (c.env.CLOUDFLARE_ACCOUNT_ID_FOR_STREAM || c.env.CLOUDFLARE_ACCOUNT_ID || '').trim()
+  const token = (c.env.CLOUDFLARE_STREAM_API_TOKEN || '').trim()
+  if (!accountId || !token) {
+    return c.json(
+      {
+        error: 'Cloudflare Stream is not configured',
+        required: ['CLOUDFLARE_ACCOUNT_ID(_FOR_STREAM)', 'CLOUDFLARE_STREAM_API_TOKEN'],
+      },
+      500
+    )
+  }
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}/captions/${encodeURIComponent(language)}`
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch (err) {
+    return c.json(
+      {
+        error: 'Failed to delete Stream captions',
+        details: String((err as any)?.message ?? err).slice(0, 500),
+      },
+      502
+    )
+  }
+
+  const text = await resp.text().catch(() => '')
+  const data = (text ? (JSON.parse(text) as any) : null) as
+    | {
+        success: boolean
+        result?: any
+        errors?: any[]
+        messages?: any[]
+      }
+    | null
+
+  if (!resp.ok || !data?.success) {
+    const status = (resp.status >= 400 && resp.status <= 599 ? resp.status : 502) as any
+    return c.json(
+      {
+        error: 'Failed to delete Stream captions',
+        status: resp.status,
+        errors: data?.errors ?? [],
+        details: String(text || '').slice(0, 800),
       },
       status
     )
@@ -6751,16 +6912,25 @@ app.get('/v1/top', async (c) => {
         const videoId = String(r.video_id ?? '').trim()
         if (!videoId) continue
 
+        // NOTE: Admin can select a specific episode (video_id) for pickup.
+        // For the Home screen, we render a *work* card.
+        // If the selected episode itself is not published yet, still allow resolving the parent work
+        // as long as the work has at least one published episode (or the work itself is published).
         const w = await d1First(
           db,
           `
           SELECT
             w.id,
             w.title,
-            MAX(CASE WHEN w.thumbnail_url != '' THEN w.thumbnail_url ELSE v.thumbnail_url END) AS thumbnail_url
-          FROM videos v
-          JOIN works w ON w.id = v.work_id
-          WHERE v.id = ? AND v.published = 1
+            MAX(CASE WHEN w.thumbnail_url != '' THEN w.thumbnail_url ELSE vpub.thumbnail_url END) AS thumbnail_url
+          FROM videos vsel
+          JOIN works w ON w.id = vsel.work_id
+          LEFT JOIN videos vpub ON vpub.work_id = w.id AND vpub.published = 1
+          WHERE vsel.id = ?
+            AND (
+              w.published = 1
+              OR EXISTS (SELECT 1 FROM videos vx WHERE vx.work_id = w.id AND vx.published = 1)
+            )
           GROUP BY w.id, w.title
           LIMIT 1
         `,
@@ -6828,7 +6998,9 @@ app.get('/v1/top', async (c) => {
     `
     )
 
-    const pickupFinal = pickup.length ? pickup : latestRows.slice(0, 6).map(toWorkItem)
+    // IMPORTANT: Pickup should reflect CMS configuration.
+    // If Admin hasn't selected any pickup items, do not auto-fill with latest works.
+    const pickupFinal = pickup
     const recommended = recommendRows.length ? recommendRows.map(toWorkItem) : latestRows.slice(0, 6).map(toWorkItem)
     const rankings = latestRows.slice(0, 5).map(toWorkItem)
 

@@ -5,11 +5,14 @@ import { styles } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, type CmsApiConfig } from '../../lib/cmsApi'
 import { SelectField } from '../../ui/fields'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
 
 export function InquiriesListScreen({ cfg, onOpenDetail }: { cfg: CmsApiConfig; onOpenDetail: (id: string) => void }) {
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<Array<{ id: string; subject: string; status: string; createdAt?: string }>>([])
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ list: true })
 
   const statusLabel = useCallback((s: string) => {
     switch (String(s || '').toLowerCase()) {
@@ -57,28 +60,37 @@ export function InquiriesListScreen({ cfg, onOpenDetail }: { cfg: CmsApiConfig; 
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>お問い合わせ一覧</Text>
 
-      <View style={styles.table}>
-        {busy ? (
-          <View style={styles.placeholderBox}>
-            <Text style={styles.placeholderText}>読み込み中…</Text>
-          </View>
-        ) : null}
+      <Text style={styles.pageSubtitle}>未対応を探す</Text>
 
-        {rows.map((r) => (
-          <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
-            <View style={styles.tableLeft}>
-              <Text style={styles.tableLabel}>{r.subject || '（件名なし）'}</Text>
-              <Text style={styles.tableDetail}>{`${r.id} / ${statusLabel(r.status)}`}</Text>
+      <CollapsibleSection
+        title="一覧"
+        subtitle="選んで詳細へ"
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+      >
+        <View style={styles.table}>
+          {busy ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>読み込み中…</Text>
             </View>
-          </Pressable>
-        ))}
+          ) : null}
 
-        {!busy && rows.length === 0 ? (
-          <View style={styles.placeholderBox}>
-            <Text style={styles.placeholderText}>お問い合わせがありません</Text>
-          </View>
-        ) : null}
-      </View>
+          {rows.map((r) => (
+            <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableLabel}>{r.subject || '（件名なし）'}</Text>
+                <Text style={styles.tableDetail}>{`${r.id} / ${statusLabel(r.status)}`}</Text>
+              </View>
+            </Pressable>
+          ))}
+
+          {!busy && rows.length === 0 ? (
+            <View style={styles.placeholderBox}>
+              <Text style={styles.placeholderText}>お問い合わせがありません</Text>
+            </View>
+          ) : null}
+        </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -91,6 +103,12 @@ export function InquiryDetailScreen({ cfg, id, onBack }: { cfg: CmsApiConfig; id
   const [status, setStatus] = useState('open')
   const [createdAt, setCreatedAt] = useState('')
   const [updatedAt, setUpdatedAt] = useState('')
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    content: true,
+    status: true,
+    internal: false,
+  })
 
   useEffect(() => {
     if (!id) return
@@ -149,11 +167,17 @@ export function InquiryDetailScreen({ cfg, id, onBack }: { cfg: CmsApiConfig; id
         <Text style={styles.pageTitle}>お問い合わせ詳細</Text>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>内容</Text>
+      <Text style={styles.pageSubtitle}>内容と対応状況</Text>
+
+      <CollapsibleSection
+        title="内容"
+        subtitle="問い合わせの本文"
+        open={openSections.content}
+        onToggle={() => setOpenSections((p) => ({ ...p, content: !p.content }))}
+      >
         <View style={styles.field}>
-          <Text style={styles.label}>ID</Text>
-          <Text style={styles.readonlyText}>{id || '—'}</Text>
+          <Text style={styles.label}>件名</Text>
+          <Text style={styles.readonlyText}>{subject || '—'}</Text>
         </View>
 
         {busy ? (
@@ -163,15 +187,17 @@ export function InquiryDetailScreen({ cfg, id, onBack }: { cfg: CmsApiConfig; id
         ) : null}
 
         <View style={styles.field}>
-          <Text style={styles.label}>件名</Text>
-          <Text style={styles.readonlyText}>{subject || '—'}</Text>
-        </View>
-
-        <View style={styles.field}>
           <Text style={styles.label}>本文</Text>
           <Text style={styles.readonlyText}>{body || '—'}</Text>
         </View>
+      </CollapsibleSection>
 
+      <CollapsibleSection
+        title="対応状況"
+        subtitle="ステータスを更新"
+        open={openSections.status}
+        onToggle={() => setOpenSections((p) => ({ ...p, status: !p.status }))}
+      >
         <SelectField
           label="対応ステータス"
           value={status}
@@ -184,6 +210,23 @@ export function InquiryDetailScreen({ cfg, id, onBack }: { cfg: CmsApiConfig; id
           onChange={setStatus}
         />
 
+        <View style={styles.filterActions}>
+          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+          </Pressable>
+        </View>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="内部情報"
+        subtitle="管理用"
+        open={openSections.internal}
+        onToggle={() => setOpenSections((p) => ({ ...p, internal: !p.internal }))}
+      >
+        <View style={styles.field}>
+          <Text style={styles.label}>ID</Text>
+          <Text style={styles.readonlyText}>{id || '—'}</Text>
+        </View>
         <View style={styles.field}>
           <Text style={styles.label}>作成日時</Text>
           <Text style={styles.readonlyText}>{createdAt || '—'}</Text>
@@ -192,13 +235,7 @@ export function InquiryDetailScreen({ cfg, id, onBack }: { cfg: CmsApiConfig; id
           <Text style={styles.label}>更新日時</Text>
           <Text style={styles.readonlyText}>{updatedAt || '—'}</Text>
         </View>
-
-        <View style={styles.filterActions}>
-          <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
-            <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
-          </Pressable>
-        </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }

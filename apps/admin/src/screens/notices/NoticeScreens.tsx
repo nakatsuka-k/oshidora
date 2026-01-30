@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { COLORS } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
+import { formatJaDateTime } from '../../utils/datetime'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
 
 type CmsApiConfig = {
   apiBase: string
@@ -70,6 +73,8 @@ export function NoticesListScreen({
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<NoticeRow[]>([])
 
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ list: true })
+
   useEffect(() => {
     let mounted = true
     setBusy(true)
@@ -120,8 +125,15 @@ export function NoticesListScreen({
         </Pressable>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <Text style={styles.pageLead}>作成・予約・送信状況</Text>
+
+      <CollapsibleSection
+        title="一覧"
+        subtitle="選んで編集へ"
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+        styles={styles}
+      >
         <View style={styles.table}>
           {busy ? (
             <View style={styles.placeholderBox}>
@@ -134,7 +146,7 @@ export function NoticesListScreen({
                 <Text style={styles.tableLabel}>{r.subject}</Text>
                 <Text
                   style={styles.tableDetail}
-                >{`${r.sentAt || '—'} / ${noticeStatusLabel(r.status)}${r.tags.length ? ` / タグ: ${r.tags.join(',')}` : ''}`}</Text>
+                >{`${formatJaDateTime(r.sentAt) || '—'} / ${noticeStatusLabel(r.status)}${r.tags.length ? ` / タグ: ${r.tags.join(',')}` : ''}`}</Text>
                 {r.createdByLabel ? <Text style={styles.tableDetail}>{r.createdByLabel}</Text> : null}
                 {r.body ? (
                   <Text style={styles.tableDetail}>{`本文: ${r.body.slice(0, 80)}${r.body.length > 80 ? '…' : ''}`}</Text>
@@ -148,7 +160,7 @@ export function NoticesListScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -401,7 +413,13 @@ export function NoticeEditScreen({
               </Pressable>
             ))}
           </View>
-          <TextInput value={tagsCsv} onChangeText={setTagsCsv} placeholder="例: お知らせ,メンテナンス" style={styles.input} />
+          <TextInput
+            value={tagsCsv}
+            onChangeText={setTagsCsv}
+            placeholder="例: お知らせ,メンテナンス"
+            placeholderTextColor={COLORS.placeholder}
+            style={styles.input}
+          />
         </View>
 
         <View style={styles.devRow}>
@@ -411,7 +429,13 @@ export function NoticeEditScreen({
 
         <View style={styles.field}>
           <Text style={styles.label}>プッシュ通知タイトル</Text>
-          <TextInput value={pushTitle} onChangeText={setPushTitle} placeholder="（未入力なら件名）" style={styles.input} />
+          <TextInput
+            value={pushTitle}
+            onChangeText={setPushTitle}
+            placeholder="（未入力なら件名）"
+            placeholderTextColor={COLORS.placeholder}
+            style={styles.input}
+          />
         </View>
 
         <View style={styles.field}>
@@ -420,6 +444,7 @@ export function NoticeEditScreen({
             value={pushBody}
             onChangeText={setPushBody}
             placeholder="（未入力なら本文）"
+            placeholderTextColor={COLORS.placeholder}
             style={[styles.input, { minHeight: 80 }]}
             multiline
           />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Image,
@@ -42,6 +42,7 @@ import IconSnsYoutube from '../assets/icon_sns/icon_sns_youtube.svg'
 
 import { detectSocialIconKey, detectSocialService, type SocialIconKey } from '../utils/socialLinks'
 import { apiFetch } from '../utils/api'
+import { useWebDragToScroll } from '../utils/useWebDragToScroll'
 
 const SNS_ICONS: Record<SocialIconKey, any> = {
   x: IconSnsX,
@@ -306,6 +307,18 @@ export function ProfileInlineScreen(props: Props) {
 
   const carouselImages = remote.profileImages
   const carouselCount = Math.max(1, carouselImages.length)
+  const hasProfileImages = carouselImages.length > 0
+  const castCarouselDrag = useWebDragToScroll({ suppressPressMs: 250 })
+  const castCarouselRef = castCarouselDrag.scrollRef
+
+  const carouselStep = 210 + 12
+
+  useEffect(() => {
+    if (!hasProfileImages) return
+    const clamped = Math.max(0, Math.min(props.castProfileSlideIndex, carouselCount - 1))
+    castCarouselRef.current?.scrollTo({ x: clamped * carouselStep, animated: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasProfileImages, carouselCount])
 
   const ratingText = useMemo(() => {
     const rating = props.castReviewSummary
@@ -393,63 +406,75 @@ export function ProfileInlineScreen(props: Props) {
 
   return (
     <ScreenContainer title="キャストプロフィール" onBack={props.goBack} scroll>
-      <View style={styles.castCarouselWrap}>
-        <ScrollView
-          horizontal
-          decelerationRate="fast"
-          snapToInterval={210 + 12}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.castCarouselContent}
-          onMomentumScrollEnd={(e) => {
-            const x = e.nativeEvent.contentOffset.x
-            const step = 210 + 12
-            const next = Math.round(x / step)
-            props.setCastProfileSlideIndex(Math.max(0, Math.min(next, carouselCount - 1)))
-          }}
-        >
-          {(carouselImages.length ? carouselImages : ['']).map((uri, i, arr) => (
-            <View
-              key={i}
-              style={[styles.castCarouselCard, i === arr.length - 1 ? null : { marginRight: 12 }]}
-            >
-              {uri ? (
-                <Image
-                  source={{ uri }}
-                  style={styles.castCarouselCardInner}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View style={styles.castCarouselCardInner} />
-              )}
-            </View>
-          ))}
-        </ScrollView>
+      {hasProfileImages ? (
+        <View style={styles.castCarouselWrap}>
+          <ScrollView
+            ref={(r) => {
+              castCarouselRef.current = r
+            }}
+            horizontal
+            decelerationRate="fast"
+            snapToInterval={carouselStep}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.castCarouselContent}
+            style={Platform.OS === 'web' ? ({ cursor: 'grab' } as any) : null}
+            {...(Platform.OS === 'web'
+              ? ({ onMouseDownCapture: castCarouselDrag.onMouseDown, onPointerDownCapture: castCarouselDrag.onPointerDown } as any)
+              : null)}
+            onStartShouldSetResponderCapture={castCarouselDrag.shouldSetResponderCapture}
+            onResponderGrant={castCarouselDrag.onResponderGrant}
+            onScroll={(e) => {
+              castCarouselDrag.onScroll(e)
+              const x = e?.nativeEvent?.contentOffset?.x
+              if (typeof x !== 'number') return
+              const next = Math.round(x / carouselStep)
+              props.setCastProfileSlideIndex(Math.max(0, Math.min(next, carouselCount - 1)))
+            }}
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={(e) => {
+              const x = e.nativeEvent.contentOffset.x
+              const next = Math.round(x / carouselStep)
+              props.setCastProfileSlideIndex(Math.max(0, Math.min(next, carouselCount - 1)))
+            }}
+          >
+            {carouselImages.map((uri, i, arr) => (
+              <View
+                key={i}
+                style={[styles.castCarouselCard, i === arr.length - 1 ? null : { marginRight: 12 }]}
+              >
+                <Image source={{ uri }} style={styles.castCarouselCardInner} resizeMode="cover" />
+              </View>
+            ))}
+          </ScrollView>
 
-        <PaginationDots
-          count={carouselCount}
-          index={props.castProfileSlideIndex}
-          style={styles.castCarouselDots}
-          variant="plain"
-          dotSize={6}
-          activeColor={THEME.accent}
-          inactiveColor={THEME.outline}
-          onChange={(idx) => props.setCastProfileSlideIndex(idx)}
-        />
+          <PaginationDots
+            count={carouselCount}
+            index={props.castProfileSlideIndex}
+            style={styles.castCarouselDots}
+            variant="plain"
+            dotSize={6}
+            activeColor={THEME.accent}
+            inactiveColor={THEME.outline}
+            onChange={(idx) => {
+              const clamped = Math.max(0, Math.min(idx, carouselCount - 1))
+              props.setCastProfileSlideIndex(clamped)
+              castCarouselRef.current?.scrollTo({ x: clamped * carouselStep, animated: true })
+            }}
+          />
 
-        {remote.loading ? (
-          <Text style={[styles.bodyText, { marginTop: 8 }]}>読み込み中...</Text>
-        ) : remote.error ? (
-          <Text style={[styles.bodyText, { marginTop: 8 }]}>読み込み失敗: {remote.error}</Text>
-        ) : !remote.profileImages.length ? (
-          <Text style={[styles.bodyText, { marginTop: 8 }]}>プロフィール画像がありません</Text>
-        ) : null}
-      </View>
+          {remote.loading ? (
+            <Text style={[styles.bodyText, { marginTop: 8 }]}>読み込み中...</Text>
+          ) : remote.error ? (
+            <Text style={[styles.bodyText, { marginTop: 8 }]}>読み込み失敗: {remote.error}</Text>
+          ) : null}
+        </View>
+      ) : null}
 
-      <View style={styles.castTitleBlock}>
-        <Text style={styles.castNameMain}>{castName}</Text>
-        {remote.nameKana ? <Text style={styles.castNameSub}>{remote.nameKana}</Text> : null}
-        {remote.nameEn ? <Text style={styles.castNameSub}>{remote.nameEn}</Text> : null}
-        <View style={styles.castRatingRow}>
+      <View style={[styles.castTitleBlock, !hasProfileImages ? { alignItems: 'center' } : null]}>
+        <Text style={[styles.castNameMain, !hasProfileImages ? { textAlign: 'center' } : null]}>{castName}</Text>
+        {remote.nameKana ? <Text style={[styles.castNameSub, !hasProfileImages ? { textAlign: 'center' } : null]}>{remote.nameKana}</Text> : null}
+        {remote.nameEn ? <Text style={[styles.castNameSub, !hasProfileImages ? { textAlign: 'center' } : null]}>{remote.nameEn}</Text> : null}
+        <View style={[styles.castRatingRow, !hasProfileImages ? { justifyContent: 'center' } : null]}>
           <IconStarYellow width={14} height={14} />
           <Text style={styles.castRatingText}>{ratingText}</Text>
         </View>

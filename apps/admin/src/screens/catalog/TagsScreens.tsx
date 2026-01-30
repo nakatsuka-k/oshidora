@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { styles } from '../../app/styles'
 import { SelectField } from '../../app/components/SelectField'
 import { useBanner } from '../../lib/banner'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
 
 type CmsApiConfig = {
   apiBase: string
@@ -30,6 +31,8 @@ export function TagsListScreen({
   const [busy, setBusy] = useState(false)
   const [, setBanner] = useBanner()
 
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ list: true })
+
   const load = useCallback(async () => {
     setBusy(true)
     setBanner('')
@@ -55,8 +58,14 @@ export function TagsListScreen({
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <Text style={styles.pageSubtitle}>タグを選んで編集</Text>
+
+      <CollapsibleSection
+        title="一覧"
+        subtitle="選んで編集へ"
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+      >
         <View style={styles.table}>
           {busy ? (
             <View style={styles.placeholderBox}>
@@ -76,7 +85,7 @@ export function TagsListScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }

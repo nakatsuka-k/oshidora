@@ -6,6 +6,7 @@ import { styles } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, type CmsApiConfig } from '../../lib/cmsApi'
 import { isValidEmail } from '../../lib/validation'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
 
 type AdminRow = { id: string; name: string; email: string; role: string; disabled: boolean }
 
@@ -21,6 +22,8 @@ export function AdminsListScreen({
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<AdminRow[]>([])
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ list: true })
 
   useEffect(() => {
     let mounted = true
@@ -61,8 +64,14 @@ export function AdminsListScreen({
         </Pressable>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <Text style={styles.pageSubtitle}>アカウントを管理</Text>
+
+      <CollapsibleSection
+        title="一覧"
+        subtitle="選んで編集へ"
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+      >
         <View style={styles.table}>
           {busy ? (
             <View style={styles.placeholderBox}>
@@ -83,7 +92,7 @@ export function AdminsListScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }

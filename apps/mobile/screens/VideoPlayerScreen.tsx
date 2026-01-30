@@ -36,6 +36,8 @@ import IconSubtitleOn from '../assets/icon_subtitle_on.svg'
 import IconSetting from '../assets/setting-icon.svg'
 import IconSound from '../assets/sound-icon.svg'
 
+const NO_VIDEO_URL_MESSAGE = '動画がアップロードされていないか処理中です'
+
 type Props = {
   apiBaseUrl: string
   authToken?: string
@@ -159,6 +161,9 @@ export function VideoPlayerScreen({
   const [playUrlKind, setPlayUrlKind] = useState<'signed-hls' | 'signed-mp4' | 'signed-iframe' | 'hls' | 'mp4' | 'iframe' | 'error' | 'unsigned-hls' | 'unsigned-mp4' | 'unsigned-iframe' | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  // If a video has no playback URL (not uploaded / still processing), avoid hammering the API on re-renders.
+  const noUrlStopRef = useRef<Set<string>>(new Set())
+
   const [resolvedSubtitleUrl, setResolvedSubtitleUrl] = useState<string>('')
 
   const [webIframeTried, setWebIframeTried] = useState(false)
@@ -231,18 +236,36 @@ export function VideoPlayerScreen({
   }, [height, isWeb, naturalSize, stageSize, webViewport?.height, webViewport?.width, width])
 
   const load = useCallback(async () => {
+    const vid = String(selectedVideoId || '').trim()
+    if (!vid) return
+
+    if (noUrlStopRef.current.has(vid)) {
+      setPlayUrl(null)
+      setPlayUrlKind('error')
+      setLoadError('no-url')
+      setWebIframeTried(false)
+      setResolvedSubtitleUrl('')
+      return
+    }
+
     setPlayUrl(null)
     setPlayUrlKind(null)
     setLoadError(null)
     setWebIframeTried(false)
     setResolvedSubtitleUrl('')
 
-    const resolved = await resolvePlaybackUrl(apiBaseUrl, selectedVideoId, authToken, {
+    const resolved = await resolvePlaybackUrl(apiBaseUrl, vid, authToken, {
       // On web, HLS playback is not supported by most browsers (except Safari) without hls.js.
       // Prefer MP4 for widest compatibility.
       preferMp4: Platform.OS === 'web',
     })
-    setPlayUrl(resolved.url ?? null)
+
+    // If there's no URL, treat it as a terminal state and stop further auto-retries.
+    if (resolved.kind === 'error' && resolved.error === 'no-url') {
+      noUrlStopRef.current.add(vid)
+    }
+
+    setPlayUrl(resolved.url ? resolved.url : null)
     setPlayUrlKind(resolved.kind)
     setLoadError(resolved.error)
 
@@ -263,6 +286,13 @@ export function VideoPlayerScreen({
       )
     }
   }, [apiBaseUrl, authToken, selectedVideoId])
+
+  const retryLoad = useCallback(() => {
+    const vid = String(selectedVideoId || '').trim()
+    if (!vid) return
+    noUrlStopRef.current.delete(vid)
+    void load()
+  }, [load, selectedVideoId])
 
   useEffect(() => {
     void load()
@@ -809,7 +839,20 @@ export function VideoPlayerScreen({
           )
         ) : (
           <View style={styles.loadingBox}>
-            <Text style={styles.loadingText}>{loadError ? `再生URL取得に失敗しました（${loadError}）` : '読み込み中…'}</Text>
+            <Text style={styles.loadingText}>
+              {loadError
+                ? loadError === 'no-url'
+                  ? NO_VIDEO_URL_MESSAGE
+                  : `再生URL取得に失敗しました（${loadError}）`
+                : '読み込み中…'}
+            </Text>
+
+            {loadError === 'no-url' ? (
+              <>
+                <View style={{ height: 12 }} />
+                <SecondaryButton label="再取得" onPress={retryLoad} />
+              </>
+            ) : null}
           </View>
         )}
 

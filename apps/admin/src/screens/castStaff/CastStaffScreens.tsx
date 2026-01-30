@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { Image, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 
-import { styles } from '../../app/styles'
+import { COLORS, styles } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
-import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
+import { cmsFetchJson, cmsFetchJsonWithBase, useCmsApi } from '../../lib/cmsApi'
+import { WebDropZone } from '../../ui/WebDropZone'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
 
 type CastStaffRow = {
   id: string
@@ -26,6 +28,8 @@ export function CastStaffListScreen({
   const [rows, setRows] = useState<CastStaffRow[]>([])
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ search: true, list: true })
 
   useEffect(() => {
     let mounted = true
@@ -64,11 +68,24 @@ export function CastStaffListScreen({
         </Pressable>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>検索</Text>
+      <Text style={styles.pageSubtitle}>検索して編集へ</Text>
+
+      <CollapsibleSection
+        title="検索"
+        subtitle="氏名・ID"
+        open={openSections.search}
+        onToggle={() => setOpenSections((p) => ({ ...p, search: !p.search }))}
+      >
         <View style={styles.field}>
           <Text style={styles.label}>氏名 / ID</Text>
-          <TextInput value={qName} onChangeText={setQName} placeholder="例: cast_ / 山田" style={styles.input} autoCapitalize="none" />
+          <TextInput
+            value={qName}
+            onChangeText={setQName}
+            placeholder="例: cast_ / 山田"
+            placeholderTextColor={COLORS.placeholder}
+            style={styles.input}
+            autoCapitalize="none"
+          />
         </View>
         <View style={styles.filterActions}>
           <Pressable onPress={() => setQName((v) => v.trim())} style={styles.btnPrimary}>
@@ -78,10 +95,15 @@ export function CastStaffListScreen({
             <Text style={styles.btnSecondaryText}>リセット</Text>
           </Pressable>
         </View>
-      </View>
+      </CollapsibleSection>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{`一覧${busy ? '（読み込み中）' : ''}`}</Text>
+      <CollapsibleSection
+        title="一覧"
+        subtitle="選んで編集へ"
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+        badges={busy ? [{ kind: 'info', label: '読込中' }] : undefined}
+      >
         <View style={styles.table}>
           {filtered.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
@@ -102,7 +124,7 @@ export function CastStaffListScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -133,6 +155,7 @@ export function CastStaffDetailScreen({
   const [name, setName] = useState('')
   const [role, setRole] = useState('')
   const [thumbnailUrl, setThumbnailUrl] = useState('')
+  const [thumbnailUploading, setThumbnailUploading] = useState(false)
   const [stats, setStats] = useState<{ favoritesCount: number; worksCount: number; videosCount: number } | null>(null)
   const [works, setWorks] = useState<Array<{ id: string; title: string; roleName: string }>>([])
   const [videos, setVideos] = useState<Array<{ id: string; title: string; workId: string; workTitle: string; roleName: string }>>([])
@@ -172,6 +195,44 @@ export function CastStaffDetailScreen({
       mounted = false
     }
   }, [cfg, id])
+
+  const uploadThumbnailFile = useCallback(
+    async (file: File) => {
+      if (Platform.OS !== 'web') {
+        setBanner('画像アップロードはWeb版管理画面のみ対応です')
+        return
+      }
+
+      setThumbnailUploading(true)
+      setBanner('画像アップロード中…')
+      try {
+        const res = await cmsFetchJsonWithBase<{ error: string | null; data: { fileId: string; url: string } | null }>(
+          cfg,
+          cfg.uploaderBase,
+          '/cms/images',
+          {
+            method: 'PUT',
+            headers: {
+              'content-type': file.type || 'application/octet-stream',
+            },
+            body: file,
+          }
+        )
+
+        if (res.error || !res.data?.url) {
+          throw new Error(res.error || '画像アップロードに失敗しました')
+        }
+
+        setThumbnailUrl(res.data.url)
+        setBanner('画像アップロード完了')
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setThumbnailUploading(false)
+      }
+    },
+    [cfg, setBanner]
+  )
 
   const onSave = useCallback(() => {
     setBusy(true)
@@ -235,6 +296,23 @@ export function CastStaffDetailScreen({
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>サムネURL</Text>
+          <Text style={styles.selectMenuDetailText}>推奨サイズ: 正方形（例: 512×512）</Text>
+          {Platform.OS === 'web' ? (
+            <View style={{ marginTop: 6 }}>
+              <WebDropZone
+                title="サムネ画像を追加"
+                hint="ファイル選択後に自動アップロードします"
+                accept="image/png,image/jpeg,image/webp"
+                multiple={false}
+                disabled={thumbnailUploading}
+                onFiles={(files) => {
+                  const f = files?.[0] ?? null
+                  if (f) void uploadThumbnailFile(f)
+                }}
+              />
+              {thumbnailUploading ? <Text style={[styles.selectMenuDetailText, { marginTop: 6 } as any]}>アップロード中…</Text> : null}
+            </View>
+          ) : null}
           <TextInput value={thumbnailUrl} onChangeText={setThumbnailUrl} style={styles.input} autoCapitalize="none" />
         </View>
         <View style={styles.field}>

@@ -39,6 +39,9 @@ API_DIR="$PROJECT_ROOT/apps/api"
 ADMIN_DIR="$PROJECT_ROOT/apps/admin"
 WEB_DIR="$PROJECT_ROOT/apps/mobile"
 UPLOADER_DIR="$PROJECT_ROOT/apps/uploader"
+IP_ALLOWLIST_ADMIN_DIR="$PROJECT_ROOT/apps/ip-allowlist-admin"
+
+ROUTER_CONFIG_FILE="$API_DIR/wrangler-router.toml"
 
 WRANGLER_BIN_ROOT="$PROJECT_ROOT/node_modules/.bin/wrangler"
 WRANGLER_BIN_API="$API_DIR/node_modules/.bin/wrangler"
@@ -71,6 +74,10 @@ SKIP_ADMIN_BUILD="${SKIP_ADMIN_BUILD:-$SKIP_BUILD}"
 SKIP_ADMIN_DEPLOY="${SKIP_ADMIN_DEPLOY:-$SKIP_DEPLOY}"
 SKIP_WEB_BUILD="${SKIP_WEB_BUILD:-$SKIP_BUILD}"
 SKIP_WEB_DEPLOY="${SKIP_WEB_DEPLOY:-$SKIP_DEPLOY}"
+
+SKIP_ROUTER_DEPLOY="${SKIP_ROUTER_DEPLOY:-$SKIP_DEPLOY}"
+
+SKIP_IP_ALLOWLIST_ADMIN_DEPLOY="${SKIP_IP_ALLOWLIST_ADMIN_DEPLOY:-$SKIP_DEPLOY}"
 
 # Cloudflare Pages deploy params
 ADMIN_PAGES_PROJECT_NAME="${ADMIN_PAGES_PROJECT_NAME:-oshidora-admin}"
@@ -135,6 +142,7 @@ install_if_missing "$API_DIR" "API"
 install_if_missing "$UPLOADER_DIR" "Uploader"
 install_if_missing "$ADMIN_DIR" "Admin"
 install_if_missing "$WEB_DIR" "Web"
+install_if_missing "$IP_ALLOWLIST_ADMIN_DIR" "IP Allowlist Admin"
 
 if [ "$SKIP_MIGRATIONS" != "1" ]; then
   ensure_wrangler
@@ -154,6 +162,26 @@ else
   log "Skipping migrations (SKIP_MIGRATIONS=1)"
 fi
 
+if [ "$SKIP_ROUTER_DEPLOY" != "1" ]; then
+  ensure_wrangler
+
+  if [ -f "$ROUTER_CONFIG_FILE" ]; then
+    log "Deploying web router (Cloudflare Workers)..."
+    if [ -n "$WRANGLER_ENV" ]; then
+      log "cmd: (cd apps/api && wrangler deploy --config wrangler-router.toml --env $WRANGLER_ENV)"
+      (cd "$API_DIR" && "$WRANGLER_BIN" deploy --config wrangler-router.toml --env "$WRANGLER_ENV")
+    else
+      log "cmd: (cd apps/api && wrangler deploy --config wrangler-router.toml)"
+      (cd "$API_DIR" && "$WRANGLER_BIN" deploy --config wrangler-router.toml)
+    fi
+    ok "Web router deployed"
+  else
+    die "Router config not found: $ROUTER_CONFIG_FILE"
+  fi
+else
+  log "Skipping web router deploy (SKIP_ROUTER_DEPLOY=1)"
+fi
+
 if [ "$SKIP_API_DEPLOY" != "1" ]; then
   ensure_wrangler
 
@@ -166,6 +194,16 @@ if [ "$SKIP_API_DEPLOY" != "1" ]; then
   ok "API deployed"
 else
   log "Skipping API deploy (SKIP_API_DEPLOY=1)"
+fi
+
+if [ "$SKIP_IP_ALLOWLIST_ADMIN_DEPLOY" != "1" ]; then
+  ensure_wrangler
+
+  log "Deploying IP Allowlist Admin (Cloudflare Workers)..."
+  npm --prefix "$IP_ALLOWLIST_ADMIN_DIR" run deploy
+  ok "IP Allowlist Admin deployed"
+else
+  log "Skipping IP Allowlist Admin deploy (SKIP_IP_ALLOWLIST_ADMIN_DEPLOY=1)"
 fi
 
 if [ "$SKIP_UPLOADER_DEPLOY" != "1" ]; then

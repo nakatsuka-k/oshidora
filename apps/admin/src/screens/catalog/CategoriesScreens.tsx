@@ -4,6 +4,7 @@ import { Image, Pressable, ScrollView, Switch, Text, TextInput, View } from 'rea
 import { COLORS, styles } from '../../app/styles'
 import { SelectField } from '../../app/components/SelectField'
 import { useBanner } from '../../lib/banner'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
 
 type CmsApiConfig = {
   apiBase: string
@@ -23,12 +24,14 @@ export function CategoriesListScreen({
 }: {
   cfg: CmsApiConfig
   cmsFetchJson: CmsFetchJson
-  onOpenDetail: (id: string) => void
+  onOpenDetail: (row: { id: string; name: string }) => void
   onNew: () => void
 }) {
   const [rows, setRows] = useState<CategoryRow[]>([])
   const [busy, setBusy] = useState(false)
   const [, setBanner] = useBanner()
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ list: true })
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -61,8 +64,14 @@ export function CategoriesListScreen({
           <Text style={styles.smallBtnPrimaryText}>新規</Text>
         </Pressable>
       </View>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <Text style={styles.pageSubtitle}>カテゴリを選んで編集</Text>
+
+      <CollapsibleSection
+        title="一覧"
+        subtitle="選んで編集へ"
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+      >
         <View style={styles.table}>
           {busy ? (
             <View style={styles.placeholderBox}>
@@ -70,7 +79,7 @@ export function CategoriesListScreen({
             </View>
           ) : null}
           {rows.map((r) => (
-            <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
+            <Pressable key={r.id} onPress={() => onOpenDetail({ id: r.id, name: r.name })} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{r.name}</Text>
                 <Text style={styles.tableDetail}>{r.enabled ? '有効' : '無効'}</Text>
@@ -83,7 +92,7 @@ export function CategoriesListScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -94,6 +103,7 @@ export function CategoryEditScreen({
   title,
   id,
   onBack,
+  onLoadedCategory,
   onOpenVideo,
 }: {
   cfg: CmsApiConfig
@@ -101,6 +111,7 @@ export function CategoryEditScreen({
   title: string
   id: string
   onBack: () => void
+  onLoadedCategory?: (cat: { id: string; name: string }) => void
   onOpenVideo?: (id: string) => void
 }) {
   const [name, setName] = useState('')
@@ -113,7 +124,6 @@ export function CategoryEditScreen({
   const [videoSearchQ, setVideoSearchQ] = useState('')
   const [videoSearchBusy, setVideoSearchBusy] = useState(false)
   const [videoSearchRows, setVideoSearchRows] = useState<Array<{ id: string; title: string; workTitle: string; thumbnailUrl: string }>>([])
-  const [manualVideoId, setManualVideoId] = useState('')
   const [busy, setBusy] = useState(false)
   const [, setBanner] = useBanner()
 
@@ -146,7 +156,8 @@ export function CategoryEditScreen({
           cmsFetchJson<{ items: any[] }>(cfg, `/cms/categories/${encodeURIComponent(id)}/videos`),
         ])
         if (!mounted) return
-        setName(String(json.item?.name ?? ''))
+        const loadedName = String(json.item?.name ?? '')
+        setName(loadedName)
         setEnabled(Boolean(json.item?.enabled))
         const nextParentId = String(json.item?.parentId ?? '')
         setParentId(nextParentId && nextParentId !== id ? nextParentId : '')
@@ -159,6 +170,7 @@ export function CategoryEditScreen({
             createdAt: String(v.createdAt ?? ''),
           }))
         )
+        onLoadedCategory?.({ id, name: loadedName })
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -202,35 +214,38 @@ export function CategoryEditScreen({
     })()
   }, [cfg, enabled, id, name, onBack, parentId])
 
-  const onSaveLinks = useCallback(() => {
-    if (!id) return
-    setBusy(true)
-    setBanner('')
-    void (async () => {
-      try {
-        await cmsFetchJson(cfg, `/cms/categories/${encodeURIComponent(id)}/videos`, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ videoIds: linkedVideos.map((v) => v.id) }),
-        })
-        const videosJson = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/categories/${encodeURIComponent(id)}/videos`)
-        setLinkedVideos(
-          (videosJson.items ?? []).map((v) => ({
-            id: String(v.id ?? ''),
-            title: String(v.title ?? ''),
-            workTitle: String(v.workTitle ?? ''),
-            thumbnailUrl: String(v.thumbnailUrl ?? ''),
-            createdAt: String(v.createdAt ?? ''),
-          }))
-        )
-        setBanner('紐付けを保存しました')
-      } catch (e) {
-        setBanner(e instanceof Error ? e.message : String(e))
-      } finally {
-        setBusy(false)
-      }
-    })()
-  }, [cfg, id, linkedVideos])
+  const persistLinkedVideos = useCallback(
+    (next: Array<{ id: string; title: string; workTitle: string; thumbnailUrl: string; createdAt: string }>, message: string) => {
+      if (!id) return
+      setBusy(true)
+      setBanner('')
+      void (async () => {
+        try {
+          await cmsFetchJson(cfg, `/cms/categories/${encodeURIComponent(id)}/videos`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ videoIds: next.map((v) => v.id) }),
+          })
+          const videosJson = await cmsFetchJson<{ items: any[] }>(cfg, `/cms/categories/${encodeURIComponent(id)}/videos`)
+          setLinkedVideos(
+            (videosJson.items ?? []).map((v) => ({
+              id: String(v.id ?? ''),
+              title: String(v.title ?? ''),
+              workTitle: String(v.workTitle ?? ''),
+              thumbnailUrl: String(v.thumbnailUrl ?? ''),
+              createdAt: String(v.createdAt ?? ''),
+            }))
+          )
+          setBanner(message)
+        } catch (e) {
+          setBanner(e instanceof Error ? e.message : String(e))
+        } finally {
+          setBusy(false)
+        }
+      })()
+    },
+    [cfg, id]
+  )
 
   const moveLinkedVideo = useCallback((videoId: string, dir: -1 | 1) => {
     setLinkedVideos((prev) => {
@@ -242,31 +257,41 @@ export function CategoryEditScreen({
       const tmp = next[i]
       next[i] = next[j]
       next[j] = tmp
+      persistLinkedVideos(next, '並び順を更新しました')
       return next
     })
-  }, [])
+  }, [persistLinkedVideos])
 
   const removeLinkedVideo = useCallback((videoId: string) => {
-    setLinkedVideos((prev) => prev.filter((v) => v.id !== videoId))
-  }, [])
-
-  const addLinkedVideo = useCallback((row: { id: string; title: string; workTitle: string; thumbnailUrl: string }) => {
-    const vid = String(row.id || '').trim()
-    if (!vid) return
     setLinkedVideos((prev) => {
-      if (prev.some((v) => v.id === vid)) return prev
-      return [
-        ...prev,
-        {
-          id: vid,
-          title: String(row.title ?? ''),
-          workTitle: String(row.workTitle ?? ''),
-          thumbnailUrl: String(row.thumbnailUrl ?? ''),
-          createdAt: '',
-        },
-      ]
+      const next = prev.filter((v) => v.id !== videoId)
+      persistLinkedVideos(next, '削除しました')
+      return next
     })
-  }, [])
+  }, [persistLinkedVideos])
+
+  const addLinkedVideo = useCallback(
+    (row: { id: string; title: string; workTitle: string; thumbnailUrl: string }) => {
+      const vid = String(row.id || '').trim()
+      if (!vid) return
+      setLinkedVideos((prev) => {
+        if (prev.some((v) => v.id === vid)) return prev
+        const next = [
+          ...prev,
+          {
+            id: vid,
+            title: String(row.title ?? ''),
+            workTitle: String(row.workTitle ?? ''),
+            thumbnailUrl: String(row.thumbnailUrl ?? ''),
+            createdAt: '',
+          },
+        ]
+        persistLinkedVideos(next, '追加しました')
+        return next
+      })
+    },
+    [persistLinkedVideos]
+  )
 
   const onSearchVideos = useCallback(() => {
     const q = videoSearchQ.trim()
@@ -306,12 +331,6 @@ export function CategoryEditScreen({
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>編集</Text>
-        {id ? (
-          <View style={styles.field}>
-            <Text style={styles.label}>ID</Text>
-            <Text style={styles.readonlyText}>{id}</Text>
-          </View>
-        ) : null}
         <View style={styles.field}>
           <Text style={styles.label}>カテゴリ名</Text>
           <TextInput value={name} onChangeText={setName} style={styles.input} />
@@ -332,40 +351,19 @@ export function CategoryEditScreen({
 
       {id ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{`紐付く動画（${linkedVideos.length}件）`}</Text>
-          <View style={styles.filtersGrid}>
-            <View style={styles.field}>
-              <Text style={styles.label}>動画ID（直接追加）</Text>
-              <TextInput
-                value={manualVideoId}
-                onChangeText={setManualVideoId}
-                placeholder="vid_..."
-                style={styles.input}
-                autoCapitalize="none"
-              />
-            </View>
-            <View style={styles.filterActions}>
-              <Pressable
-                disabled={busy || !manualVideoId.trim()}
-                onPress={() => {
-                  const vid = manualVideoId.trim()
-                  addLinkedVideo({ id: vid, title: '', workTitle: '', thumbnailUrl: '' })
-                  setManualVideoId('')
-                }}
-                style={[styles.btnSecondary, busy || !manualVideoId.trim() ? styles.btnDisabled : null]}
-              >
-                <Text style={styles.btnSecondaryText}>追加</Text>
-              </Pressable>
-              <Pressable disabled={busy} onPress={onSaveLinks} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
-                <Text style={styles.btnPrimaryText}>紐付け保存</Text>
-              </Pressable>
-            </View>
-          </View>
+          <Text style={styles.sectionTitle}>{`このカテゴリの動画（${linkedVideos.length}件）`}</Text>
+          <Text style={[styles.tableDetail, { marginBottom: 8 }]}>検索結果から選んで追加できます（追加/削除/並び替えは自動で反映されます）</Text>
 
           <View style={styles.filtersGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>動画検索（タイトル/説明）</Text>
-              <TextInput value={videoSearchQ} onChangeText={setVideoSearchQ} placeholder="キーワード" style={styles.input} />
+              <TextInput
+                value={videoSearchQ}
+                onChangeText={setVideoSearchQ}
+                placeholder="キーワード"
+                placeholderTextColor={COLORS.placeholder}
+                style={styles.input}
+              />
             </View>
             <View style={styles.filterActions}>
               <Pressable
@@ -386,9 +384,15 @@ export function CategoryEditScreen({
                   <View key={`sr-${v.id}`} style={styles.tableRow}>
                     <View style={styles.tableLeft}>
                       <Text style={styles.tableLabel}>{v.title || v.id}</Text>
-                      <Text style={styles.tableDetail}>{`${v.workTitle || '—'} / ${v.id}`}</Text>
+                      <Text style={styles.tableDetail}>{v.workTitle || '—'}</Text>
                     </View>
                     <View style={[styles.tableRight, { flexDirection: 'row', gap: 8, alignItems: 'center' }]}>
+                      {v.thumbnailUrl ? (
+                        <Image
+                          source={{ uri: v.thumbnailUrl }}
+                          style={{ width: 64, height: 36, borderRadius: 6, backgroundColor: COLORS.white }}
+                        />
+                      ) : null}
                       <Pressable
                         disabled={busy || exists}
                         onPress={() => addLinkedVideo(v)}
@@ -414,9 +418,7 @@ export function CategoryEditScreen({
               <View key={v.id} style={styles.tableRow}>
                 <View style={styles.tableLeft}>
                   <Text style={styles.tableLabel}>{v.title || v.id}</Text>
-                  <Text style={styles.tableDetail}>
-                    {`${v.workTitle || '—'} / ${(v.createdAt || '').slice(0, 19).replace('T', ' ') || '—'} / ${v.id}`}
-                  </Text>
+                  <Text style={styles.tableDetail}>{`${v.workTitle || '—'} / ${(v.createdAt || '').slice(0, 19).replace('T', ' ') || '—'}`}</Text>
                 </View>
                 <View style={[styles.tableRight, { flexDirection: 'row', gap: 10, alignItems: 'center' }]}>
                   {v.thumbnailUrl ? (
@@ -461,7 +463,7 @@ export function CategoryEditScreen({
 
             {!busy && linkedVideos.length === 0 ? (
               <View style={styles.placeholderBox}>
-                <Text style={styles.placeholderText}>このカテゴリに紐付く動画はありません</Text>
+                <Text style={styles.placeholderText}>このカテゴリの動画はありません</Text>
               </View>
             ) : null}
           </View>

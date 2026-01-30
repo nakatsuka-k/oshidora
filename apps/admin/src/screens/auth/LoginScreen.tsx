@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, Text, TextInput, View } from 'react-native'
 
-import { styles } from '../../app/styles'
+import { COLORS, styles } from '../../app/styles'
 import { STORAGE_EMAIL_KEY } from '../../constants/storage'
 import { useBanner } from '../../lib/banner'
 import { safeLocalStorageSet } from '../../lib/storage'
@@ -84,7 +84,7 @@ export function LoginScreen({
     <View style={styles.loginRoot}>
       <View style={styles.loginCard}>
         <Text style={styles.loginTitle}>ログイン</Text>
-        <Text style={styles.loginDesc}>管理画面にログインします</Text>
+        <Text style={styles.loginDesc}>管理者</Text>
 
         <View style={styles.form}>
           <View style={styles.field}>
@@ -93,6 +93,7 @@ export function LoginScreen({
               value={email}
               onChangeText={setEmail}
               placeholder="admin@example.com"
+              placeholderTextColor={COLORS.placeholder}
               autoCapitalize="none"
               keyboardType="email-address"
               style={styles.input}
@@ -105,6 +106,7 @@ export function LoginScreen({
               value={password}
               onChangeText={setPassword}
               placeholder="パスワード"
+              placeholderTextColor={COLORS.placeholder}
               secureTextEntry
               autoCapitalize="none"
               style={styles.input}

@@ -3,7 +3,7 @@ import { Image, Pressable, ScrollView, Switch, Text, TextInput, View } from 'rea
 
 import { MultiSelectField, type MultiSelectOption } from '../../app/components/MultiSelectField'
 import { SelectField } from '../../app/components/SelectField'
-import { styles } from '../../app/styles'
+import { COLORS, styles } from '../../app/styles'
 import type { CmsApiConfig } from '../../lib/cmsApi'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 import { useBanner } from '../../lib/banner'
@@ -451,7 +451,13 @@ export function VideoDetailScreen({
         <View style={styles.field}>
           <Text style={styles.label}>検索して追加</Text>
           <View style={styles.row}>
-            <TextInput value={recoSearchQ} onChangeText={setRecoSearchQ} style={[styles.input, { flex: 1 }]} placeholder="タイトル/作品/ID" />
+            <TextInput
+              value={recoSearchQ}
+              onChangeText={setRecoSearchQ}
+              style={[styles.input, { flex: 1 }]}
+              placeholder="タイトル/作品/ID"
+              placeholderTextColor={COLORS.placeholder}
+            />
             <Pressable
               disabled={recoSearchBusy}
               onPress={onSearchReco}

@@ -5,7 +5,40 @@ import { styles } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 
-type CoinSettingRow = { id: string; price: string; place: string; target: string; period: string }
+type CoinSettingRow = { id: string; price: string; coinAmount: string; period: string }
+
+function formatCoinPeriod(startsAt: unknown, endsAt: unknown) {
+  const s = String(startsAt ?? '').trim()
+  const e = String(endsAt ?? '').trim()
+  if (!s && !e) return '常時'
+  if (s && e) return `${s} 〜 ${e}`
+  if (s) return `${s} 〜`
+  return `〜 ${e}`
+}
+
+function isValidYmd(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s)
+}
+
+function DateInput({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.input as any}>
+        {
+          // eslint-disable-next-line react/no-unknown-property
+        }
+        <input
+          type="date"
+          value={value}
+          disabled={Boolean(disabled)}
+          onChange={(e: any) => onChange(String(e?.target?.value ?? ''))}
+          style={{ width: '100%', height: '100%', border: 'none', outline: 'none', background: 'transparent', color: 'inherit', font: 'inherit' } as any}
+        />
+      </View>
+    )
+  }
+  return <TextInput value={value} onChangeText={onChange} style={styles.input} editable={!disabled} placeholder="YYYY-MM-DD" />
+}
 
 export function CoinSettingsListScreen({
   onOpenDetail,
@@ -31,9 +64,8 @@ export function CoinSettingsListScreen({
           (json.items ?? []).map((r) => ({
             id: String(r.id ?? ''),
             price: `¥${Number(r.priceYen ?? 0).toLocaleString('ja-JP')}`,
-            place: String(r.place ?? ''),
-            target: String(r.target ?? ''),
-            period: String(r.period ?? ''),
+            coinAmount: `${Number(r.coinAmount ?? 0).toLocaleString('ja-JP')}pt`,
+            period: formatCoinPeriod(r.startsAt, r.endsAt),
           }))
         )
       } catch (e) {
@@ -69,8 +101,8 @@ export function CoinSettingsListScreen({
           {rows.map((r) => (
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
-                <Text style={styles.tableLabel}>{`${r.price} / ${r.target}`}</Text>
-                <Text style={styles.tableDetail}>{`${r.id} / ${r.place} / ${r.period}`}</Text>
+                <Text style={styles.tableLabel}>{`${r.price} / ${r.coinAmount}`}</Text>
+                <Text style={styles.tableDetail}>{`${r.id} / ${r.period}`}</Text>
               </View>
             </Pressable>
           ))}
@@ -99,16 +131,18 @@ export function CoinSettingEditScreen({
   const [busy, setBusy] = useState(false)
 
   const [priceYenText, setPriceYenText] = useState('')
-  const [place, setPlace] = useState('')
-  const [target, setTarget] = useState('')
-  const [period, setPeriod] = useState('')
+  const [coinAmountText, setCoinAmountText] = useState('')
+  const [startsAt, setStartsAt] = useState('')
+  const [endsAt, setEndsAt] = useState('')
+  const [noPeriod, setNoPeriod] = useState(true)
 
   useEffect(() => {
     if (!id) {
       setPriceYenText('')
-      setPlace('')
-      setTarget('')
-      setPeriod('')
+      setCoinAmountText('')
+      setStartsAt('')
+      setEndsAt('')
+      setNoPeriod(true)
       return
     }
 
@@ -121,9 +155,12 @@ export function CoinSettingEditScreen({
         if (!mounted) return
         const it = json.item
         setPriceYenText(String(it?.priceYen ?? ''))
-        setPlace(String(it?.place ?? ''))
-        setTarget(String(it?.target ?? ''))
-        setPeriod(String(it?.period ?? ''))
+        setCoinAmountText(String(it?.coinAmount ?? ''))
+        const s = String(it?.startsAt ?? '').trim()
+        const e = String(it?.endsAt ?? '').trim()
+        setStartsAt(s)
+        setEndsAt(e)
+        setNoPeriod(!s && !e)
       } catch (e) {
         if (!mounted) return
         setBanner(e instanceof Error ? e.message : String(e))
@@ -143,11 +180,28 @@ export function CoinSettingEditScreen({
       setBanner('価格（円）を入力してください')
       return
     }
+
+    const coinAmount = Math.floor(Number(coinAmountText || 0))
+    if (!Number.isFinite(coinAmount) || coinAmount <= 0) {
+      setBanner('取得ポイントを入力してください')
+      return
+    }
+
+    const s = noPeriod ? '' : String(startsAt || '').trim()
+    const e = noPeriod ? '' : String(endsAt || '').trim()
+    if ((s && !isValidYmd(s)) || (e && !isValidYmd(e))) {
+      setBanner('開始日/終了日は YYYY-MM-DD 形式で入力してください')
+      return
+    }
+    if (s && e && e < s) {
+      setBanner('終了日は開始日以降を指定してください')
+      return
+    }
     setBusy(true)
     setBanner('')
     void (async () => {
       try {
-        const payload = { priceYen, place, target, period }
+        const payload = { priceYen, coinAmount, startsAt: s, endsAt: e }
         if (id) {
           await cmsFetchJson(cfg, `/cms/coin-settings/${encodeURIComponent(id)}`, {
             method: 'PUT',
@@ -170,7 +224,7 @@ export function CoinSettingEditScreen({
         setBusy(false)
       }
     })()
-  }, [cfg, id, onBack, period, place, priceYenText, target])
+  }, [cfg, coinAmountText, endsAt, id, noPeriod, onBack, priceYenText, startsAt])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
@@ -199,16 +253,42 @@ export function CoinSettingEditScreen({
           />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>表示場所</Text>
-          <TextInput value={place} onChangeText={setPlace} style={styles.input} />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>対象</Text>
-          <TextInput value={target} onChangeText={setTarget} style={styles.input} />
+          <Text style={styles.label}>取得ポイント</Text>
+          <TextInput
+            value={coinAmountText}
+            onChangeText={setCoinAmountText}
+            style={styles.input}
+            keyboardType={Platform.OS === 'web' ? undefined : 'number-pad'}
+          />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>期間</Text>
-          <TextInput value={period} onChangeText={setPeriod} style={styles.input} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 } as any}>
+            <Pressable
+              onPress={() => {
+                setNoPeriod((v) => {
+                  const next = !v
+                  if (next) {
+                    setStartsAt('')
+                    setEndsAt('')
+                  }
+                  return next
+                })
+              }}
+              style={[styles.smallBtn, { paddingVertical: 8 } as any]}
+            >
+              <Text style={styles.smallBtnText}>{noPeriod ? '期間指定なし' : '期間指定あり'}</Text>
+            </Pressable>
+            <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>{noPeriod ? '常時有効' : '開始/終了日を指定'}</Text>
+          </View>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>開始日</Text>
+          <DateInput value={startsAt} onChange={setStartsAt} disabled={noPeriod} />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>終了日</Text>
+          <DateInput value={endsAt} onChange={setEndsAt} disabled={noPeriod} />
         </View>
         <View style={styles.filterActions}>
           <Pressable disabled={busy} onPress={onSave} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>

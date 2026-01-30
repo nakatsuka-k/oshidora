@@ -51,7 +51,9 @@ MOBILE_PID=""
 ADMIN_PID=""
 D1VIEWER_PID=""
 SEED_IMAGES_PID=""
+IP_ALLOWLIST_ADMIN_PID=""
 API_PORT=""
+IP_ALLOWLIST_ADMIN_PORT=""
 
 START_LOCAL_API=1
 START_D1VIEWER=1
@@ -60,6 +62,7 @@ START_D1VIEWER=1
 cleanup() {
     echo -e "${YELLOW}\n⏹️  Shutting down...${NC}"
     if [ -n "$SEED_IMAGES_PID" ]; then kill "$SEED_IMAGES_PID" 2>/dev/null || true; fi
+    if [ -n "$IP_ALLOWLIST_ADMIN_PID" ]; then kill "$IP_ALLOWLIST_ADMIN_PID" 2>/dev/null || true; fi
     if [ -n "$API_PID" ]; then kill "$API_PID" 2>/dev/null || true; fi
     if [ -n "$MOBILE_PID" ]; then kill "$MOBILE_PID" 2>/dev/null || true; fi
     if [ -n "$ADMIN_PID" ]; then kill "$ADMIN_PID" 2>/dev/null || true; fi
@@ -122,6 +125,11 @@ if [ ! -d "$PROJECT_ROOT/apps/d1viewer/node_modules" ]; then
     npm --prefix "$PROJECT_ROOT/apps/d1viewer" install
 fi
 
+if [ ! -d "$PROJECT_ROOT/apps/ip-allowlist-admin/node_modules" ]; then
+    echo -e "${YELLOW}📦 Installing IP Allowlist Admin dependencies...${NC}"
+    npm --prefix "$PROJECT_ROOT/apps/ip-allowlist-admin" install
+fi
+
 API_BASE_URL=""
 
 if [ "$USE_PROD_API" = "1" ]; then
@@ -136,6 +144,42 @@ else
     # Run database migration for local environment
     echo -e "${YELLOW}🗄️  Running database migrations...${NC}"
     npm --prefix "$PROJECT_ROOT" run db:migrate:local
+
+    # Start IP allowlist admin (Worker) in background
+    echo -e "${YELLOW}🚀 Starting IP Allowlist Admin (Worker)...${NC}"
+    IP_ALLOWLIST_ADMIN_PORT="${IP_ALLOWLIST_ADMIN_PORT:-8790}"
+    IP_ALLOWLIST_ADMIN_PORT="$(pick_free_port "$IP_ALLOWLIST_ADMIN_PORT" 20)" || {
+        echo -e "${RED}❌ Could not find a free port for IP Allowlist Admin starting from 8790${NC}"
+        exit 1
+    }
+
+    # Use a random local password unless provided.
+    if [ -z "${ALLOWLIST_ADMIN_PASSWORD:-}" ]; then
+        if command -v openssl >/dev/null 2>&1; then
+            ALLOWLIST_ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '\n' | tr -d '=' | head -c 24)"
+        else
+            ALLOWLIST_ADMIN_PASSWORD="local-$(date +%s)"
+        fi
+    fi
+
+    # Wrangler does NOT expose process environment variables as Worker bindings.
+    # Provide credentials via .dev.vars so the Worker sees them as env bindings.
+    cat > "$PROJECT_ROOT/apps/ip-allowlist-admin/.dev.vars" <<EOF
+ALLOWLIST_ADMIN_PASSWORD=$ALLOWLIST_ADMIN_PASSWORD
+EOF
+
+    echo "$IP_ALLOWLIST_ADMIN_PORT" > "$LOG_DIR/ip-allowlist-admin.port"
+    echo "http://127.0.0.1:${IP_ALLOWLIST_ADMIN_PORT}" > "$LOG_DIR/ip-allowlist-admin.url"
+    printf "%s\n" "$ALLOWLIST_ADMIN_PASSWORD" > "$LOG_DIR/ip-allowlist-admin.password"
+
+    IP_ALLOWLIST_ADMIN_LOG="$LOG_DIR/ip-allowlist-admin.log"
+    echo "--- $(date) Starting IP Allowlist Admin (port=${IP_ALLOWLIST_ADMIN_PORT}) ---" >> "$IP_ALLOWLIST_ADMIN_LOG"
+
+    # Run in local mode; env vars provide Basic-Auth credentials.
+    ALLOWLIST_ADMIN_USER="$ALLOWLIST_ADMIN_USER" \
+    ALLOWLIST_ADMIN_PASSWORD="$ALLOWLIST_ADMIN_PASSWORD" \
+    npm --prefix "$PROJECT_ROOT/apps/ip-allowlist-admin" run dev -- --port "$IP_ALLOWLIST_ADMIN_PORT" >> "$IP_ALLOWLIST_ADMIN_LOG" 2>&1 &
+    IP_ALLOWLIST_ADMIN_PID=$!
 
     # Start seed-images server (for local development)
     echo -e "${YELLOW}🚀 Starting seed-images server on port 8084...${NC}"
@@ -273,8 +317,12 @@ fi
 BROWSER_URL="http://localhost:8081"
 ADMIN_URL="http://localhost:$ADMIN_WEB_PORT"
 D1VIEWER_URL=""
+IP_ALLOWLIST_ADMIN_URL=""
 if [ "$START_D1VIEWER" = "1" ]; then
     D1VIEWER_URL="http://localhost:$D1VIEWER_WEB_PORT"
+fi
+if [ "$START_LOCAL_API" = "1" ]; then
+    IP_ALLOWLIST_ADMIN_URL="http://127.0.0.1:${IP_ALLOWLIST_ADMIN_PORT}"
 fi
 
 # Display status
@@ -285,6 +333,13 @@ echo -e "${GREEN}📡 API Server:${NC} ${API_BASE_URL}"
 echo -e "${GREEN}🌐 Sites:${NC}"
 echo -e "  - Mobile (Web): ${BROWSER_URL}"
 echo -e "  - Admin (Web): ${ADMIN_URL}"
+if [ -n "$IP_ALLOWLIST_ADMIN_URL" ]; then
+    echo -e "  - IP Allowlist Admin: ${IP_ALLOWLIST_ADMIN_URL}"
+    echo -e "    - Password: ${ALLOWLIST_ADMIN_PASSWORD:-}"
+    echo -e "    - Saved to: $LOG_DIR/ip-allowlist-admin.password"
+else
+    echo -e "  - IP Allowlist Admin: (skipped)"
+fi
 if [ "$START_D1VIEWER" = "1" ]; then
     echo -e "  - D1 Viewer (Web): ${D1VIEWER_URL}"
 else
@@ -293,7 +348,7 @@ fi
 if [ "$START_LOCAL_API" = "1" ]; then
     echo -e "  - Seed Images (Web): http://localhost:8084"
 fi
-echo -e "${GREEN}📝 Logs:${NC} $LOG_DIR (api.log / mobile.log / admin.log / d1viewer.log / seed-images.log)"
+echo -e "${GREEN}📝 Logs:${NC} $LOG_DIR (api.log / mobile.log / admin.log / d1viewer.log / ip-allowlist-admin.log / ip-allowlist-admin.password / seed-images.log)"
 echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop all services${NC}"
 

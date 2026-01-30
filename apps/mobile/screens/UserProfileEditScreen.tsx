@@ -39,6 +39,7 @@ export function UserProfileEditScreen({
   const [busy, setBusy] = useState(false)
   const [avatarUploading, setAvatarUploading] = useState(false)
   const [birthPickerOpen, setBirthPickerOpen] = useState(false)
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false)
 
   const EyeIcon = ({ open }: { open: boolean }) => (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -122,32 +123,48 @@ export function UserProfileEditScreen({
     initialFavoriteGenres,
   ])
 
+  const requiredIssues = useMemo(() => {
+    const issues: Array<{ key: string; label: string }> = []
+
+    const displayNameTrimmed = displayName.trim()
+    const birthDateTrimmed = birthDate.trim()
+    const hasBirthDate = !!birthDateTrimmed
+    const birthDateValid = /^\d{4}-\d{2}-\d{2}$/.test(birthDateTrimmed)
+
+    // Note: email/phone are read-only on this screen (change flows exist separately).
+    if (!displayNameTrimmed) issues.push({ key: 'displayName', label: '表示名' })
+
+    // Registration requires a complete profile; edit allows partial saves but should surface missing required items.
+    if (isNewRegistration) {
+      if (!isValidEmail(email)) issues.push({ key: 'email', label: 'メールアドレス' })
+      if (!phone.trim()) issues.push({ key: 'phone', label: '電話番号' })
+      if (password.trim().length < 8) issues.push({ key: 'password', label: 'パスワード（8文字以上）' })
+      if (password !== passwordConfirm) issues.push({ key: 'passwordConfirm', label: 'パスワード（確認）' })
+      if (!hasBirthDate) issues.push({ key: 'birthDate', label: '生年月日' })
+      else if (!birthDateValid) issues.push({ key: 'birthDate', label: '生年月日（形式）' })
+    } else {
+      // In edit mode, show these as “必須” but allow saving with a confirmation.
+      if (!hasBirthDate) issues.push({ key: 'birthDate', label: '生年月日' })
+      if (favoriteGenres.length < 1) issues.push({ key: 'favoriteGenres', label: '好きなジャンル' })
+    }
+
+    return issues
+  }, [birthDate, displayName, email, favoriteGenres.length, isNewRegistration, password, passwordConfirm, phone])
+
   const canSubmit = useMemo(() => {
     if (busy || avatarUploading) return false
 
-    if (isNewRegistration) {
-      const birthDateTrimmed = birthDate.trim()
-      return (
-        !!displayName.trim() &&
-        isValidEmail(email) &&
-        !!phone.trim() &&
-        password.trim().length >= 8 &&
-        password === passwordConfirm &&
-        !!birthDateTrimmed &&
-        /^\d{4}-\d{2}-\d{2}$/.test(birthDateTrimmed) &&
-        true
-      )
-    }
-
-    const changingPassword = password.trim().length > 0 || passwordConfirm.trim().length > 0
+    const changingPassword = isNewRegistration || password.trim().length > 0 || passwordConfirm.trim().length > 0
     if (changingPassword) {
       if (password.trim().length < 8) return false
       if (password !== passwordConfirm) return false
-      return true
+      // Registration still needs required fields; edit can proceed and will confirm if required items are missing.
+      return isNewRegistration ? requiredIssues.length === 0 : true
     }
 
-    return hasChanges
-  }, [busy, avatarUploading, isNewRegistration, displayName, fullName, fullNameKana, email, phone, birthDate, favoriteGenres, password, passwordConfirm, hasChanges])
+    // Edit flow: allow tapping “完了” whenever something changed.
+    return isNewRegistration ? requiredIssues.length === 0 : hasChanges
+  }, [avatarUploading, busy, hasChanges, isNewRegistration, password, passwordConfirm, requiredIssues.length])
 
   const allGenreOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -358,18 +375,29 @@ export function UserProfileEditScreen({
   }, [apiBaseUrl])
 
   const handleSave = useCallback(async () => {
+    setAttemptedSubmit(true)
+
+    if (!hasChanges && !isNewRegistration && password.trim().length === 0 && passwordConfirm.trim().length === 0) {
+      Alert.alert('確認', '変更がありません')
+      return
+    }
+
     if (!displayName.trim()) {
       Alert.alert('エラー', '表示名を入力してください')
       return
     }
-    if (!isValidEmail(email)) {
-      Alert.alert('エラー', 'メールアドレスの形式が正しくありません')
-      return
+
+    if (isNewRegistration) {
+      if (!isValidEmail(email)) {
+        Alert.alert('エラー', 'メールアドレスの形式が正しくありません')
+        return
+      }
+      if (!phone.trim()) {
+        Alert.alert('エラー', '電話番号が不明です')
+        return
+      }
     }
-    if (!phone.trim()) {
-      Alert.alert('エラー', '電話番号が不明です')
-      return
-    }
+
     const changingPassword = isNewRegistration || password.trim().length > 0 || passwordConfirm.trim().length > 0
     if (changingPassword && password.trim().length < 8) {
       Alert.alert('エラー', 'パスワードは8文字以上で設定してください')
@@ -381,16 +409,24 @@ export function UserProfileEditScreen({
     }
 
     const birthDateTrimmed = birthDate.trim()
-    if (!birthDateTrimmed) {
-      Alert.alert('エラー', '生年月日を入力してください')
-      return
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDateTrimmed)) {
-      Alert.alert('エラー', '生年月日の形式が正しくありません（YYYY-MM-DDで入力）')
-      return
+    if (isNewRegistration) {
+      if (!birthDateTrimmed) {
+        Alert.alert('エラー', '生年月日を入力してください')
+        return
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDateTrimmed)) {
+        Alert.alert('エラー', '生年月日の形式が正しくありません（YYYY-MM-DDで入力）')
+        return
+      }
+    } else {
+      // Edit mode: allow blank, but validate if provided.
+      if (birthDateTrimmed && !/^\d{4}-\d{2}-\d{2}$/.test(birthDateTrimmed)) {
+        Alert.alert('エラー', '生年月日の形式が正しくありません（YYYY-MM-DDで入力）')
+        return
+      }
     }
 
-    // Check if birthDate is in the future
+    // Check if birthDate is in the future (only when provided)
     if (birthDateTrimmed) {
       const birth = new Date(birthDateTrimmed)
       const today = new Date()
@@ -400,30 +436,72 @@ export function UserProfileEditScreen({
       }
     }
 
-    if (!isNewRegistration && favoriteGenres.length < 1) {
-      Alert.alert('エラー', '好きなドラマ・映画のジャンルを1つ以上選択してください')
-      return
+    if (!isNewRegistration && requiredIssues.length > 0) {
+      const msg = '必須項目（*）が未入力ですが、入力済みの内容だけ先に保存しますか？'
+
+      const proceed = await new Promise<boolean>((resolve) => {
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          resolve(window.confirm(msg))
+          return
+        }
+        Alert.alert('確認', msg, [
+          { text: 'キャンセル', style: 'cancel', onPress: () => resolve(false) },
+          { text: '保存する', onPress: () => resolve(true) },
+        ])
+      })
+
+      if (!proceed) return
     }
 
     setBusy(true)
     try {
+      const mergedFullName = !isNewRegistration && fullName === initialFullName ? initialFullName.trim() : fullName.trim()
+      const mergedFullNameKana =
+        !isNewRegistration && fullNameKana === initialFullNameKana ? initialFullNameKana.trim() : fullNameKana.trim()
+      const mergedBirthDate = !isNewRegistration && birthDate === initialBirthDate ? initialBirthDate.trim() : birthDateTrimmed
+      const mergedAvatarUrl = !isNewRegistration && avatarUrl === initialAvatarUrl ? initialAvatarUrl : avatarUrl
+      const mergedFavoriteGenres =
+        !isNewRegistration && JSON.stringify(favoriteGenres) === JSON.stringify(initialFavoriteGenres)
+          ? initialFavoriteGenres
+          : favoriteGenres
+
       await onSave({
         displayName: displayName.trim(),
-        fullName: fullName.trim(),
-        fullNameKana: fullNameKana.trim(),
+        fullName: mergedFullName,
+        fullNameKana: mergedFullNameKana,
         email: email.trim(),
         phone: phone.trim(),
-        birthDate: birthDateTrimmed,
-        favoriteGenres,
+        birthDate: mergedBirthDate,
+        favoriteGenres: mergedFavoriteGenres,
         password: changingPassword && password ? password : undefined,
-        avatarUrl: avatarUrl || undefined,
+        avatarUrl: mergedAvatarUrl || undefined,
       })
     } catch (e) {
       Alert.alert('エラー', e instanceof Error ? e.message : '保存に失敗しました')
     } finally {
       setBusy(false)
     }
-  }, [displayName, fullName, fullNameKana, email, phone, birthDate, favoriteGenres, password, passwordConfirm, avatarUrl, isNewRegistration, onSave])
+  }, [
+    displayName,
+    fullName,
+    fullNameKana,
+    email,
+    phone,
+    birthDate,
+    favoriteGenres,
+    password,
+    passwordConfirm,
+    avatarUrl,
+    hasChanges,
+    initialAvatarUrl,
+    initialBirthDate,
+    initialFavoriteGenres,
+    initialFullName,
+    initialFullNameKana,
+    isNewRegistration,
+    onSave,
+    requiredIssues.length,
+  ])
 
   const birthDatePicker = Platform.OS !== 'web' ? (
     <Modal transparent visible={birthPickerOpen} animationType="fade" onRequestClose={() => setBirthPickerOpen(false)}>
@@ -485,13 +563,14 @@ export function UserProfileEditScreen({
           ) : null}
 
           <TextField
-            label="表示名（ニックネーム）"
+            label="表示名（ニックネーム）*"
             value={displayName}
             onChangeText={setDisplayName}
             placeholder="推しドラ太郎"
             editable={!busy}
             maxLength={20}
             countText={`${displayName.length}/20`}
+            errorText={attemptedSubmit && !displayName.trim() ? '表示名は必須です' : undefined}
             containerStyle={styles.field}
           />
 
@@ -682,7 +761,7 @@ export function UserProfileEditScreen({
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>生年月日</Text>
+            <Text style={styles.label}>生年月日*</Text>
             <Pressable
               onPress={(e) => openBirthDatePicker(e)}
               disabled={busy}
@@ -692,16 +771,24 @@ export function UserProfileEditScreen({
               <Text style={[styles.dateText, birthDate.trim() ? null : styles.datePlaceholder]}>{birthDate.trim() || '選択してください'}</Text>
               <ChevronDownIcon />
             </Pressable>
+            {attemptedSubmit && !birthDate.trim() ? <Text style={styles.inlineError}>生年月日は必須です</Text> : null}
+            {attemptedSubmit && birthDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate.trim()) ? (
+              <Text style={styles.inlineError}>形式が正しくありません（YYYY-MM-DD）</Text>
+            ) : null}
           </View>
         </Section>
 
         {!isNewRegistration ? (
-          <Section title="好きなドラマ・映画のジャンル（複数選択）">
+          <Section title="好きなドラマ・映画のジャンル（複数選択）*">
             {favoriteGenres.length > 0 ? (
               <Text style={styles.hintText}>選択中：{favoriteGenres.join(' / ')}</Text>
             ) : (
               <Text style={styles.hintText}>1つ以上選択してください</Text>
             )}
+
+            {attemptedSubmit && favoriteGenres.length < 1 ? (
+              <Text style={styles.inlineError}>好きなジャンルは1つ以上選択してください</Text>
+            ) : null}
 
             {allGenreOptions.map((group) => (
               <View key={group.title} style={styles.genreGroup}>
@@ -744,6 +831,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginBottom: 18,
+  },
+  inlineError: {
+    marginTop: 6,
+    color: THEME.danger,
+    fontSize: 11,
+    fontWeight: '700',
   },
   changeButton: {
     paddingHorizontal: 12,

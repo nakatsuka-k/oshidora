@@ -24,6 +24,13 @@ const LOGO_IMAGE = require('../assets/oshidora_logo.png')
 const FALLBACK_IMAGE = require('../assets/thumbnail-sample.png')
 const NOTICE_LAST_READ_AT_KEY = 'notice_last_read_at'
 
+function resolvePreviewUrl(): string {
+  const env = String(process.env.EXPO_PUBLIC_PREVIEW_URL || '').trim()
+  if (env) return env
+  const origin = Platform.OS === 'android' ? 'http://10.0.2.2:8082' : 'http://localhost:8082'
+  return `${origin}/video-detail`
+}
+
 export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, onOpenFavorites, onOpenNotice }: TopScreenProps) {
   const { width } = useWindowDimensions()
   const [data, setData] = useState<TopData>(EMPTY_TOP_DATA)
@@ -33,12 +40,15 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
   const [latestNoticeAt, setLatestNoticeAt] = useState<string>('')
 
   const pickupDrag = useWebDragToScroll({ suppressPressMs: 250 })
+  const recommendedDrag = useWebDragToScroll({ suppressPressMs: 250 })
   const viewsRankingDrag = useWebDragToScroll({ suppressPressMs: 250 })
   const castRankingDrag = useWebDragToScroll({ suppressPressMs: 250 })
   const ratingRankingDrag = useWebDragToScroll({ suppressPressMs: 250 })
 
   const pickupCardWidth = Math.min(340, Math.max(260, Math.round(width - 32)))
   const pickupSnap = pickupCardWidth + 12
+  const pickupItems = data.pickup.slice(0, 6)
+  const pickupCount = pickupItems.length
 
   useEffect(() => {
     let cancelled = false
@@ -95,6 +105,21 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
       maxWidth={768}
       headerRight={
         <View style={styles.headerRightRow}>
+          {__DEV__ ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="プレビュー"
+              onPress={() => {
+                const url = resolvePreviewUrl()
+                void Linking.openURL(url).catch(() => {
+                  // ignore
+                })
+              }}
+              style={styles.headerPreviewButton}
+            >
+              <Text style={styles.headerPreviewText}>プレビュー</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="お知らせ"
@@ -132,53 +157,71 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               ) : null}
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.pickupList}
+            <View
               style={Platform.OS === 'web' ? styles.webDragScroll : null}
-              ref={pickupDrag.scrollRef}
-              onStartShouldSetResponderCapture={() => Platform.OS === 'web'}
-              onResponderGrant={pickupDrag.onResponderGrant}
-              onScroll={pickupDrag.onScroll}
-              scrollEventThrottle={16}
-              snapToInterval={pickupSnap}
-              decelerationRate="fast"
-              onMomentumScrollEnd={(e) => {
-                const x = e.nativeEvent.contentOffset.x
-                const next = Math.round(x / pickupSnap)
-                setPickupIndex(Math.max(0, Math.min(next, data.pickup.length - 1)))
-              }}
+              {...(Platform.OS === 'web'
+                ? ({
+                    onMouseDownCapture: pickupDrag.onMouseDown,
+                    onMouseDown: pickupDrag.onMouseDown,
+                    onPointerDownCapture: pickupDrag.onPointerDown,
+                    onPointerDown: pickupDrag.onPointerDown,
+                  } as any)
+                : null)}
             >
-              {data.pickup.slice(0, 6).map((v: PickupItem) => (
-                <Pressable
-                  key={v.id}
-                  style={[styles.pickupCard, { width: pickupCardWidth }]}
-                  onPress={() => {
-                    if (!pickupDrag.allowPress()) return
-                    if (v.kind === 'link') {
-                      const url = String(v.url ?? '').trim()
-                      if (!url) return
-                      void Linking.openURL(url).catch(() => {
-                        // ignore
-                      })
-                      return
-                    }
-                    onOpenVideo(v.id)
-                  }}
-                >
-                  <View style={styles.pickupThumbWrap}>
-                    <Image
-                      source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
-                      style={styles.pickupThumb}
-                      resizeMode="cover"
-                    />
-                  </View>
-                </Pressable>
-              ))}
-            </ScrollView>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.pickupList}
+                ref={pickupDrag.scrollRef}
+                onStartShouldSetResponderCapture={pickupDrag.shouldSetResponderCapture}
+                onResponderGrant={pickupDrag.onResponderGrant}
+                onScroll={(e) => {
+                  pickupDrag.onScroll(e)
+                  const x = e?.nativeEvent?.contentOffset?.x
+                  if (typeof x === 'number') {
+                    const next = Math.round(x / pickupSnap)
+                    setPickupIndex(Math.max(0, Math.min(next, Math.max(0, pickupCount - 1))))
+                  }
+                }}
+                scrollEventThrottle={16}
+                snapToInterval={pickupSnap}
+                decelerationRate="fast"
+                onMomentumScrollEnd={(e) => {
+                  const x = e.nativeEvent.contentOffset.x
+                  const next = Math.round(x / pickupSnap)
+                  setPickupIndex(Math.max(0, Math.min(next, Math.max(0, pickupCount - 1))))
+                }}
+              >
+                {pickupItems.map((v: PickupItem) => (
+                  <Pressable
+                    key={v.id}
+                    style={[styles.pickupCard, { width: pickupCardWidth }]}
+                    onPress={() => {
+                      if (!pickupDrag.allowPress()) return
+                      if (v.kind === 'link') {
+                        const url = String(v.url ?? '').trim()
+                        if (!url) return
+                        void Linking.openURL(url).catch(() => {
+                          // ignore
+                        })
+                        return
+                      }
+                      onOpenVideo(v.id)
+                    }}
+                  >
+                    <View style={styles.pickupThumbWrap}>
+                      <Image
+                        source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
+                        style={styles.pickupThumb}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
             <View style={styles.pickupDots}>
-              {data.pickup.slice(0, 6).map((_, idx) => (
+              {pickupItems.map((_, idx) => (
                 <View key={`dot-${idx}`} style={[styles.pickupDot, idx === pickupIndex ? styles.pickupDotActive : null]} />
               ))}
             </View>
@@ -190,19 +233,47 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               <Text style={styles.sectionTitle}>おすすめ</Text>
             </View>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
-              {data.recommended.slice(0, 6).map((v) => (
-                <Pressable key={v.id} style={styles.recommendCard} onPress={() => onOpenVideo(v.id)}>
-                  <View style={styles.recommendThumbWrap}>
-                    <Image
-                      source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
-                      style={styles.recommendThumb}
-                      resizeMode="cover"
-                    />
-                  </View>
-                </Pressable>
-              ))}
-            </ScrollView>
+            <View
+              style={Platform.OS === 'web' ? styles.webDragScroll : null}
+              {...(Platform.OS === 'web'
+                ? ({
+                    onMouseDownCapture: recommendedDrag.onMouseDown,
+                    onMouseDown: recommendedDrag.onMouseDown,
+                    onPointerDownCapture: recommendedDrag.onPointerDown,
+                    onPointerDown: recommendedDrag.onPointerDown,
+                  } as any)
+                : null)}
+            >
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.hList}
+                ref={recommendedDrag.scrollRef}
+                onStartShouldSetResponderCapture={recommendedDrag.shouldSetResponderCapture}
+                onResponderGrant={recommendedDrag.onResponderGrant}
+                onScroll={recommendedDrag.onScroll}
+                scrollEventThrottle={16}
+              >
+                {data.recommended.slice(0, 6).map((v) => (
+                  <Pressable
+                    key={v.id}
+                    style={styles.recommendCard}
+                    onPress={() => {
+                      if (!recommendedDrag.allowPress()) return
+                      onOpenVideo(v.id)
+                    }}
+                  >
+                    <View style={styles.recommendThumbWrap}>
+                      <Image
+                        source={v.thumbnailUrl ? { uri: v.thumbnailUrl } : FALLBACK_IMAGE}
+                        style={styles.recommendThumb}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
           </View>
 
           {/* ランキング（再生数） */}
@@ -219,7 +290,15 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               contentContainerStyle={styles.hList}
               style={Platform.OS === 'web' ? styles.webDragScroll : null}
               ref={viewsRankingDrag.scrollRef}
-              onStartShouldSetResponderCapture={() => Platform.OS === 'web'}
+              {...(Platform.OS === 'web'
+                ? ({
+                    onMouseDownCapture: viewsRankingDrag.onMouseDown,
+                    onMouseDown: viewsRankingDrag.onMouseDown,
+                    onPointerDownCapture: viewsRankingDrag.onPointerDown,
+                    onPointerDown: viewsRankingDrag.onPointerDown,
+                  } as any)
+                : null)}
+              onStartShouldSetResponderCapture={viewsRankingDrag.shouldSetResponderCapture}
               onResponderGrant={viewsRankingDrag.onResponderGrant}
               onScroll={viewsRankingDrag.onScroll}
               scrollEventThrottle={16}
@@ -271,7 +350,15 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               contentContainerStyle={styles.castList}
               style={Platform.OS === 'web' ? styles.webDragScroll : null}
               ref={castRankingDrag.scrollRef}
-              onStartShouldSetResponderCapture={() => Platform.OS === 'web'}
+              {...(Platform.OS === 'web'
+                ? ({
+                    onMouseDownCapture: castRankingDrag.onMouseDown,
+                    onMouseDown: castRankingDrag.onMouseDown,
+                    onPointerDownCapture: castRankingDrag.onPointerDown,
+                    onPointerDown: castRankingDrag.onPointerDown,
+                  } as any)
+                : null)}
+              onStartShouldSetResponderCapture={castRankingDrag.shouldSetResponderCapture}
               onResponderGrant={castRankingDrag.onResponderGrant}
               onScroll={castRankingDrag.onScroll}
               scrollEventThrottle={16}
@@ -319,7 +406,15 @@ export function TopScreen({ apiBaseUrl, onPressTab, onOpenVideo, onOpenRanking, 
               contentContainerStyle={styles.hList}
               style={Platform.OS === 'web' ? styles.webDragScroll : null}
               ref={ratingRankingDrag.scrollRef}
-              onStartShouldSetResponderCapture={() => Platform.OS === 'web'}
+              {...(Platform.OS === 'web'
+                ? ({
+                    onMouseDownCapture: ratingRankingDrag.onMouseDown,
+                    onMouseDown: ratingRankingDrag.onMouseDown,
+                    onPointerDownCapture: ratingRankingDrag.onPointerDown,
+                    onPointerDown: ratingRankingDrag.onPointerDown,
+                  } as any)
+                : null)}
+              onStartShouldSetResponderCapture={ratingRankingDrag.shouldSetResponderCapture}
               onResponderGrant={ratingRankingDrag.onResponderGrant}
               onScroll={ratingRankingDrag.onScroll}
               scrollEventThrottle={16}
@@ -384,6 +479,21 @@ const styles = StyleSheet.create({
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerPreviewButton: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: THEME.outline,
+  },
+  headerPreviewText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
   },
   noticeDot: {
     position: 'absolute',

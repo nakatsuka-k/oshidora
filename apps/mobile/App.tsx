@@ -116,7 +116,6 @@ import {
 
 import { apiFetch } from './utils/api'
 import { getBoolean, setBoolean, getString, setString } from './utils/storage'
-import { useIpAddress } from './utils/useIpAddress'
 import { upsertWatchHistory } from './utils/watchHistory'
 import {
   useAppNavigation,
@@ -151,15 +150,6 @@ import {
   ensureWebDocumentBackground,
 } from './utils/appHelpers'
 import type { Oshi, WorkDetailWork, ApprovedComment, ApiWorkDetailResponse } from './types/appTypes'
-
-const FALLBACK_ALLOWED_IPS = [
-  '223.135.200.51',
-  '117.102.205.215',
-  '133.232.96.225',
-  '3.114.72.126',
-  '133.200.10.97',
-  '159.28.175.137',
-]
 
 const CAST_PROFILE_CAROUSEL_CARD_WIDTH = 210
 const CAST_PROFILE_CAROUSEL_GAP = 12
@@ -238,30 +228,6 @@ export default function App() {
     return env && env.trim().length > 0 ? env.trim() : defaultApiBaseUrl()
   }, [])
 
-  const allowedIpSet = useMemo(() => {
-    const raw = (process.env.EXPO_PUBLIC_ALLOWED_IPS || '').trim()
-    const ips = raw
-      ? raw
-          .split(',')
-          .map((s: string) => s.trim())
-          .filter(Boolean)
-      : FALLBACK_ALLOWED_IPS
-    return new Set(ips)
-  }, [])
-
-  const isLocalhostWeb =
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '::1')
-
-  const ipRestrictionEnabled = useMemo(() => {
-    if (Platform.OS !== 'web' || isLocalhostWeb) return false
-    const raw = String(process.env.EXPO_PUBLIC_IP_RESTRICTION_ENABLED ?? '').trim().toLowerCase()
-    return raw === '1' || raw === 'true'
-  }, [isLocalhostWeb])
-  const { ipInfo, isLoading: ipLoading, error: ipError, refetch: refetchIp } = useIpAddress({ enabled: ipRestrictionEnabled })
-  const ipAllowed = !ipRestrictionEnabled || (ipInfo?.ip ? allowedIpSet.has(ipInfo.ip) : false)
-
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(false)
   const [maintenanceMessage, setMaintenanceMessage] = useState<string>('')
   const [maintenanceCheckedOnce, setMaintenanceCheckedOnce] = useState<boolean>(false)
@@ -303,6 +269,7 @@ export default function App() {
     currentIndex: number
   } | null>(null)
   const [playerHydrating, setPlayerHydrating] = useState<boolean>(false)
+  const playerHydrationAttemptKeyRef = useRef<string>('')
 
   const [screen, setScreen] = useState<Screen>(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -727,7 +694,7 @@ export default function App() {
         const episodeIds = eps.map((e: any) => String(e?.id ?? '').trim()).filter(Boolean)
         const firstEpisodeId = String(episodeIds[0] ?? '').trim()
 
-        setPlayerEpisodeContext({ workId: wid, episodeIds, currentIndex: 0 })
+        setPlayerEpisodeContext(firstEpisodeId ? { workId: wid, episodeIds, currentIndex: 0 } : null)
 
         if (firstEpisodeId) {
           if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -1456,6 +1423,12 @@ export default function App() {
   }, [checkHealth, loadOshi])
 
   useEffect(() => {
+    // Reset attempt key when (re-)entering the player.
+    if (screen !== 'videoPlayer') return
+    playerHydrationAttemptKeyRef.current = ''
+  }, [screen])
+
+  useEffect(() => {
     // Self-heal: if we land on the player via deep link but video IDs are not resolved yet,
     // try hydrating again from URL/context.
     if (screen !== 'videoPlayer') return
@@ -1469,6 +1442,9 @@ export default function App() {
       : ''
 
     if (ctxEpisodeId) {
+      const attemptKey = `episode:${ctxWorkId}:${ctxEpisodeId}`
+      if (playerHydrationAttemptKeyRef.current === attemptKey) return
+      playerHydrationAttemptKeyRef.current = attemptKey
       setPlayerHydrating(true)
       void hydratePlayerFromEpisodeId(ctxEpisodeId, { workId: ctxWorkId })
       return
@@ -1495,11 +1471,17 @@ export default function App() {
     const workId = (params.get('workId') || pathPlay.workId || '').trim()
     const episodeIdRaw = (params.get('episodeId') || params.get('videoId') || pathPlay.episodeId || '').trim()
     if (episodeIdRaw) {
+      const attemptKey = `episode:${workId}:${episodeIdRaw}`
+      if (playerHydrationAttemptKeyRef.current === attemptKey) return
+      playerHydrationAttemptKeyRef.current = attemptKey
       setPlayerHydrating(true)
       void hydratePlayerFromEpisodeId(episodeIdRaw, { workId })
       return
     }
     if (workId) {
+      const attemptKey = `work:${workId}`
+      if (playerHydrationAttemptKeyRef.current === attemptKey) return
+      playerHydrationAttemptKeyRef.current = attemptKey
       void hydratePlayerFromWorkId(workId)
     }
   }, [hydratePlayerFromEpisodeId, hydratePlayerFromWorkId, playerEpisodeContext, playerHydrating, playerVideoIdNoSub, playerVideoIdWithSub, screen])
@@ -2282,9 +2264,14 @@ export default function App() {
           setLoggedIn(true)
           setHistory([])
 
-          // トークンがあっても起動直後にホームへ自動遷移しない。
-          // ただしスプラッシュ中は次画面として welcome を表示する。
-          if (screen === 'splash') goTo('welcome')
+          // Web版（特にローカル開発）は、保存済みトークンがあっても自動でホームへ遷移しない。
+          // ただし / (splash) からは離脱して welcome を表示する。
+          if (Platform.OS === 'web') {
+            if (screen === 'splash') goTo('welcome')
+            return
+          }
+
+          setScreen('home')
           return
         }
 
@@ -2502,36 +2489,28 @@ export default function App() {
 
   const onCoinPurchaseStartCheckout = useCallback(
     async ({ packId }: { packId: string }) => {
-      const tryCheckout = async () => {
-        const res = await apiFetch(`${apiBaseUrl}/api/stripe/checkout/coin-pack`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ packId }),
-        })
-        if (!res.ok) throw new Error('checkout failed')
-        const json = (await res.json().catch(() => null)) as any
-        const checkoutUrl = typeof json?.checkoutUrl === 'string' ? json.checkoutUrl : ''
-        if (checkoutUrl) {
-          if (Platform.OS === 'web' && typeof window !== 'undefined') {
-            window.location.href = checkoutUrl
-          } else {
-            await Linking.openURL(checkoutUrl)
-          }
-        }
-      }
-
+      let added = 100
       try {
-        await tryCheckout()
+        const res = await apiFetch(`${apiBaseUrl}/api/coin-packs`)
+        if (res.ok) {
+          const json = (await res.json().catch(() => null)) as any
+          const items = Array.isArray(json?.items) ? (json.items as any[]) : []
+          const found = items.find((v) => String(v?.packId ?? '') === packId)
+          const n = Number(found?.coinAmount ?? NaN)
+          if (Number.isFinite(n) && n > 0) added = Math.floor(n)
+        }
       } catch {
-        // ignore and proceed with mock
+        // ignore
       }
 
-      const packToCoins: Record<string, number> = {
-        p100: 100,
-        p300: 300,
-        p500: 500,
+      if (added === 100) {
+        const packToCoins: Record<string, number> = {
+          p100: 100,
+          p300: 300,
+          p500: 500,
+        }
+        if (Number.isFinite(packToCoins[packId])) added = packToCoins[packId]
       }
-      const added = Number.isFinite(packToCoins[packId]) ? packToCoins[packId] : 100
       await new Promise((r) => setTimeout(r, 400))
       setCoinGrantReasonLabel('コイン購入')
       setCoinGrantAmount(added)
@@ -2629,17 +2608,6 @@ export default function App() {
     ? playerEpisodeContext.currentIndex < playerEpisodeContext.episodeIds.length - 1
     : undefined
 
-  // Show IP gate if IP restriction is enabled and checks are needed
-  if (ipRestrictionEnabled) {
-    if (ipLoading) {
-      return <IpCheckingScreen styles={styles} />
-    }
-
-    if (!ipAllowed) {
-      return <IpDeniedScreen styles={styles} ipInfo={ipInfo} ipError={ipError} onRetry={refetchIp} />
-    }
-  }
-
   if (maintenanceMode) {
     return (
       <MaintenanceScreen
@@ -2659,23 +2627,14 @@ export default function App() {
           <WelcomeTopScreen
             onLogin={() => goTo('login')}
             onStart={() => {
-              if (loggedIn) {
-                setHistory([])
-                setScreen('home')
-                return
-              }
               setTermsReadOnly(false)
               goTo('terms')
             }}
-            onContinueAsGuest={
-              loggedIn
-                ? undefined
-                : () => {
-                    setLoggedIn(false)
-                    setHistory([])
-                    setScreen('home')
-                  }
-            }
+            onContinueAsGuest={() => {
+              setLoggedIn(false)
+              setHistory([])
+              setScreen('home')
+            }}
           />
         ) : null}
 
@@ -2683,23 +2642,14 @@ export default function App() {
         <WelcomeTopScreen
           onLogin={() => goTo('login')}
           onStart={() => {
-            if (loggedIn) {
-              setHistory([])
-              setScreen('home')
-              return
-            }
             setTermsReadOnly(false)
             goTo('terms')
           }}
-          onContinueAsGuest={
-            loggedIn
-              ? undefined
-              : () => {
-                  setLoggedIn(false)
-                  setHistory([])
-                  setScreen('home')
-                }
-          }
+          onContinueAsGuest={() => {
+            setLoggedIn(false)
+            setHistory([])
+            setScreen('home')
+          }}
         />
       ) : null}
 
@@ -2965,6 +2915,7 @@ export default function App() {
           onPressTab={switchTab}
           onOpenVideo={(id) => openWorkDetail(id)}
           onOpenRanking={() => goTo('ranking')}
+          onOpenCastProfile={({ id, name }) => onCastOpenProfile({ id, name, role: '俳優' })}
           onOpenFavorites={() => goTo('favorites')}
           onOpenNotice={() => goTo('notice')}
         />

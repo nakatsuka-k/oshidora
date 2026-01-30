@@ -4,7 +4,7 @@ import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-nati
 import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 import { isValidEmail } from '../../lib/validation'
-import { styles } from '../../ui/styles'
+import { COLORS, styles } from '../../ui/styles'
 
 export function UserCreateScreen({
   onBack,
@@ -72,11 +72,25 @@ export function UserCreateScreen({
         <Text style={styles.sectionTitle}>入力</Text>
         <View style={styles.field}>
           <Text style={styles.label}>メールアドレス（必須）</Text>
-          <TextInput value={email} onChangeText={setEmail} placeholder="user@example.com" autoCapitalize="none" style={styles.input} />
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="user@example.com"
+            placeholderTextColor={COLORS.placeholder}
+            autoCapitalize="none"
+            style={styles.input}
+          />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>電話番号（任意）</Text>
-          <TextInput value={phone} onChangeText={setPhone} placeholder="090..." autoCapitalize="none" style={styles.input} />
+          <TextInput
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="090..."
+            placeholderTextColor={COLORS.placeholder}
+            autoCapitalize="none"
+            style={styles.input}
+          />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>初期パスワード（必須 / 8文字以上）</Text>

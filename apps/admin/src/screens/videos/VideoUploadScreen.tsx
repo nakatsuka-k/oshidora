@@ -3,7 +3,7 @@ import { Image, Platform, Pressable, ScrollView, Switch, Text, TextInput, View }
 
 import { MultiSelectField, type MultiSelectOption } from '../../app/components/MultiSelectField'
 import { SelectField } from '../../app/components/SelectField'
-import { styles } from '../../app/styles'
+import { COLORS, styles } from '../../app/styles'
 import type { CmsApiConfig } from '../../lib/cmsApi'
 import { cmsFetchJson, cmsFetchJsonWithBase, useCmsApi } from '../../lib/cmsApi'
 import { useBanner } from '../../lib/banner'
@@ -496,6 +496,7 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
             value={streamVideoId}
             onChangeText={setStreamVideoId}
             placeholder="Cloudflare Stream の videoId"
+            placeholderTextColor={COLORS.placeholder}
             style={styles.input}
             autoCapitalize="none"
           />
@@ -511,21 +512,31 @@ export function VideoUploadScreen({ onBack }: { onBack: () => void }) {
                 hint="16:9 推奨（例: 1280×720）"
                 accept="image/png,image/jpeg,image/webp"
                 multiple={false}
+                disabled={thumbnailUploading}
                 onFiles={(files) => {
                   const f = files?.[0] ?? null
                   if (!f) return
                   setThumbnailFile(f)
                   setBanner('')
-                    uploadThumbnail(f)
                 }}
               />
+              {thumbnailFile ? (
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 } as any}>
+                  <Text style={styles.selectMenuDetailText} numberOfLines={1}>
+                    選択中: {thumbnailFile.name}（{Math.max(1, Math.round(thumbnailFile.size / 1024))}KB）
+                  </Text>
+                  <Pressable onPress={() => setThumbnailFile(null)} style={styles.btnSecondary}>
+                    <Text style={styles.btnSecondaryText}>選択解除</Text>
+                  </Pressable>
+                </View>
+              ) : null}
               <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
                 <Pressable
                   disabled={thumbnailUploading || !thumbnailFile}
-                    onPress={() => uploadThumbnail()}
+                  onPress={() => uploadThumbnail()}
                   style={[styles.btnSecondary, (thumbnailUploading || !thumbnailFile) ? styles.btnDisabled : null]}
                 >
-                    <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : '再アップロード'}</Text>
+                  <Text style={styles.btnSecondaryText}>{thumbnailUploading ? '画像アップロード中…' : 'アップロード'}</Text>
                 </Pressable>
               </View>
             </View>

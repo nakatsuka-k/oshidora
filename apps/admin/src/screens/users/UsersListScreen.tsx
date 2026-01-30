@@ -4,7 +4,8 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { useBanner } from '../../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../../lib/cmsApi'
 import { SelectField } from '../../ui/fields'
-import { styles } from '../../ui/styles'
+import { COLORS, styles } from '../../ui/styles'
+import { formatJaDateTime } from '../../utils/datetime'
 
 type UserRow = {
   id: string
@@ -67,10 +68,8 @@ export function UsersListScreen({
     [qSortBy, qSortDir]
   )
 
-  const dateLabel = useCallback((iso: string) => {
-    const s = String(iso ?? '')
-    if (!s) return ''
-    return s.length >= 10 ? s.slice(0, 10) : s
+  const dateLabel = useCallback((v: string) => {
+    return formatJaDateTime(v) || ''
   }, [])
 
   const load = useCallback(async () => {
@@ -130,7 +129,14 @@ export function UsersListScreen({
         <View style={styles.filtersGrid}>
           <View style={styles.field}>
             <Text style={styles.label}>検索（名前 / メール）</Text>
-            <TextInput value={qText} onChangeText={setQText} placeholder="user@example.com" autoCapitalize="none" style={styles.input} />
+            <TextInput
+              value={qText}
+              onChangeText={setQText}
+              placeholder="user@example.com"
+              placeholderTextColor={COLORS.placeholder}
+              autoCapitalize="none"
+              style={styles.input}
+            />
           </View>
           <SelectField
             label="キャスト"

@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 
+import { COLORS } from '../../app/styles'
 import { useBanner } from '../../lib/banner'
+import { formatJaDateTime } from '../../utils/datetime'
+import { CollapsibleSection } from '../../ui/CollapsibleSection'
 
 type CmsApiConfig = {
   apiBase: string
@@ -12,6 +15,16 @@ type CmsApiConfig = {
 type CmsFetchJson = <T = any>(cfg: CmsApiConfig, path: string, init?: RequestInit) => Promise<T>
 
 type SelectFieldComponent = (props: any) => any
+
+type ConfirmFn = (
+  message: string,
+  opts?: {
+    title?: string
+    okText?: string
+    cancelText?: string
+    danger?: boolean
+  }
+) => Promise<boolean>
 
 type CommentRow = {
   id: string
@@ -56,6 +69,8 @@ export function CommentsPendingListScreen({
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<CommentRow[]>([])
 
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ list: true })
+
   useEffect(() => {
     let mounted = true
     setBusy(true)
@@ -91,8 +106,15 @@ export function CommentsPendingListScreen({
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>未承認/未対応コメント一覧</Text>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
+      <Text style={styles.pageLead}>未対応を確認して承認へ</Text>
+
+      <CollapsibleSection
+        title="一覧"
+        subtitle="選んで承認へ"
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+        styles={styles}
+      >
         <View style={styles.table}>
           {busy ? (
             <View style={styles.placeholderBox}>
@@ -103,7 +125,7 @@ export function CommentsPendingListScreen({
             <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
               <View style={styles.tableLeft}>
                 <Text style={styles.tableLabel}>{`${r.targetTitle} / ${r.author}`}</Text>
-                <Text style={styles.tableDetail}>{`${r.createdAt} / ${commentStatusLabel(r.status)}`}</Text>
+                <Text style={styles.tableDetail}>{`${formatJaDateTime(r.createdAt, { withSeconds: true }) || '—'} / ${commentStatusLabel(r.status)}`}</Text>
               </View>
             </Pressable>
           ))}
@@ -113,7 +135,7 @@ export function CommentsPendingListScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }
@@ -232,7 +254,7 @@ export function CommentApproveScreen({
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>投稿日時</Text>
-          <Text style={styles.readonlyText}>{item?.createdAt || (busy ? '—' : '—')}</Text>
+          <Text style={styles.readonlyText}>{formatJaDateTime(item?.createdAt, { withSeconds: true }) || (busy ? '—' : '—')}</Text>
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>現在ステータス</Text>
@@ -274,6 +296,7 @@ export function CommentsListScreen({
   styles,
   SelectField,
   onOpenEdit,
+  confirm,
   initialContentId,
   initialEpisodeId,
 }: {
@@ -282,6 +305,7 @@ export function CommentsListScreen({
   styles: any
   SelectField: SelectFieldComponent
   onOpenEdit: (id: string) => void
+  confirm?: ConfirmFn
   initialContentId?: string
   initialEpisodeId?: string
 }) {
@@ -291,6 +315,65 @@ export function CommentsListScreen({
   const [qContentId, setQContentId] = useState(initialContentId ? String(initialContentId) : '')
   const [qEpisodeId, setQEpisodeId] = useState(initialEpisodeId ? String(initialEpisodeId) : '')
   const [rows, setRows] = useState<CommentRow[]>([])
+
+  const [reloadSeq, setReloadSeq] = useState(0)
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ search: true, list: true })
+
+  const qStatusLabel = useMemo(() => (qStatus ? commentStatusLabel(qStatus) : '全て'), [qStatus])
+
+  const runConfirm = useCallback(
+    async (message: string, opts?: Parameters<ConfirmFn>[1]): Promise<boolean> => {
+      if (confirm) return await confirm(message, opts)
+      if (Platform.OS === 'web' && typeof window !== 'undefined') return window.confirm(message)
+      return false
+    },
+    [confirm]
+  )
+
+  const updateComment = useCallback(
+    async (id: string, patch: any) => {
+      setBusy(true)
+      setBanner('')
+      try {
+        await cmsFetchJson(cfg, `/cms/comments/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+        setReloadSeq((n) => n + 1)
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [cfg, cmsFetchJson, setBanner]
+  )
+
+  const onUnpublish = useCallback(
+    async (id: string) => {
+      const ok = await runConfirm('このコメントを非公開にしますか？', { title: '非公開', okText: '非公開' })
+      if (!ok) return
+      await updateComment(id, { status: 'rejected', deleted: false })
+      setBanner('非公開にしました')
+    },
+    [runConfirm, setBanner, updateComment]
+  )
+
+  const onDelete = useCallback(
+    async (id: string) => {
+      const ok = await runConfirm('このコメントを削除しますか？\n元に戻せない場合があります。', {
+        title: '削除',
+        okText: '削除',
+        danger: true,
+      })
+      if (!ok) return
+      await updateComment(id, { deleted: true })
+      setBanner('削除しました')
+    },
+    [runConfirm, setBanner, updateComment]
+  )
 
   useEffect(() => {
     let mounted = true
@@ -326,22 +409,68 @@ export function CommentsListScreen({
     return () => {
       mounted = false
     }
-  }, [cfg, cmsFetchJson, qContentId, qEpisodeId, qStatus, setBanner])
+  }, [cfg, cmsFetchJson, qContentId, qEpisodeId, qStatus, reloadSeq, setBanner])
 
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
-      <Text style={styles.pageTitle}>コメント一覧</Text>
+      <View style={styles.pageHeaderRow}>
+        <View style={{ flex: 1, gap: 6 } as any}>
+          <Text style={styles.pageTitle}>コメント</Text>
+          <Text style={styles.pageSubtitle ?? styles.pageLead}>確認・管理</Text>
+        </View>
+      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>検索</Text>
+      <Text style={styles.pageLead}>ユーザーが投稿したコメントを確認し、公開状態の管理や削除を行います。</Text>
+
+      <CollapsibleSection
+        title="検索"
+        subtitle="条件"
+        open={openSections.search}
+        onToggle={() => setOpenSections((p) => ({ ...p, search: !p.search }))}
+        styles={styles}
+      >
+        <View
+          style={
+            {
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 12,
+              padding: 12,
+              backgroundColor: COLORS.white,
+              gap: 6,
+            } as any
+          }
+        >
+          <Text style={{ color: '#111827', fontSize: 13, fontWeight: '900' } as any}>現在の検索条件</Text>
+          <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>{`・ステータス: ${qStatusLabel}`}</Text>
+          <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>{`・作品ID（管理用ID）: ${qContentId.trim() ? qContentId.trim() : '未指定'}`}</Text>
+          <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>{`・エピソードID（動画 / 話数）: ${qEpisodeId.trim() ? qEpisodeId.trim() : '未指定'}`}</Text>
+        </View>
+
+        <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>※ IDが分からない場合は未入力のまま検索できます</Text>
+
         <View style={styles.filtersGrid}>
           <View style={styles.field}>
-            <Text style={styles.label}>作品ID（contentId）</Text>
-            <TextInput value={qContentId} onChangeText={setQContentId} placeholder="work_..." style={styles.input} autoCapitalize="none" />
+            <Text style={styles.label}>作品ID（管理用ID）</Text>
+            <TextInput
+              value={qContentId}
+              onChangeText={setQContentId}
+              placeholder="例）work_12345"
+              placeholderTextColor={COLORS.placeholder}
+              style={styles.input}
+              autoCapitalize="none"
+            />
           </View>
           <View style={styles.field}>
-            <Text style={styles.label}>エピソードID/話数（episodeId）</Text>
-            <TextInput value={qEpisodeId} onChangeText={setQEpisodeId} placeholder="video_... / 1" style={styles.input} autoCapitalize="none" />
+            <Text style={styles.label}>エピソードID（動画 / 話数）</Text>
+            <TextInput
+              value={qEpisodeId}
+              onChangeText={setQEpisodeId}
+              placeholder="例）episode_01"
+              placeholderTextColor={COLORS.placeholder}
+              style={styles.input}
+              autoCapitalize="none"
+            />
           </View>
         </View>
         <SelectField
@@ -356,30 +485,98 @@ export function CommentsListScreen({
           ]}
           onChange={(v: any) => setQStatus(v as any)}
         />
-      </View>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>一覧</Text>
-        <View style={styles.table}>
-          {busy ? (
-            <View style={styles.placeholderBox}>
-              <Text style={styles.placeholderText}>読み込み中…</Text>
-            </View>
-          ) : null}
-          {rows.map((r) => (
-            <Pressable key={r.id} onPress={() => onOpenEdit(r.id)} style={styles.tableRow}>
-              <View style={styles.tableLeft}>
-                <Text style={styles.tableLabel}>{`${r.targetTitle} / ${r.author}`}</Text>
-                <Text style={styles.tableDetail}>{`${r.createdAt} / ${commentStatusLabel(r.status)}`}</Text>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="一覧"
+        subtitle={rows.length ? `${rows.length}件` : '—'}
+        open={openSections.list}
+        onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
+        styles={styles}
+      >
+        <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>
+          ※ コメントを削除・非公開にすると、元に戻せない場合があります。内容を確認してから操作してください。
+        </Text>
+
+        {busy ? (
+          <View style={styles.placeholderBox}>
+            <Text style={styles.placeholderText}>読み込み中…</Text>
+          </View>
+        ) : null}
+
+        {!busy && rows.length === 0 ? (
+          <View style={styles.placeholderBox}>
+            <Text style={styles.placeholderText}>コメントがありません</Text>
+          </View>
+        ) : null}
+
+        <View style={{ gap: 12 } as any}>
+          {rows.map((r) => {
+            const statusText = commentStatusLabel(r.status)
+            const badgeBg = r.status === 'approved' ? '#ecfdf5' : r.status === 'pending' ? '#fffbeb' : '#f3f4f6'
+            const badgeBorder = r.status === 'approved' ? '#a7f3d0' : r.status === 'pending' ? '#fde68a' : '#e5e7eb'
+            const badgeText = r.status === 'approved' ? '#047857' : r.status === 'pending' ? '#b45309' : '#374151'
+            return (
+              <View
+                key={r.id}
+                style={
+                  {
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    borderRadius: 12,
+                    padding: 12,
+                    backgroundColor: COLORS.white,
+                    gap: 10,
+                  } as any
+                }
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 } as any}>
+                  <View style={{ flex: 1, minWidth: 0, gap: 4 } as any}>
+                    <Text style={{ color: '#111827', fontSize: 14, fontWeight: '900' } as any}>{r.targetTitle}</Text>
+                    <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>{`ユーザー: ${r.author || '—'}`}</Text>
+                    <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' } as any}>{`投稿日: ${formatJaDateTime(r.createdAt, { withSeconds: true }) || '—'}`}</Text>
+                  </View>
+
+                  <View
+                    style={
+                      {
+                        paddingVertical: 4,
+                        paddingHorizontal: 10,
+                        borderRadius: 999,
+                        backgroundColor: badgeBg,
+                        borderWidth: 1,
+                        borderColor: badgeBorder,
+                      } as any
+                    }
+                  >
+                    <Text style={{ color: badgeText, fontSize: 12, fontWeight: '900' } as any}>{statusText}</Text>
+                  </View>
+                </View>
+
+                {r.body ? (
+                  <View style={{ borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 10 } as any}>
+                    <Text style={{ color: '#111827', fontSize: 14, fontWeight: '800', lineHeight: 20 } as any}>
+                      {`「${r.body}」`}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' } as any}>
+                  <Pressable disabled={busy} onPress={() => onOpenEdit(r.id)} style={styles.smallBtnPrimary}>
+                    <Text style={styles.smallBtnPrimaryText}>詳細を見る</Text>
+                  </Pressable>
+                  <Pressable disabled={busy || r.status === 'rejected'} onPress={() => void onUnpublish(r.id)} style={styles.smallBtn}>
+                    <Text style={styles.smallBtnText}>非公開にする</Text>
+                  </Pressable>
+                  <Pressable disabled={busy} onPress={() => void onDelete(r.id)} style={styles.smallBtnDanger}>
+                    <Text style={styles.smallBtnDangerText}>削除</Text>
+                  </Pressable>
+                </View>
               </View>
-            </Pressable>
-          ))}
-          {!busy && rows.length === 0 ? (
-            <View style={styles.placeholderBox}>
-              <Text style={styles.placeholderText}>コメントがありません</Text>
-            </View>
-          ) : null}
+            )
+          })}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }

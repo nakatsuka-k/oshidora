@@ -34,7 +34,7 @@ export function SelectField({
       <Text style={styles.label}>{label}</Text>
       <View style={styles.selectWrap}>
         <Pressable onPress={() => setOpen((v) => !v)} style={styles.selectBtn}>
-          <Text style={styles.selectText}>{selectedLabel || placeholder}</Text>
+          <Text style={[styles.selectText, !selectedLabel ? ({ color: COLORS.placeholder } as any) : null]}>{selectedLabel || placeholder}</Text>
         </Pressable>
 
         <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
@@ -52,7 +52,7 @@ export function SelectField({
                   value={q}
                   onChangeText={setQ}
                   placeholder="検索（名前 / ID）"
-                  placeholderTextColor={COLORS.muted}
+                  placeholderTextColor={COLORS.placeholder}
                   autoCapitalize="none"
                   style={styles.selectSearchInput}
                 />
@@ -160,7 +160,7 @@ export function MultiSelectField({
       <Text style={styles.label}>{label}</Text>
       <View style={styles.selectWrap}>
         <Pressable onPress={() => setOpen((v) => !v)} style={styles.selectBtn}>
-          <Text style={styles.selectText}>{summary}</Text>
+          <Text style={[styles.selectText, !values.length ? ({ color: COLORS.placeholder } as any) : null]}>{summary}</Text>
         </Pressable>
 
         {values.length ? (
@@ -191,7 +191,7 @@ export function MultiSelectField({
                   value={q}
                   onChangeText={setQ}
                   placeholder={searchPlaceholder || '検索（名前 / ID）'}
-                  placeholderTextColor={COLORS.muted}
+                  placeholderTextColor={COLORS.placeholder}
                   autoCapitalize="none"
                   style={styles.selectSearchInput}
                 />

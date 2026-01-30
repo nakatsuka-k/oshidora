@@ -5,6 +5,7 @@ import type { RouteId } from '../lib/routes'
 import { useBanner } from '../lib/banner'
 import { cmsFetchJson, useCmsApi } from '../lib/cmsApi'
 import { styles } from '../app/styles'
+import { CollapsibleSection } from '../ui/CollapsibleSection'
 
 type KPIItem = {
   id: string
@@ -31,6 +32,13 @@ export function DashboardScreen({
   const cfg = useCmsApi()
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    summary: true,
+    scheduled: true,
+    activity: true,
+    shortcuts: true,
+  })
 
   const [scheduledRows, setScheduledRows] = useState<Array<{ id: string; title: string; scheduledAt: string; status: string }>>([])
 
@@ -149,8 +157,14 @@ export function DashboardScreen({
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>ダッシュボード</Text>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>サマリー情報</Text>
+      <Text style={styles.pageSubtitle}>今日の状況を確認</Text>
+
+      <CollapsibleSection
+        title="サマリー情報"
+        subtitle="全体の数字を確認"
+        open={openSections.summary}
+        onToggle={() => setOpenSections((p) => ({ ...p, summary: !p.summary }))}
+      >
         <View style={styles.kpiGrid}>
           {kpis.map((it) => (
             <Pressable key={it.id} onPress={() => onNavigate(it.route)} style={styles.kpiCard}>
@@ -159,16 +173,19 @@ export function DashboardScreen({
             </Pressable>
           ))}
         </View>
-      </View>
+      </CollapsibleSection>
 
-      <View style={styles.section}>
-        <View style={styles.pageHeaderRow}>
-          <Text style={styles.sectionTitle}>配信予定動画（直近）</Text>
+      <CollapsibleSection
+        title="配信予定動画（直近）"
+        subtitle="直近の予定を確認"
+        open={openSections.scheduled}
+        onToggle={() => setOpenSections((p) => ({ ...p, scheduled: !p.scheduled }))}
+        right={
           <Pressable onPress={() => onNavigate('videos-scheduled')} style={styles.smallBtnPrimary}>
             <Text style={styles.smallBtnPrimaryText}>一覧へ</Text>
           </Pressable>
-        </View>
-
+        }
+      >
         <View style={styles.table}>
           {busy && scheduledRows.length === 0 ? (
             <View style={styles.placeholderBox}>
@@ -198,10 +215,14 @@ export function DashboardScreen({
             </View>
           ) : null}
         </View>
-      </View>
+      </CollapsibleSection>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>最近のアクティビティ</Text>
+      <CollapsibleSection
+        title="最近のアクティビティ"
+        subtitle="未対応を見つける"
+        open={openSections.activity}
+        onToggle={() => setOpenSections((p) => ({ ...p, activity: !p.activity }))}
+      >
         <View style={styles.table}>
           {busy && activities.length === 0 ? (
             <View style={styles.placeholderBox}>
@@ -222,10 +243,14 @@ export function DashboardScreen({
             </Pressable>
           ))}
         </View>
-      </View>
+      </CollapsibleSection>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>管理ショートカット</Text>
+      <CollapsibleSection
+        title="管理ショートカット"
+        subtitle="よく使う操作へ"
+        open={openSections.shortcuts}
+        onToggle={() => setOpenSections((p) => ({ ...p, shortcuts: !p.shortcuts }))}
+      >
         <View style={styles.shortcutGrid}>
           {shortcuts.map((s) => (
             <Pressable key={s.id} onPress={() => onNavigate(s.route)} style={styles.shortcutCard}>
@@ -233,7 +258,7 @@ export function DashboardScreen({
             </Pressable>
           ))}
         </View>
-      </View>
+      </CollapsibleSection>
     </ScrollView>
   )
 }

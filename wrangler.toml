@@ -1,2 +1,7 @@
 name = "oshidra-web"
 pages_build_output_dir = "apps/mobile/dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "oshidora-db"
+database_id = "1f7de46f-7b0c-4150-ae76-6dd762a23f71"

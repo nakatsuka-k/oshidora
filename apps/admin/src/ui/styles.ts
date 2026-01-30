@@ -5,6 +5,7 @@ export const COLORS = {
   sidebarBg: '#f9fafb',
   text: '#111827',
   muted: '#6b7280',
+  placeholder: '#9ca3af',
   border: '#d1d5db',
   white: '#ffffff',
   primary: '#2563eb',

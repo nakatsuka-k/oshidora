@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +13,7 @@ import {
 } from 'react-native'
 import { ScreenContainer, TabBar, THEME } from '../components'
 import { apiFetch } from '../utils/api'
+import { useWebDragToScroll } from '../utils/useWebDragToScroll'
 import {
   type CastSearchScreenProps,
   normalize,
@@ -52,6 +54,8 @@ const CATEGORY_GROUPS: Array<{ key: string; label: string; tags: string[] }> = [
 
 export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpenResults, onOpenCastRanking, onOpenNotice }: CastSearchScreenProps) {
   const [tab, setTab] = useState<'name' | 'content'>('name')
+
+  const rankingDrag = useWebDragToScroll({ suppressPressMs: 250 })
 
   const [keyword, setKeyword] = useState('')
   const [contentKeyword, setContentKeyword] = useState('')
@@ -202,29 +206,53 @@ export function CastSearchScreen({ apiBaseUrl, onPressTab, onOpenProfile, onOpen
                 ) : rankingError ? (
                   <Text style={styles.noteText}>ランキングの取得に失敗しました</Text>
                 ) : (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rankingRow}>
-                    {rankingItems.slice(0, 10).map((it) => (
-                      <Pressable
-                        key={`${it.rank}:${it.cast.id}`}
-                        style={styles.rankItem}
-                        onPress={() => onOpenProfile({ id: it.cast.id, name: it.cast.name, role: it.cast.role })}
-                      >
-                        <View style={styles.avatarWrap}>
-                          <Image
-                            source={it.cast.thumbnailUrl ? { uri: it.cast.thumbnailUrl } : FALLBACK_AVATAR}
-                            style={styles.avatar}
-                            resizeMode="cover"
-                          />
-                          <View style={styles.rankBadge}>
-                            <Text style={styles.rankNumber}>{it.rank}</Text>
+                  <View
+                    style={Platform.OS === 'web' ? styles.webDragScroll : null}
+                    {...(Platform.OS === 'web'
+                      ? ({
+                          onMouseDownCapture: rankingDrag.onMouseDown,
+                          onMouseDown: rankingDrag.onMouseDown,
+                          onPointerDownCapture: rankingDrag.onPointerDown,
+                          onPointerDown: rankingDrag.onPointerDown,
+                        } as any)
+                      : null)}
+                  >
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.rankingRow}
+                      ref={rankingDrag.scrollRef}
+                      onStartShouldSetResponderCapture={rankingDrag.shouldSetResponderCapture}
+                      onResponderGrant={rankingDrag.onResponderGrant}
+                      onScroll={rankingDrag.onScroll}
+                      scrollEventThrottle={16}
+                    >
+                      {rankingItems.slice(0, 10).map((it) => (
+                        <Pressable
+                          key={`${it.rank}:${it.cast.id}`}
+                          style={styles.rankItem}
+                          onPress={() => {
+                            if (!rankingDrag.allowPress()) return
+                            onOpenProfile({ id: it.cast.id, name: it.cast.name, role: it.cast.role })
+                          }}
+                        >
+                          <View style={styles.avatarWrap}>
+                            <Image
+                              source={it.cast.thumbnailUrl ? { uri: it.cast.thumbnailUrl } : FALLBACK_AVATAR}
+                              style={styles.avatar}
+                              resizeMode="cover"
+                            />
+                            <View style={styles.rankBadge}>
+                              <Text style={styles.rankNumber}>{it.rank}</Text>
+                            </View>
                           </View>
-                        </View>
-                        <Text style={styles.rankName} numberOfLines={1}>
-                          {it.cast.name}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
+                          <Text style={styles.rankName} numberOfLines={1}>
+                            {it.cast.name}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
                 )}
               </View>
 
@@ -400,6 +428,9 @@ const styles = StyleSheet.create({
     color: THEME.textMuted,
     fontSize: 12,
     fontWeight: '700',
+  },
+  webDragScroll: {
+    ...(Platform.OS === 'web' ? ({ cursor: 'grab' } as any) : null),
   },
   rankItem: {
     width: 86,

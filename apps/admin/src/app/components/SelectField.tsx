@@ -35,7 +35,7 @@ export function SelectField({
       <Text style={styles.label}>{label}</Text>
       <View style={styles.selectWrap}>
         <Pressable onPress={() => setOpen((v) => !v)} style={styles.selectBtn}>
-          <Text style={styles.selectText}>{selectedLabel || placeholder}</Text>
+          <Text style={[styles.selectText, !selectedLabel ? styles.selectPlaceholderText : null]}>{selectedLabel || placeholder}</Text>
         </Pressable>
 
         <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
@@ -53,7 +53,7 @@ export function SelectField({
                   value={q}
                   onChangeText={setQ}
                   placeholder="検索（名前 / ID）"
-                  placeholderTextColor={COLORS.muted}
+                  placeholderTextColor={COLORS.placeholder}
                   autoCapitalize="none"
                   style={styles.selectSearchInput}
                 />

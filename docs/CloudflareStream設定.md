@@ -57,15 +57,21 @@ API（`apps/api`）に以下を実装しています。
 
 管理画面（`apps/admin`）から、Cloudflare Stream に **字幕トラック（WebVTT）** を登録してプレビュー確認できます。
 
-- `POST /cms/stream/captions/:videoId`
+- `PUT /cms/stream/captions/:videoId/:language`
   - `multipart/form-data`
+  - Cloudflare公式ドキュメントの方式（言語タグ単位で作成/置換）に合わせています
   - フィールド:
     - `file`（必須）: `.vtt`
-    - `language`（任意）: 例 `ja`
-    - `label`（任意）: 例 `日本語`
-    - `default`（任意）: `true` を送るとデフォルト字幕
+    - `label`（任意）: 例 `日本語`（Cloudflare側で無視される場合あり）
+    - `default`（任意）: `1|true|yes|on` を送るとデフォルト字幕（Cloudflare側で無視される場合あり）
 - `GET /cms/stream/captions/:videoId`
-  - 登録済み字幕の一覧を返します
+  - 登録済み字幕の一覧を返します（`generated` / `status` を含む）
+- `GET /cms/stream/captions/:videoId/:language/vtt`
+  - CloudflareからVTTを取得して返します（管理画面での確認/編集用途）
+- `DELETE /cms/stream/captions/:videoId/:language`
+  - 字幕トラックを削除します
+
+※後方互換のため `POST /cms/stream/captions/:videoId` も残していますが、内部的には上記PUT方式で登録します。
 
 ## 必要な環境変数（Secrets/Vars）
 

@@ -5,6 +5,7 @@ export const COLORS = {
   sidebarBg: '#f9fafb',
   text: '#111827',
   muted: '#6b7280',
+  placeholder: '#9ca3af',
   border: '#d1d5db',
   white: '#ffffff',
   primary: '#2563eb',
@@ -100,11 +101,11 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   sidebarListContent: {
-    gap: 8,
+    gap: 6,
     paddingBottom: 16,
   },
   sidebarItem: {
-    paddingVertical: 10,
+    paddingVertical: 9,
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
@@ -328,6 +329,9 @@ export const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     fontWeight: '700',
+  },
+  selectPlaceholderText: {
+    color: COLORS.placeholder,
   },
   selectMenu: {
     position: 'absolute',
@@ -624,6 +628,7 @@ export const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
     backgroundColor: COLORS.white,
+    alignItems: 'stretch',
   },
   videoHeaderRow: {
     backgroundColor: COLORS.bg,
@@ -635,11 +640,15 @@ export const styles = StyleSheet.create({
     width: 110,
     paddingHorizontal: 10,
     paddingVertical: 10,
+    flexShrink: 0,
+    justifyContent: 'center',
+  },
+  videoCellText: {
     color: COLORS.text,
     fontSize: 12,
     fontWeight: '700',
   },
-  videoHeaderCell: {
+  videoHeaderCellText: {
     fontWeight: '900',
   },
   thumb: {
@@ -655,6 +664,17 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     alignItems: 'center',
+  },
+
+  dateRangeRow: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-end',
+  },
+  dateRangeField: {
+    flex: 1,
+    minWidth: 0,
   },
   smallBtn: {
     borderWidth: 1,
@@ -789,6 +809,12 @@ export const styles = StyleSheet.create({
     fontWeight: '900',
     lineHeight: 28,
   },
+  pageSubtitle: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: -8,
+  },
   section: {
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -806,6 +832,85 @@ export const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     fontWeight: '900',
+  },
+  sectionSubtitle: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+
+  sectionActive: {
+    borderColor: COLORS.primary,
+    shadowOpacity: 0.09,
+  },
+  sectionHeaderPressable: {
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  sectionTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 22,
+  },
+  sectionChevron: {
+    color: COLORS.muted,
+    fontSize: 16,
+    fontWeight: '900',
+    width: 18,
+    textAlign: 'center',
+    marginTop: -1,
+  },
+  sectionBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sectionBadge: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: COLORS.white,
+  },
+  sectionBadgeDirty: {
+    borderColor: COLORS.danger,
+    backgroundColor: '#fef2f2',
+  },
+  sectionBadgeSaved: {
+    borderColor: '#16a34a',
+    backgroundColor: '#f0fdf4',
+  },
+  sectionBadgeText: {
+    color: COLORS.muted,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  sectionBadgeTextDirty: {
+    color: COLORS.danger,
+  },
+  sectionBadgeTextSaved: {
+    color: '#16a34a',
+  },
+  sectionBody: {
+    gap: 12,
   },
 
   kpiGrid: {
@@ -845,6 +950,172 @@ export const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: COLORS.white,
+  },
+
+  // Works (management list)
+  workListWrap: {
+    gap: 12,
+  },
+  workCard: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: COLORS.white,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 1,
+  },
+  workCardUnpublished: {
+    backgroundColor: '#f9fafb',
+  },
+  workThumb: {
+    width: 112,
+    height: 63,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+    overflow: 'hidden',
+  },
+  workThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  workThumbPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.bg,
+  },
+  workThumbPlaceholderText: {
+    color: COLORS.placeholder,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  workCardBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    minWidth: 0,
+  },
+  workInfoCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 8,
+  },
+  workTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  workActionCol: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+  },
+  workTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  workMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+  },
+  workMetaText: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  workActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    alignItems: 'center',
+  },
+
+  // Compact action buttons (works list)
+  workActionBtn: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: COLORS.white,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
+  },
+  workActionBtnText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  workActionBtnPrimary: {
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: COLORS.primary,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
+  },
+  workActionBtnPrimaryText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  statusPill: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: COLORS.bg,
+  },
+  statusPillText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  statusPillPublished: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#bbf7d0',
+  },
+  statusPillUnpublished: {
+    backgroundColor: '#f3f4f6',
+    borderColor: '#e5e7eb',
+  },
+  helperText: {
+    marginTop: 6,
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  workPreviewHero: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  workPreviewThumb: {
+    width: 240,
+    height: 135,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+    overflow: 'hidden',
+  },
+  workPreviewThumbImage: {
+    width: '100%',
+    height: '100%',
   },
   tableRow: {
     flexDirection: 'row',
