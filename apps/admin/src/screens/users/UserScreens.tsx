@@ -3,7 +3,6 @@ import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from '
 
 import { useBanner } from '../../lib/banner'
 import { CollapsibleSection } from '../../ui/CollapsibleSection'
-import { FixedBottomBar } from '../../ui/FixedBottomBar'
 
 type CmsApiConfig = {
   apiBase: string
@@ -227,6 +226,9 @@ export function UserCreateScreen({
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [openLogin, setOpenLogin] = useState(true)
+  const [submitted, setSubmitted] = useState(false)
+  const [emailTouched, setEmailTouched] = useState(false)
+  const [passwordTouched, setPasswordTouched] = useState(false)
 
   const dirty = Boolean(email.trim() || phone.trim() || password)
   const shouldWarn = dirty && !busy
@@ -257,23 +259,25 @@ export function UserCreateScreen({
   }, [confirmBack, onBack])
 
   const emailNormalized = email.trim()
-  const emailError = emailNormalized ? (!isValidEmail(emailNormalized) ? 'メール形式が正しくありません' : '') : 'メールアドレスを入力してください'
-  const passwordError = password ? (password.length < 8 ? '8文字以上で入力してください' : '') : 'パスワードを入力してください'
-  const missing = [
-    !emailNormalized ? 'メール' : '',
-    !password ? 'パスワード' : '',
-  ].filter(Boolean)
+  const emailError = emailNormalized
+    ? !isValidEmail(emailNormalized)
+      ? 'メールアドレスの形式をご確認ください'
+      : ''
+    : 'ログインに使用するメールアドレスを入力してください'
+  const passwordError = password ? (password.length < 8 ? '8文字以上のパスワードを設定してください' : '') : 'パスワードを入力してください'
+
+  const showEmailError = (submitted || emailTouched) && Boolean(emailError)
+  const showPasswordError = (submitted || passwordTouched) && Boolean(passwordError)
+  const missing = [!emailNormalized ? 'メール' : '', !password ? 'パスワード' : ''].filter(Boolean)
 
   const onSubmit = useCallback(() => {
+    setSubmitted(true)
+    setEmailTouched(true)
+    setPasswordTouched(true)
+
     const normalizedEmail = email.trim()
-    if (!isValidEmail(normalizedEmail)) {
-      setBanner('メールアドレスが不正です')
-      return
-    }
-    if (!password || password.length < 8) {
-      setBanner('パスワードは8文字以上で入力してください')
-      return
-    }
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) return
+    if (!password || password.length < 8) return
 
     setBusy(true)
     setBanner('')
@@ -304,6 +308,7 @@ export function UserCreateScreen({
         <View style={{ flex: 1, gap: 6 } as any}>
           <Text style={styles.pageTitle}>ユーザー作成</Text>
           <Text style={styles.pageSubtitle ?? styles.pageLead}>ログイン情報</Text>
+          <Text style={styles.pageLead}>以下の情報を入力してください。※後から変更できます。</Text>
         </View>
         {shouldWarn ? <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '800' } as any}>未保存</Text> : null}
       </View>
@@ -316,31 +321,44 @@ export function UserCreateScreen({
         styles={styles}
       >
 
-        {!busy && missing.length > 0 ? (
+        {!busy && submitted && missing.length > 0 ? (
           <View style={styles.warningPill}>
             <Text style={styles.warningPillText}>{`未入力: ${missing.join(' / ')}`}</Text>
           </View>
         ) : null}
 
         <View style={styles.field}>
-          <Text style={styles.label}>ログイン用メールアドレス *</Text>
+          <Text style={styles.label}>
+            ログイン用メールアドレス <Text style={{ color: '#64748b' } as any}>*</Text>
+          </Text>
           <TextInput
             value={email}
             onChangeText={setEmail}
             placeholder="user@example.com"
             autoCapitalize="none"
+            onBlur={() => setEmailTouched(true)}
             style={styles.input}
           />
-          {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+          {showEmailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>電話番号（任意）</Text>
           <TextInput value={phone} onChangeText={setPhone} placeholder="090..." autoCapitalize="none" style={styles.input} />
         </View>
         <View style={styles.field}>
-          <Text style={styles.label}>初期パスワード *（8文字以上）</Text>
-          <TextInput value={password} onChangeText={setPassword} autoCapitalize="none" secureTextEntry style={styles.input} />
-          {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
+          <Text style={styles.label}>
+            初期パスワード <Text style={{ color: '#64748b' } as any}>*</Text>
+            （8文字以上）
+          </Text>
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            autoCapitalize="none"
+            secureTextEntry
+            onBlur={() => setPasswordTouched(true)}
+            style={styles.input}
+          />
+          {showPasswordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
         </View>
       </CollapsibleSection>
 
@@ -352,9 +370,9 @@ export function UserCreateScreen({
               <Text style={styles.smallBtnText}>戻る</Text>
             </Pressable>
             <Pressable
-              disabled={busy || Boolean(emailError || passwordError)}
+              disabled={busy}
               onPress={onSubmit}
-              style={[styles.btnPrimary, busy || Boolean(emailError || passwordError) ? styles.btnDisabled : null]}
+              style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}
             >
               <Text style={styles.btnPrimaryText}>{busy ? '作成中…' : '作成'}</Text>
             </Pressable>
@@ -431,7 +449,7 @@ export function UserDetailScreen({
       smsAuthSkip: Boolean((u as any).smsAuthSkip),
     })
     setInitialKey(key)
-  }, [item])
+  }, [])
 
   useEffect(() => {
     if (!dirty) return
@@ -526,7 +544,7 @@ export function UserDetailScreen({
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.contentInner, { paddingBottom: 110 }] as any}>
+      <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
         <View style={styles.pageHeaderRow}>
           <Pressable onPress={onBack} style={styles.smallBtn}>
             <Text style={styles.smallBtnText}>戻る</Text>
@@ -536,6 +554,41 @@ export function UserDetailScreen({
             <Text style={styles.pageSubtitle ?? styles.pageLead}>詳細・編集</Text>
           </View>
           {dirty ? <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '800' } as any}>未保存</Text> : null}
+
+          {editMode ? (
+            <View style={[styles.row, { gap: 10 } as any]}>
+              <Pressable
+                disabled={busy}
+                onPress={() => {
+                  resetEditFromItem(item)
+                  setEditMode(false)
+                  setBanner('')
+                }}
+                style={[styles.smallBtn, busy ? styles.btnDisabled : null]}
+              >
+                <Text style={styles.smallBtnText}>破棄</Text>
+              </Pressable>
+              <Pressable
+                disabled={busy || !dirty}
+                onPress={onSave}
+                style={[styles.smallBtnPrimary, busy || !dirty ? styles.btnDisabled : null]}
+              >
+                <Text style={styles.smallBtnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              disabled={busy}
+              onPress={() => {
+                resetEditFromItem(item)
+                setEditMode(true)
+                setSavedAt(null)
+              }}
+              style={[styles.smallBtnPrimary, busy ? styles.btnDisabled : null]}
+            >
+              <Text style={styles.smallBtnPrimaryText}>編集</Text>
+            </Pressable>
+          )}
         </View>
 
         <CollapsibleSection
@@ -607,49 +660,6 @@ export function UserDetailScreen({
           </View>
         </CollapsibleSection>
       </ScrollView>
-
-      <FixedBottomBar>
-        <View style={[styles.filterActions, { justifyContent: 'space-between' } as any]}>
-          <Pressable disabled={busy} onPress={onBack} style={styles.btnSecondary}>
-            <Text style={styles.btnSecondaryText}>戻る</Text>
-          </Pressable>
-
-          {editMode ? (
-            <View style={[styles.row, { gap: 10 } as any]}>
-              <Pressable
-                disabled={busy}
-                onPress={() => {
-                  resetEditFromItem(item)
-                  setEditMode(false)
-                  setBanner('')
-                }}
-                style={styles.btnSecondary}
-              >
-                <Text style={styles.btnSecondaryText}>破棄</Text>
-              </Pressable>
-              <Pressable
-                disabled={busy || !dirty}
-                onPress={onSave}
-                style={[styles.btnPrimary, busy || !dirty ? styles.btnDisabled : null]}
-              >
-                <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : '保存'}</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <Pressable
-              disabled={busy}
-              onPress={() => {
-                resetEditFromItem(item)
-                setEditMode(true)
-                setSavedAt(null)
-              }}
-              style={styles.btnPrimary}
-            >
-              <Text style={styles.btnPrimaryText}>編集</Text>
-            </Pressable>
-          )}
-        </View>
-      </FixedBottomBar>
     </View>
   )
 }

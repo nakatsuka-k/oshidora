@@ -28,6 +28,9 @@ type ConfirmFn = (
 
 type CommentRow = {
   id: string
+  contentTitle?: string
+  contentId?: string
+  episodeId?: string
   targetTitle: string
   author: string
   body: string
@@ -57,17 +60,22 @@ function commentTargetTitle(contentTitle: string, contentId: string, episodeId: 
 export function CommentsPendingListScreen({
   cfg,
   cmsFetchJson,
+  confirm,
   styles,
   onOpenDetail,
 }: {
   cfg: CmsApiConfig
   cmsFetchJson: CmsFetchJson
+  confirm: ConfirmFn
   styles: any
   onOpenDetail: (id: string) => void
 }) {
   const [, setBanner] = useBanner()
   const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<CommentRow[]>([])
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ list: true })
 
@@ -82,6 +90,9 @@ export function CommentsPendingListScreen({
         setRows(
           (json.items ?? []).map((c) => ({
             id: String(c.id ?? ''),
+            contentTitle: String(c.contentTitle ?? ''),
+            contentId: String(c.contentId ?? ''),
+            episodeId: String(c.episodeId ?? ''),
             targetTitle: commentTargetTitle(String(c.contentTitle ?? ''), String(c.contentId ?? ''), String(c.episodeId ?? '')),
             author: String(c.author ?? ''),
             body: String(c.body ?? ''),
@@ -102,39 +113,288 @@ export function CommentsPendingListScreen({
     }
   }, [cfg, cmsFetchJson, setBanner])
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const allIds = useMemo(() => rows.map((r) => r.id).filter(Boolean), [rows])
+  const allSelected = useMemo(() => allIds.length > 0 && allIds.every((id) => selectedIds.has(id)), [allIds, selectedIds])
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allSelected) return new Set()
+      for (const id of allIds) next.add(id)
+      return next
+    })
+  }, [allIds, allSelected])
+
+  const sortedRows = useMemo(() => {
+    const copy = [...rows]
+    copy.sort((a, b) => {
+      const av = String(a.createdAt || '')
+      const bv = String(b.createdAt || '')
+      if (av === bv) return 0
+      return sortDir === 'desc' ? (av > bv ? -1 : 1) : av > bv ? 1 : -1
+    })
+    return copy
+  }, [rows, sortDir])
+
+  const approveOne = useCallback(
+    async (id: string) => {
+      const row = rows.find((r) => r.id === id)
+      if (!row) return
+      const ok = await confirm('このコメントを承認して公開しますか？', { title: '承認' })
+      if (!ok) return
+
+      setBusy(true)
+      setBanner('')
+      void (async () => {
+        try {
+          await cmsFetchJson(cfg, `/cms/comments/${encodeURIComponent(id)}/approve`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ note: '' }),
+          })
+          setRows((prev) => prev.filter((r) => r.id !== id))
+          setSelectedIds((prev) => {
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+        } catch (e) {
+          setBanner(e instanceof Error ? e.message : String(e))
+        } finally {
+          setBusy(false)
+        }
+      })()
+    },
+    [cfg, cmsFetchJson, confirm, rows, setBanner]
+  )
+
+  const rejectOne = useCallback(
+    async (id: string) => {
+      const row = rows.find((r) => r.id === id)
+      if (!row) return
+      const ok = await confirm('このコメントを却下して非公開にしますか？', { title: '却下', danger: true, okText: '却下' })
+      if (!ok) return
+
+      setBusy(true)
+      setBanner('')
+      void (async () => {
+        try {
+          await cmsFetchJson(cfg, `/cms/comments/${encodeURIComponent(id)}/reject`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ note: '' }),
+          })
+          setRows((prev) => prev.filter((r) => r.id !== id))
+          setSelectedIds((prev) => {
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+        } catch (e) {
+          setBanner(e instanceof Error ? e.message : String(e))
+        } finally {
+          setBusy(false)
+        }
+      })()
+    },
+    [cfg, cmsFetchJson, confirm, rows, setBanner]
+  )
+
+  const bulkApprove = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const ok = await confirm(`${ids.length}件を承認して公開しますか？`, { title: '一括承認', okText: '承認' })
+    if (!ok) return
+
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        for (const id of ids) {
+          await cmsFetchJson(cfg, `/cms/comments/${encodeURIComponent(id)}/approve`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ note: '' }),
+          })
+        }
+        setRows((prev) => prev.filter((r) => !selectedIds.has(r.id)))
+        setSelectedIds(new Set())
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, cmsFetchJson, confirm, selectedIds, setBanner])
+
+  const bulkReject = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const ok = await confirm(`${ids.length}件を却下して非公開にしますか？`, { title: '一括却下', danger: true, okText: '却下' })
+    if (!ok) return
+
+    setBusy(true)
+    setBanner('')
+    void (async () => {
+      try {
+        for (const id of ids) {
+          await cmsFetchJson(cfg, `/cms/comments/${encodeURIComponent(id)}/reject`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ note: '' }),
+          })
+        }
+        setRows((prev) => prev.filter((r) => !selectedIds.has(r.id)))
+        setSelectedIds(new Set())
+      } catch (e) {
+        setBanner(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [cfg, cmsFetchJson, confirm, selectedIds, setBanner])
+
   return (
     <ScrollView style={styles.contentScroll} contentContainerStyle={styles.contentInner}>
       <Text style={styles.pageTitle}>未承認/未対応コメント一覧</Text>
 
-      <Text style={styles.pageLead}>未対応を確認して承認へ</Text>
+      <Text style={styles.pageLead}>投稿日で優先度を判断して処理</Text>
 
       <CollapsibleSection
         title="一覧"
-        subtitle="選んで承認へ"
+        subtitle="投稿日 / 作品 / 話数 / ユーザー / 状態 / 操作"
         open={openSections.list}
         onToggle={() => setOpenSections((p) => ({ ...p, list: !p.list }))}
         styles={styles}
       >
         <View style={styles.table}>
-          {busy ? (
-            <View style={styles.placeholderBox}>
-              <Text style={styles.placeholderText}>読み込み中…</Text>
-            </View>
-          ) : null}
-          {rows.map((r) => (
-            <Pressable key={r.id} onPress={() => onOpenDetail(r.id)} style={styles.tableRow}>
-              <View style={styles.tableLeft}>
-                <Text style={styles.tableLabel}>{`${r.targetTitle} / ${r.author}`}</Text>
-                <Text style={styles.tableDetail}>{`${formatJaDateTime(r.createdAt, { withSeconds: true }) || '—'} / ${commentStatusLabel(r.status)}`}</Text>
+          <ScrollView horizontal>
+            <View style={{ minWidth: 980 } as any}>
+              <View style={[styles.tableRow, styles.tableHeaderRow]}>
+                <View style={[styles.tableCell, styles.tableCellCheck]}>
+                  <Pressable
+                    onPress={toggleSelectAll}
+                    style={[styles.tableCheckbox, allSelected ? styles.tableCheckboxOn : null]}
+                  >
+                    <Text style={[styles.tableCheckboxText, allSelected ? styles.tableCheckboxTextOn : null]}>
+                      ✓
+                    </Text>
+                  </Pressable>
+                </View>
+                <View style={[styles.tableCell, { width: 170 } as any]}>
+                  <Pressable onPress={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}>
+                    <Text style={styles.tableHeaderText}>{`投稿日 ${sortDir === 'desc' ? '↓' : '↑'}`}</Text>
+                  </Pressable>
+                </View>
+                <View style={[styles.tableCell, { width: 260 } as any]}>
+                  <Text style={styles.tableHeaderText}>作品</Text>
+                </View>
+                <View style={[styles.tableCell, { width: 90 } as any]}>
+                  <Text style={styles.tableHeaderText}>話数</Text>
+                </View>
+                <View style={[styles.tableCell, { width: 140 } as any]}>
+                  <Text style={styles.tableHeaderText}>ユーザー</Text>
+                </View>
+                <View style={[styles.tableCell, { width: 140 } as any]}>
+                  <Text style={styles.tableHeaderText}>状態</Text>
+                </View>
+                <View style={[styles.tableCell, { width: 280 } as any]}>
+                  <Text style={styles.tableHeaderText}>操作</Text>
+                </View>
               </View>
-            </Pressable>
-          ))}
-          {!busy && rows.length === 0 ? (
-            <View style={styles.placeholderBox}>
-              <Text style={styles.placeholderText}>未対応コメントがありません</Text>
+
+              {busy ? (
+                <View style={styles.placeholderBox}>
+                  <Text style={styles.placeholderText}>読み込み中…</Text>
+                </View>
+              ) : null}
+
+              {sortedRows.map((r) => {
+                const workTitle = String(r.contentTitle || r.contentId || '—')
+                const ep = String(r.episodeId || '').trim()
+                const epLabel = ep ? `第${ep}話` : '—'
+                const checked = selectedIds.has(r.id)
+
+                return (
+                  <View key={r.id} style={styles.tableRow}>
+                    <View style={[styles.tableCell, styles.tableCellCheck]}>
+                      <Pressable onPress={() => toggleSelect(r.id)} style={[styles.tableCheckbox, checked ? styles.tableCheckboxOn : null]}>
+                        <Text style={[styles.tableCheckboxText, checked ? styles.tableCheckboxTextOn : null]}>✓</Text>
+                      </Pressable>
+                    </View>
+                    <View style={[styles.tableCell, { width: 170 } as any]}>
+                      <Text style={styles.tableCellText}>{formatJaDateTime(r.createdAt, { withSeconds: true }) || '—'}</Text>
+                    </View>
+                    <View style={[styles.tableCell, { width: 260 } as any]}>
+                      <Pressable onPress={() => onOpenDetail(r.id)}>
+                        <Text style={styles.tableCellText} numberOfLines={1}>
+                          {workTitle}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <View style={[styles.tableCell, { width: 90 } as any]}>
+                      <Text style={styles.tableCellText}>{epLabel}</Text>
+                    </View>
+                    <View style={[styles.tableCell, { width: 140 } as any]}>
+                      <Text style={styles.tableCellMuted} numberOfLines={1}>
+                        {r.author || '—'}
+                      </Text>
+                    </View>
+                    <View style={[styles.tableCell, { width: 140 } as any]}>
+                      <View style={[styles.statusPill, styles.statusPillWarning]}>
+                        <Text style={[styles.statusPillText, styles.statusPillTextWarning]}>未承認</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.tableCell, { width: 280 } as any]}>
+                      <View style={styles.tableRowActions}>
+                        <Pressable onPress={() => onOpenDetail(r.id)} style={styles.smallBtn}>
+                          <Text style={styles.smallBtnText}>確認</Text>
+                        </Pressable>
+                        <Pressable disabled={busy} onPress={() => void approveOne(r.id)} style={[styles.smallBtnPrimary, busy ? styles.btnDisabled : null]}>
+                          <Text style={styles.smallBtnPrimaryText}>承認</Text>
+                        </Pressable>
+                        <Pressable disabled={busy} onPress={() => void rejectOne(r.id)} style={[styles.smallBtnDangerOutline, busy ? styles.btnDisabled : null]}>
+                          <Text style={styles.smallBtnDangerOutlineText}>却下</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                )
+              })}
+
+              {!busy && rows.length === 0 ? (
+                <View style={styles.placeholderBox}>
+                  <Text style={styles.placeholderText}>未対応コメントがありません</Text>
+                </View>
+              ) : null}
             </View>
-          ) : null}
+          </ScrollView>
         </View>
+
+        {selectedIds.size > 0 ? (
+          <View style={styles.stickyBar ?? ({ borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 10, marginTop: 10 } as any)}>
+            <View style={styles.stickyBarInner ?? ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 } as any)}>
+              <Text style={styles.stickyBarHint ?? styles.helperText}>{`${selectedIds.size}件 選択中`}</Text>
+              <View style={styles.stickyBarActions ?? ({ flexDirection: 'row', alignItems: 'center', gap: 10 } as any)}>
+                <Pressable disabled={busy} onPress={() => void bulkApprove()} style={[styles.btnPrimary, busy ? styles.btnDisabled : null]}>
+                  <Text style={styles.btnPrimaryText}>一括承認</Text>
+                </Pressable>
+                <Pressable disabled={busy} onPress={() => void bulkReject()} style={[styles.btnSecondary, busy ? styles.btnDisabled : null]}>
+                  <Text style={styles.btnSecondaryText}>一括却下</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ) : null}
       </CollapsibleSection>
     </ScrollView>
   )

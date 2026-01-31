@@ -859,7 +859,7 @@ export function WorkEditScreen({
         </Pressable>
         <View style={{ flex: 1, minWidth: 0 } as any}>
           <Text style={styles.pageTitle}>{title}</Text>
-          <Text style={styles.pageSubtitle}>表示・公開・分類をまとめて編集</Text>
+          <Text style={[styles.pageSubtitle, { marginTop: 6 } as any]}>表示・公開・分類をまとめて編集</Text>
         </View>
         {dirty ? <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '900' } as any}>未保存</Text> : null}
       </View>
