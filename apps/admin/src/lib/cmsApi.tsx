@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 import { Platform } from 'react-native'
 
 import { STORAGE_KEY, UNAUTHORIZED_EVENT } from '../constants/storage'
-import { safeLocalStorageRemove, safeSessionStorageRemove } from './storage'
+import { safeLocalStorageRemove } from './storage'
 
 export type CmsApiConfig = {
   apiBase: string
@@ -38,7 +38,6 @@ export async function cmsFetchJsonWithBase<T>(cfg: CmsApiConfig, baseUrl: string
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       // Ensure a bad/expired remembered token doesn't keep auto-logging in.
       safeLocalStorageRemove(STORAGE_KEY)
-      safeSessionStorageRemove(STORAGE_KEY)
 
       if (!unauthorizedEventEmitted) {
         let dispatched = false

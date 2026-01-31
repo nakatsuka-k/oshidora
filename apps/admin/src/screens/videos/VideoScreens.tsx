@@ -33,127 +33,6 @@ type MultiSelectFieldComponent = (props: any) => any
 
 type MultiSelectOption = { value: string; label: string; detail?: string }
 
-type VideoDetailSectionId = 'preview' | 'basics' | 'replace' | 'publish' | 'meta' | 'reco' | 'advanced'
-
-function VideoDetailSection({
-  id,
-  title,
-  description,
-  warning,
-  dirty,
-  children,
-  openSections,
-  activeSectionId,
-  styles,
-  savedFlash,
-  markActive,
-  toggleSection,
-  setSectionY,
-}: {
-  id: VideoDetailSectionId
-  title: string
-  description: string
-  warning?: string
-  dirty?: boolean
-  children: any
-  openSections: Record<VideoDetailSectionId, boolean>
-  activeSectionId: VideoDetailSectionId | null
-  styles: any
-  savedFlash: { section: VideoDetailSectionId | 'all'; at: number } | null
-  markActive: (id: VideoDetailSectionId) => void
-  toggleSection: (id: VideoDetailSectionId) => void
-  setSectionY: any
-}) {
-  const open = Boolean(openSections[id])
-  const active = activeSectionId === id
-  const important = id === 'preview' || id === 'basics'
-  const justSaved = savedFlash?.section === id && Date.now() - Number(savedFlash?.at ?? 0) < 1800
-
-  return (
-    <View
-      style={{
-        paddingTop: 18,
-        marginTop: 18,
-        borderTopWidth: 2,
-        borderTopColor: active ? COLORS.primary : '#e5e7eb',
-      }}
-      onTouchStart={() => markActive(id)}
-      onLayout={(e) => {
-        const y = Number(e?.nativeEvent?.layout?.y ?? 0) || 0
-        setSectionY((prev: any) => (prev?.[id] === y ? prev : { ...(prev ?? {}), [id]: y }))
-      }}
-      {...(Platform.OS === 'web' ? ({ onMouseDown: () => markActive(id) } as any) : null)}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 } as any}>
-        <Pressable onPress={() => toggleSection(id)} style={{ flex: 1 } as any}>
-          <Text
-            style={{
-              fontSize: important ? 19 : 18,
-              fontWeight: active ? ('900' as any) : ('800' as any),
-              color: active ? COLORS.primary : '#111827',
-            }}
-          >
-            {title}
-          </Text>
-        </Pressable>
-
-        {justSaved ? (
-          <View
-            style={{
-              paddingVertical: 4,
-              paddingHorizontal: 10,
-              borderRadius: 999,
-              backgroundColor: '#ecfdf5',
-              borderWidth: 1,
-              borderColor: '#a7f3d0',
-            }}
-          >
-            <Text style={{ color: '#047857', fontSize: 12, fontWeight: '800' }}>保存しました</Text>
-          </View>
-        ) : null}
-
-        {dirty ? (
-          <View
-            style={{
-              paddingVertical: 4,
-              paddingHorizontal: 10,
-              borderRadius: 999,
-              backgroundColor: '#fffbeb',
-              borderWidth: 1,
-              borderColor: '#fde68a',
-            }}
-          >
-            <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '800' }}>未保存</Text>
-          </View>
-        ) : null}
-
-        {warning ? (
-          <View
-            style={{
-              paddingVertical: 4,
-              paddingHorizontal: 10,
-              borderRadius: 999,
-              backgroundColor: '#fef2f2',
-              borderWidth: 1,
-              borderColor: '#fecaca',
-            }}
-          >
-            <Text style={{ color: '#b91c1c', fontSize: 12, fontWeight: '800' }}>{warning}</Text>
-          </View>
-        ) : null}
-
-        <Pressable onPress={() => toggleSection(id)} style={styles.smallBtn}>
-          <Text style={[styles.smallBtnText, { fontWeight: '900' }]}>{open ? '−' : '+'}</Text>
-        </Pressable>
-      </View>
-
-      <Text style={{ marginTop: 8, color: '#6b7280', fontSize: 14, lineHeight: 20 }}>{description}</Text>
-
-      {open ? <View style={{ marginTop: 14 }}>{children}</View> : null}
-    </View>
-  )
-}
-
 type VideoRow = {
   id: string
   thumbnailUrl: string
@@ -527,7 +406,6 @@ export function VideoListScreen({
           <View style={styles.field}>
             <Text style={styles.label}>検索</Text>
             <TextInput
-              nativeID="admin-videos-filter-q"
               value={qText}
               onChangeText={setQText}
               placeholder="タイトル / 説明 / 作品"
@@ -577,8 +455,6 @@ export function VideoListScreen({
                 <Text style={styles.label}>登録日（開始）</Text>
                 {Platform.OS === 'web' ? (
                   <input
-                    id="admin-videos-filter-from"
-                    name="admin-videos-filter-from"
                     type="date"
                     value={qFrom}
                     onChange={(e: any) => setQFrom(String(e?.target?.value ?? ''))}
@@ -586,7 +462,6 @@ export function VideoListScreen({
                   />
                 ) : (
                   <TextInput
-                    nativeID="admin-videos-filter-from"
                     value={qFrom}
                     onChangeText={setQFrom}
                     placeholder="YYYY-MM-DD"
@@ -600,8 +475,6 @@ export function VideoListScreen({
                 <Text style={styles.label}>登録日（終了）</Text>
                 {Platform.OS === 'web' ? (
                   <input
-                    id="admin-videos-filter-to"
-                    name="admin-videos-filter-to"
                     type="date"
                     value={qTo}
                     onChange={(e: any) => setQTo(String(e?.target?.value ?? ''))}
@@ -609,7 +482,6 @@ export function VideoListScreen({
                   />
                 ) : (
                   <TextInput
-                    nativeID="admin-videos-filter-to"
                     value={qTo}
                     onChangeText={setQTo}
                     placeholder="YYYY-MM-DD"
@@ -751,7 +623,6 @@ export function VideoListScreen({
           <View style={styles.pageJump}>
             <Text style={styles.pageInfo}>{`Page`}</Text>
             <TextInput
-              nativeID="admin-videos-pagination-page"
               value={pageInput}
               onChangeText={(t) => setPageInput(t.replace(/[^0-9]/g, ''))}
               keyboardType={Platform.OS === 'web' ? 'default' : 'number-pad'}
@@ -826,7 +697,7 @@ export function VideoDetailScreen({
 
   const initialRef = useRef<any>(null)
 
-  type SectionId = VideoDetailSectionId
+  type SectionId = 'preview' | 'basics' | 'replace' | 'publish' | 'meta' | 'reco' | 'advanced'
   const scrollRef = useRef<any>(null)
   const [sectionY, setSectionY] = useState<Record<SectionId, number>>({
     preview: 0,
@@ -849,25 +720,6 @@ export function VideoDetailScreen({
   const [activeSectionId, setActiveSectionId] = useState<SectionId | null>(null)
   const didInitSectionsRef = useRef(false)
   const lastInteractionAtRef = useRef(0)
-  const scrollYRef = useRef(0)
-  const editingTextInputRef = useRef(false)
-  const editingScrollYRef = useRef<number | null>(null)
-
-  const getCurrentScrollY = useCallback((): number => {
-    const fallback = Number(scrollYRef.current ?? 0) || 0
-    if (Platform.OS !== 'web') return fallback
-    try {
-      const node =
-        (scrollRef.current?.getScrollableNode?.() as any) ??
-        (scrollRef.current?.getScrollResponder?.()?.getScrollableNode?.() as any) ??
-        (scrollRef.current as any)
-      const y = Number(node?.scrollTop)
-      if (Number.isFinite(y)) return y
-    } catch {
-      // ignore
-    }
-    return fallback
-  }, [])
 
   const [savedFlash, setSavedFlash] = useState<{ section: SectionId | 'all'; at: number } | null>(null)
   const savedFlashTimerRef = useRef<any>(null)
@@ -953,9 +805,8 @@ export function VideoDetailScreen({
 
   const onScroll = useCallback(
     (e: any) => {
-      const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0) || 0
-      scrollYRef.current = y
       if (Date.now() - lastInteractionAtRef.current < 1000) return
+      const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0) || 0
       const entries: Array<[SectionId, number]> = (Object.entries(sectionY) as any).filter(
         ([sid, sy]: [SectionId, number]) => sid === 'preview' || Number(sy) > 0
       )
@@ -970,25 +821,6 @@ export function VideoDetailScreen({
     [activeSectionId, sectionY]
   )
 
-  // Workaround (web): prevent occasional scroll-to-top while typing by restoring scroll position.
-  useEffect(() => {
-    if (Platform.OS !== 'web') return
-    if (!editingTextInputRef.current) return
-    const targetY = Number(editingScrollYRef.current ?? NaN)
-    if (!Number.isFinite(targetY)) return
-
-    const currentY = getCurrentScrollY()
-    // Only restore when we detect an unintended jump upward (e.g. to top).
-    if (currentY >= targetY - 12) return
-    try {
-      ;(globalThis as any)?.requestAnimationFrame?.(() => {
-        scrollRef.current?.scrollTo?.({ y: targetY, animated: false })
-      })
-    } catch {
-      // ignore
-    }
-  }, [desc, getCurrentScrollY, title])
-
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadPct, setUploadPct] = useState(0)
   const [uploadState, setUploadState] = useState<'idle' | 'creating' | 'uploading' | 'done' | 'error'>('idle')
@@ -997,16 +829,12 @@ export function VideoDetailScreen({
   const [recommendations, setRecommendations] = useState<
     Array<{ id: string; title: string; workTitle: string; thumbnailUrl: string }>
   >([])
-  const [recoCheckedIds, setRecoCheckedIds] = useState<string[]>([])
   const [recoSearchQ, setRecoSearchQ] = useState('')
   const [recoSearchBusy, setRecoSearchBusy] = useState(false)
   const [recoSearchRows, setRecoSearchRows] = useState<
     Array<{ id: string; title: string; workTitle: string; thumbnailUrl: string }>
   >([])
-  const [recoSearchSelectedIds, setRecoSearchSelectedIds] = useState<string[]>([])
   const [manualRecoVideoId, setManualRecoVideoId] = useState('')
-  const [openRecoAdvanced, setOpenRecoAdvanced] = useState(false)
-  const recoSearchInputRef = useRef<any>(null)
 
   const [workOptions, setWorkOptions] = useState<Array<{ label: string; value: string }>>([])
   const [categoryOptions, setCategoryOptions] = useState<MultiSelectOption[]>([])
@@ -1254,7 +1082,6 @@ export function VideoDetailScreen({
           thumbnailUrl: String(r.thumbnailUrl ?? ''),
         }))
         setRecommendations(next)
-        setRecoCheckedIds(next.map((v) => v.id))
         initialRecoIdsRef.current = next.map((v) => v.id).join(',')
       } catch {
         // ignore
@@ -1264,26 +1091,6 @@ export function VideoDetailScreen({
       mounted = false
     }
   }, [cfg, cmsFetchJson, id])
-
-  // Keep checkbox state in sync when list changes (add/move/apply).
-  useEffect(() => {
-    setRecoCheckedIds((prev) => {
-      const ids = recommendations.map((r) => r.id)
-      const next = ids.filter((x) => prev.includes(x))
-      for (const x of ids) if (!next.includes(x)) next.push(x)
-      return next
-    })
-  }, [recommendations])
-
-  const toggleRecoChecked = useCallback((videoId: string) => {
-    const vid = String(videoId || '').trim()
-    if (!vid) return
-    setRecoCheckedIds((prev) => (prev.includes(vid) ? prev.filter((x) => x !== vid) : [...prev, vid]))
-  }, [])
-
-  const applyRecoChecked = useCallback(() => {
-    setRecommendations((prev) => prev.filter((v) => recoCheckedIds.includes(v.id)))
-  }, [recoCheckedIds])
 
   const saveVideoPartial = useCallback(
     async (payload: any, patch: any) => {
@@ -1828,7 +1635,6 @@ export function VideoDetailScreen({
   const addReco = useCallback((row: { id: string; title: string; workTitle: string; thumbnailUrl: string }) => {
     const vid = String(row.id || '').trim()
     if (!vid) return
-    if (vid === String(id || '').trim()) return
     setRecommendations((prev) => {
       if (prev.some((v) => v.id === vid)) return prev
       return [
@@ -1841,30 +1647,12 @@ export function VideoDetailScreen({
         },
       ]
     })
-  }, [id])
-
-  const toggleRecoSearchSelect = useCallback((videoId: string) => {
-    const vid = String(videoId || '').trim()
-    if (!vid) return
-    setRecoSearchSelectedIds((prev) => (prev.includes(vid) ? prev.filter((x) => x !== vid) : [...prev, vid]))
   }, [])
-
-  const addSelectedReco = useCallback(() => {
-    if (!recoSearchSelectedIds.length) return
-    const byId = new Map(recoSearchRows.map((r) => [r.id, r]))
-    for (const vid of recoSearchSelectedIds) {
-      const row = byId.get(vid)
-      if (!row) continue
-      addReco(row)
-    }
-    setRecoSearchSelectedIds([])
-  }, [addReco, recoSearchRows, recoSearchSelectedIds])
 
   const onSearchReco = useCallback(() => {
     const q = recoSearchQ.trim()
     if (!q) {
       setRecoSearchRows([])
-      setRecoSearchSelectedIds([])
       return
     }
     setRecoSearchBusy(true)
@@ -1879,7 +1667,6 @@ export function VideoDetailScreen({
             thumbnailUrl: String(v.thumbnailUrl ?? ''),
           }))
         )
-        setRecoSearchSelectedIds([])
       } catch {
         // ignore
       } finally {
@@ -1890,18 +1677,109 @@ export function VideoDetailScreen({
 
   // onSaveReco is defined above (section save + all save)
 
-  const sectionProps = useMemo(
-    () => ({
-      openSections,
-      activeSectionId,
-      styles,
-      savedFlash,
-      markActive,
-      toggleSection,
-      setSectionY,
-    }),
-    [activeSectionId, markActive, openSections, savedFlash, styles, toggleSection]
-  )
+  const Section = ({
+    id,
+    title,
+    description,
+    warning,
+    dirty,
+    children,
+  }: {
+    id: SectionId
+    title: string
+    description: string
+    warning?: string
+    dirty?: boolean
+    children: any
+  }) => {
+    const open = Boolean(openSections[id])
+    const active = activeSectionId === id
+    const important = id === 'preview' || id === 'basics'
+    const justSaved = savedFlash?.section === id && Date.now() - Number(savedFlash?.at ?? 0) < 1800
+    return (
+      <View
+        style={{
+          paddingTop: 18,
+          marginTop: 18,
+          borderTopWidth: 2,
+          borderTopColor: active ? COLORS.primary : '#e5e7eb',
+        }}
+        onTouchStart={() => markActive(id)}
+        onLayout={(e) => {
+          const y = Number(e?.nativeEvent?.layout?.y ?? 0) || 0
+          setSectionY((prev) => (prev[id] === y ? prev : { ...prev, [id]: y }))
+        }}
+        {...(Platform.OS === 'web' ? ({ onMouseDown: () => markActive(id) } as any) : null)}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 } as any}>
+          <Pressable onPress={() => toggleSection(id)} style={{ flex: 1 } as any}>
+            <Text
+              style={{
+                fontSize: important ? 19 : 18,
+                fontWeight: active ? ('900' as any) : ('800' as any),
+                color: active ? COLORS.primary : '#111827',
+              }}
+            >
+              {title}
+            </Text>
+          </Pressable>
+
+          {justSaved ? (
+            <View
+              style={{
+                paddingVertical: 4,
+                paddingHorizontal: 10,
+                borderRadius: 999,
+                backgroundColor: '#ecfdf5',
+                borderWidth: 1,
+                borderColor: '#a7f3d0',
+              }}
+            >
+              <Text style={{ color: '#047857', fontSize: 12, fontWeight: '800' }}>保存しました</Text>
+            </View>
+          ) : null}
+
+          {dirty ? (
+            <View
+              style={{
+                paddingVertical: 4,
+                paddingHorizontal: 10,
+                borderRadius: 999,
+                backgroundColor: '#fffbeb',
+                borderWidth: 1,
+                borderColor: '#fde68a',
+              }}
+            >
+              <Text style={{ color: '#b45309', fontSize: 12, fontWeight: '800' }}>未保存</Text>
+            </View>
+          ) : null}
+
+          {warning ? (
+            <View
+              style={{
+                paddingVertical: 4,
+                paddingHorizontal: 10,
+                borderRadius: 999,
+                backgroundColor: '#fef2f2',
+                borderWidth: 1,
+                borderColor: '#fecaca',
+              }}
+            >
+              <Text style={{ color: '#b91c1c', fontSize: 12, fontWeight: '800' }}>{warning}</Text>
+            </View>
+          ) : null}
+
+          <Pressable onPress={() => toggleSection(id)} style={styles.smallBtn}>
+            <Text style={styles.smallBtnText}>{open ? '閉じる' : '開く'}</Text>
+          </Pressable>
+        </View>
+
+        <Text style={{ marginTop: 8, color: '#6b7280', fontSize: 14, lineHeight: 20 }}>{description}</Text>
+
+        {open ? <View style={{ marginTop: 14 }}>{children}</View> : null}
+      </View>
+    )
+  }
 
   return (
     <View style={{ flex: 1 }}>
@@ -1925,47 +1803,12 @@ export function VideoDetailScreen({
           ) : null}
         </View>
 
-        <VideoDetailSection {...(sectionProps as any)}
+        <Section
           id="preview"
           title="動画プレビュー"
           description="再生できるかを確認します（処理中は少し待ってから更新）"
+          warning={missingContent.length ? `未設定: ${missingContent.join(' / ')}` : undefined}
         >
-          {!streamVideoId.trim() ? (
-            <View
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                backgroundColor: '#eff6ff',
-                borderWidth: 1,
-                borderColor: '#93c5fd',
-                marginBottom: 12,
-              }}
-            >
-              <Text style={{ color: '#1d4ed8', fontWeight: '900' }}>ℹ️ Stream連携が未設定です</Text>
-              <Text style={{ color: '#334155', marginTop: 6, lineHeight: 20 } as any}>
-                動画ファイルをアップロードすると自動で設定されます。以下の手順で進めると迷いません。
-              </Text>
-              <View style={{ marginTop: 10 }}>
-                <Text style={{ color: '#0f172a', fontWeight: '900' }}>STEP 1</Text>
-                <Text style={{ color: '#334155', marginTop: 2 } as any}>動画ファイルをアップロード</Text>
-                <Text style={{ color: '#0f172a', fontWeight: '900', marginTop: 8 } as any}>STEP 2</Text>
-                <Text style={{ color: '#334155', marginTop: 2 } as any}>この画面で再生できるか確認</Text>
-                <Text style={{ color: '#0f172a', fontWeight: '900', marginTop: 8 } as any}>STEP 3（任意）</Text>
-                <Text style={{ color: '#334155', marginTop: 2 } as any}>字幕（WebVTT）を登録</Text>
-              </View>
-              <View style={[styles.filterActions, { justifyContent: 'flex-start', marginTop: 12 }]}>
-                <Pressable
-                  onPress={() => {
-                    scrollToSection('replace')
-                  }}
-                  style={styles.btnPrimary}
-                >
-                  <Text style={styles.btnPrimaryText}>STEP 1へ：動画ファイルをアップロード</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
-
           <View style={styles.field}>
             <Text style={styles.label}>現在のStream連携</Text>
             <Text style={styles.selectMenuDetailText}>
@@ -2047,9 +1890,9 @@ export function VideoDetailScreen({
               <Text style={styles.selectMenuDetailText}>Web版管理画面でプレビューできます</Text>
             )}
           </View>
-        </VideoDetailSection>
+        </Section>
 
-        <VideoDetailSection {...(sectionProps as any)}
+        <Section
           id="basics"
           title="視聴者に表示される内容"
           description="タイトル・説明・サムネを編集します。"
@@ -2060,41 +1903,37 @@ export function VideoDetailScreen({
             <SelectField label="作品" value={workId} placeholder="選択" options={workOptions} onChange={setWorkId} />
           </View>
 
+          <View
+            style={{
+              marginTop: 14,
+              padding: 12,
+              borderRadius: 12,
+              backgroundColor: '#f8fafc',
+              borderWidth: 1,
+              borderColor: '#dbeafe',
+            }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '900', color: '#1d4ed8' }}>ここを触ればOK（重要）</Text>
+            <Text style={{ marginTop: 4, fontSize: 13, color: '#334155' }}>タイトル・説明・サムネを整えると、公開前の品質が上がります。</Text>
+          </View>
+
           <View style={styles.field}>
             <Text style={[styles.label, { fontSize: 15, fontWeight: '900', color: '#111827' }]}>タイトル（重要）</Text>
             <TextInput
-              nativeID={`admin-video-${String(id || 'new')}-title`}
               value={title}
               onChangeText={setTitle}
               style={[styles.input, { fontSize: 16, paddingVertical: 12, borderColor: '#93c5fd' }]}
-              onFocus={() => {
-                editingTextInputRef.current = true
-                editingScrollYRef.current = getCurrentScrollY()
-                markActive('basics')
-              }}
-              onBlur={() => {
-                editingTextInputRef.current = false
-                editingScrollYRef.current = null
-              }}
+              onFocus={() => markActive('basics')}
             />
           </View>
           <View style={styles.field}>
             <Text style={[styles.label, { fontSize: 15, fontWeight: '900', color: '#111827' }]}>説明（重要）</Text>
             <TextInput
-              nativeID={`admin-video-${String(id || 'new')}-desc`}
               value={desc}
               onChangeText={setDesc}
               style={[styles.input, { minHeight: 120, fontSize: 15, borderColor: '#93c5fd' }]}
               multiline
-              onFocus={() => {
-                editingTextInputRef.current = true
-                editingScrollYRef.current = getCurrentScrollY()
-                markActive('basics')
-              }}
-              onBlur={() => {
-                editingTextInputRef.current = false
-                editingScrollYRef.current = null
-              }}
+              onFocus={() => markActive('basics')}
             />
           </View>
 
@@ -2177,137 +2016,84 @@ export function VideoDetailScreen({
             </Pressable>
           </View>
 
-        </VideoDetailSection>
+        </Section>
 
-        <VideoDetailSection {...(sectionProps as any)}
+        <Section
           id="replace"
-          title="動画ファイル差し替え"
-          description="通常は自動処理されますが、差し替えが必要な場合のみ使用してください。"
+          title="動画ファイル差し替え（たまに使う）"
+          description="動画ファイルの差し替え・字幕（日本語）をここで扱います。"
+          warning={missingContent.length ? `未設定: ${missingContent.join(' / ')}` : undefined}
         >
-          <View
-            style={{
-              padding: 12,
-              borderRadius: 12,
-              backgroundColor: '#f8fafc',
-              borderWidth: 1,
-              borderColor: '#e2e8f0',
-              marginBottom: 12,
-            }}
-          >
-            <Text style={{ fontWeight: '900', color: '#0f172a' }}>STEP 1：動画ファイルをアップロード</Text>
-            <Text style={{ color: '#475569', marginTop: 6, lineHeight: 20 } as any}>ファイルを選択するとアップロードを開始できます（最大30GB）。</Text>
+          <View style={styles.field}>
+            <Text style={styles.label}>動画アップロード（Cloudflare Stream）</Text>
+            <Text style={styles.selectMenuDetailText}>動画ファイルを選び、アップロードを開始します（最大30GB）</Text>
 
-            <View style={[styles.field, { marginTop: 10 }]}>
-              <Text style={styles.label}>動画アップロード（Cloudflare Stream）</Text>
-              <Text style={styles.selectMenuDetailText}>動画ファイルを選び、アップロードを開始します</Text>
+            {Platform.OS === 'web' ? (
+              <View style={{ marginTop: 10 }}>
+                <WebDropZone
+                  title="動画ファイルを選択"
+                  hint="ドラッグ&ドロップ対応（最大30GB）"
+                  accept="video/*"
+                  multiple={false}
+                  onFiles={(files) => {
+                    const f = files?.[0] ?? null
+                    if (!f) return
+                    setUploadFile(f)
+                    setUploadPct(0)
+                    setUploadState('idle')
+                    setBanner('')
+                  }}
+                />
 
-              {Platform.OS === 'web' ? (
-                <View style={{ marginTop: 10 }}>
-                  <WebDropZone
-                    title="動画ファイルを選択"
-                    hint="ドラッグ&ドロップ対応（最大30GB）"
-                    accept="video/*"
-                    multiple={false}
-                    onFiles={(files) => {
-                      const f = files?.[0] ?? null
-                      if (!f) return
-                      setUploadFile(f)
-                      setUploadPct(0)
-                      setUploadState('idle')
-                      setBanner('')
-                    }}
-                  />
+                {uploadFile ? (
+                  <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>
+                    {`選択: ${uploadFile.name} / ${(uploadFile.size / (1024 * 1024)).toFixed(1)}MB`}
+                  </Text>
+                ) : (
+                  <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>動画ファイルを選択してください</Text>
+                )}
 
-                  {uploadFile ? (
-                    <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>
-                      {`選択: ${uploadFile.name} / ${(uploadFile.size / (1024 * 1024)).toFixed(1)}MB`}
+                <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
+                  <Pressable
+                    disabled={uploadState === 'creating' || uploadState === 'uploading' || !uploadFile}
+                    onPress={startStreamUpload}
+                    style={[
+                      styles.btnSecondary,
+                      uploadState === 'creating' || uploadState === 'uploading' || !uploadFile ? styles.btnDisabled : null,
+                    ]}
+                  >
+                    <Text style={styles.btnSecondaryText}>
+                      {uploadState === 'creating'
+                        ? 'URL発行中…'
+                        : uploadState === 'uploading'
+                          ? `アップロード中… ${uploadPct}%`
+                          : uploadState === 'done'
+                            ? '再アップロード'
+                            : 'アップロード開始'}
                     </Text>
-                  ) : (
-                    <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>動画ファイルを選択するとアップロードを開始できます</Text>
-                  )}
-
-                  <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
-                    <Pressable
-                      disabled={uploadState === 'creating' || uploadState === 'uploading' || !uploadFile}
-                      onPress={startStreamUpload}
-                      style={[
-                        styles.btnPrimary,
-                        uploadState === 'creating' || uploadState === 'uploading' || !uploadFile ? styles.btnDisabled : null,
-                      ]}
-                    >
-                      <Text style={styles.btnPrimaryText}>
-                        {uploadState === 'creating'
-                          ? 'URL発行中…'
-                          : uploadState === 'uploading'
-                            ? `アップロード中… ${uploadPct}%`
-                            : uploadState === 'done'
-                              ? '再アップロード'
-                              : 'アップロード開始'}
-                      </Text>
+                  </Pressable>
+                  {uploadState === 'uploading' ? (
+                    <Pressable onPress={stopUpload} style={styles.btnSecondary}>
+                      <Text style={styles.btnSecondaryText}>中止</Text>
                     </Pressable>
-                    {uploadState === 'uploading' ? (
-                      <Pressable onPress={stopUpload} style={styles.btnSecondary}>
-                        <Text style={styles.btnSecondaryText}>中止</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-
-                  {uploadState === 'creating' || uploadState === 'uploading' ? (
-                    <Text style={[styles.selectMenuDetailText, { marginTop: 8 }]}>アップロードには時間がかかる場合があります（完了までこの画面で待機できます）</Text>
-                  ) : null}
-
-                  {uploadState === 'uploading' || uploadState === 'done' ? (
-                    <View style={styles.uploadBarOuter}>
-                      <View style={[styles.uploadBarInner, { width: `${Math.min(100, Math.max(0, uploadPct))}%` }]} />
-                    </View>
                   ) : null}
                 </View>
-              ) : (
-                <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>Web版管理画面でアップロードできます</Text>
-              )}
-            </View>
+
+                {uploadState === 'uploading' || uploadState === 'done' ? (
+                  <View style={styles.uploadBarOuter}>
+                    <View style={[styles.uploadBarInner, { width: `${Math.min(100, Math.max(0, uploadPct))}%` }]} />
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+              <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>Web版管理画面でアップロードできます</Text>
+            )}
           </View>
 
-          <View
-            style={{
-              padding: 12,
-              borderRadius: 12,
-              backgroundColor: '#f8fafc',
-              borderWidth: 1,
-              borderColor: '#e2e8f0',
-              marginBottom: 12,
-            }}
-          >
-            <Text style={{ fontWeight: '900', color: '#0f172a' }}>STEP 2：プレビューに戻って確認</Text>
-            <Text style={{ color: '#475569', marginTop: 6, lineHeight: 20 } as any}>
-              アップロード後は「プレビュー」セクションで、再生できるか・想定の動画になっているかを確認してください。
-            </Text>
-            <View style={[styles.filterActions, { marginTop: 10, justifyContent: 'flex-start' }]}>
-              <Pressable onPress={() => scrollToSection('preview')} style={styles.btnSecondary}>
-                <Text style={styles.btnSecondaryText}>STEP 2へ：プレビューを開く</Text>
-              </Pressable>
-            </View>
-          </View>
+          <StreamCaptionsPanel cfg={cfg as unknown as CmsApiConfig} streamVideoId={streamVideoId} />
+        </Section>
 
-          <View
-            style={{
-              padding: 12,
-              borderRadius: 12,
-              backgroundColor: '#f8fafc',
-              borderWidth: 1,
-              borderColor: '#e2e8f0',
-              marginBottom: 12,
-            }}
-          >
-            <Text style={{ fontWeight: '900', color: '#0f172a' }}>STEP 3：字幕（WebVTT）を登録（任意）</Text>
-            <Text style={{ color: '#475569', marginTop: 6, lineHeight: 20 } as any}>※ 動画アップロード完了後に設定できます</Text>
-            <View style={{ marginTop: 10 }}>
-              <StreamCaptionsPanel cfg={cfg as unknown as CmsApiConfig} streamVideoId={streamVideoId} />
-            </View>
-          </View>
-        </VideoDetailSection>
-
-        <VideoDetailSection {...(sectionProps as any)}
+        <Section
           id="publish"
           title="視聴者に公開する設定"
           description="公開/非公開、配信予定日時、話数を設定します。"
@@ -2320,7 +2106,6 @@ export function VideoDetailScreen({
           <View style={styles.field}>
             <Text style={styles.label}>配信予定日時（ISO文字列）</Text>
             <TextInput
-              nativeID={`admin-video-${String(id || 'new')}-scheduledAt`}
               value={scheduledAt}
               onChangeText={setScheduledAt}
               placeholder="2026-01-15T20:00:00Z"
@@ -2333,7 +2118,6 @@ export function VideoDetailScreen({
           <View style={styles.field}>
             <Text style={styles.label}>話数（episodeNo）</Text>
             <TextInput
-              nativeID={`admin-video-${String(id || 'new')}-episodeNo`}
               value={episodeNoText}
               onChangeText={setEpisodeNoText}
               style={styles.input}
@@ -2347,9 +2131,9 @@ export function VideoDetailScreen({
               <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : 'このセクションを保存'}</Text>
             </Pressable>
           </View>
-        </VideoDetailSection>
+        </Section>
 
-        <VideoDetailSection {...(sectionProps as any)}
+        <Section
           id="meta"
           title="検索や一覧に使う分類"
           description="カテゴリ・タグ・出演者・ジャンルを設定します。"
@@ -2393,9 +2177,9 @@ export function VideoDetailScreen({
               <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : 'このセクションを保存'}</Text>
             </Pressable>
           </View>
-        </VideoDetailSection>
+        </Section>
 
-        <VideoDetailSection {...(sectionProps as any)}
+        <Section
           id="advanced"
           title="詳細設定（通常は触りません）"
           description="Stream Video ID や内部IDなど、必要なときだけ確認・編集します。"
@@ -2409,7 +2193,6 @@ export function VideoDetailScreen({
             <Text style={styles.label}>Stream Video ID</Text>
             <Text style={styles.selectMenuDetailText}>通常は動画アップロードで自動設定されます</Text>
             <TextInput
-              nativeID={`admin-video-${String(id || 'new')}-advanced-streamVideoId`}
               value={streamVideoId}
               onChangeText={setStreamVideoId}
               placeholder="32桁のID"
@@ -2423,7 +2206,6 @@ export function VideoDetailScreen({
             <Text style={styles.label}>字幕URL（旧）</Text>
             <Text style={styles.selectMenuDetailText}>現在は「Stream字幕（日本語）」の利用を推奨します</Text>
             <TextInput
-              nativeID={`admin-video-${String(id || 'new')}-advanced-subtitleUrl`}
               value={subtitleUrl}
               onChangeText={setSubtitleUrl}
               style={styles.input}
@@ -2440,234 +2222,84 @@ export function VideoDetailScreen({
               <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : 'このセクションを保存'}</Text>
             </Pressable>
           </View>
-        </VideoDetailSection>
+        </Section>
 
-        <VideoDetailSection {...(sectionProps as any)}
+        <Section
           id="reco"
           title={`この動画のおすすめ（${recommendations.length}件）`}
           description="視聴者に表示されるおすすめ動画の並び順を調整します。"
           dirty={recoDirty}
         >
           <View style={styles.field}>
-            <Text style={styles.label}>検索して追加（メイン導線）</Text>
-            <Text style={styles.selectMenuDetailText}>タイトル/作品名/IDで検索して、サムネとタイトルを見ながら複数選択できます。</Text>
-            <View style={[styles.filterActions, { justifyContent: 'flex-start', marginTop: 8 }]}> 
+            <Text style={styles.label}>手動追加（動画ID）</Text>
+            <View style={styles.row}>
+              <TextInput value={manualRecoVideoId} onChangeText={setManualRecoVideoId} style={[styles.input, { flex: 1 }]} autoCapitalize="none" />
               <Pressable
-                disabled={recoSearchBusy}
                 onPress={() => {
-                  if (!recoSearchQ.trim()) {
-                    try {
-                      recoSearchInputRef.current?.focus?.()
-                    } catch {
-                      // ignore
-                    }
-                    return
-                  }
-                  onSearchReco()
+                  const vid = manualRecoVideoId.trim()
+                  if (!vid) return
+                  addReco({ id: vid, title: '', workTitle: '', thumbnailUrl: '' })
+                  setManualRecoVideoId('')
                 }}
-                style={[styles.btnPrimary, recoSearchBusy ? styles.btnDisabled : null]}
+                style={styles.smallBtnPrimary}
               >
-                <Text style={styles.btnPrimaryText}>{recoSearchBusy ? '検索中…' : '検索して追加'}</Text>
+                <Text style={styles.smallBtnPrimaryText}>追加</Text>
               </Pressable>
-              {recoSearchSelectedIds.length ? (
-                <Pressable onPress={addSelectedReco} style={styles.btnSecondary}>
-                  <Text style={styles.btnSecondaryText}>{`選択した${recoSearchSelectedIds.length}件を追加`}</Text>
-                </Pressable>
-              ) : null}
             </View>
+          </View>
 
-            <View style={[styles.row, { marginTop: 10 }]}>
+          <View style={styles.field}>
+            <Text style={styles.label}>検索して追加</Text>
+            <View style={styles.row}>
               <TextInput
-                ref={recoSearchInputRef}
-                nativeID={`admin-video-${String(id || 'new')}-reco-search`}
                 value={recoSearchQ}
-                onChangeText={(v) => {
-                  setRecoSearchQ(v)
-                  if (!String(v || '').trim()) {
-                    setRecoSearchRows([])
-                    setRecoSearchSelectedIds([])
-                  }
-                }}
+                onChangeText={setRecoSearchQ}
                 style={[styles.input, { flex: 1 }]}
                 placeholder="タイトル/作品/ID"
                 placeholderTextColor={COLORS.placeholder}
-                autoCapitalize="none"
               />
-              <Pressable
-                disabled={recoSearchBusy}
-                onPress={onSearchReco}
-                style={[styles.smallBtnPrimary, recoSearchBusy ? styles.btnDisabled : null]}
-              >
-                <Text style={styles.smallBtnPrimaryText}>{recoSearchBusy ? '検索中…' : '検索'}</Text>
+              <Pressable disabled={recoSearchBusy} onPress={onSearchReco} style={[styles.smallBtn, recoSearchBusy ? styles.btnDisabled : null]}>
+                <Text style={styles.smallBtnText}>{recoSearchBusy ? '検索中…' : '検索'}</Text>
               </Pressable>
             </View>
-
             {recoSearchRows.length ? (
-              <View style={[styles.table, { marginTop: 10 }]}>
-                {recoSearchRows
-                  .filter((v) => String(v.id || '').trim() && String(v.id || '').trim() !== String(id || '').trim())
-                  .map((v) => {
-                    const selected = recoSearchSelectedIds.includes(v.id)
-                    return (
-                      <Pressable
-                        key={v.id}
-                        onPress={() => toggleRecoSearchSelect(v.id)}
-                        style={[
-                          styles.tableRow,
-                          selected ? ({ backgroundColor: '#ecfdf5' } as any) : null,
-                          Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null,
-                        ]}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                          {v.thumbnailUrl ? (
-                            <Image
-                              source={{ uri: v.thumbnailUrl }}
-                              style={{ width: 56, height: 36, borderRadius: 8, backgroundColor: '#e5e7eb' }}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <View
-                              style={{
-                                width: 56,
-                                height: 36,
-                                borderRadius: 8,
-                                backgroundColor: '#e5e7eb',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <Text style={{ color: '#6b7280', fontSize: 10, fontWeight: '800' }}>No Img</Text>
-                            </View>
-                          )}
-
-                          <View style={styles.tableLeft}>
-                            <Text style={styles.tableLabel}>{v.title || v.id}</Text>
-                            <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
-                          </View>
-                        </View>
-
-                        <View style={{ alignItems: 'flex-end', minWidth: 70 }}>
-                          <Text style={{ color: selected ? '#047857' : '#6b7280', fontWeight: '900' }}>{selected ? '✓ 選択' : '未選択'}</Text>
-                          {onOpenVideo ? (
-                            <Pressable onPress={() => onOpenVideo(v.id)} style={[styles.smallBtn, { marginTop: 6 }]}>
-                              <Text style={styles.smallBtnText}>詳細</Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
+              <View style={styles.table}>
+                {recoSearchRows.map((v) => (
+                  <View key={v.id} style={styles.tableRow}>
+                    {onOpenVideo ? (
+                      <Pressable onPress={() => onOpenVideo(v.id)} style={styles.tableLeft}>
+                        <Text style={styles.tableLabel}>{v.title || v.id}</Text>
+                        <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
                       </Pressable>
-                    )
-                  })}
+                    ) : (
+                      <View style={styles.tableLeft}>
+                        <Text style={styles.tableLabel}>{v.title || v.id}</Text>
+                        <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
+                      </View>
+                    )}
+                    <Pressable onPress={() => addReco(v)} style={styles.smallBtnPrimary}>
+                      <Text style={styles.smallBtnPrimaryText}>追加</Text>
+                    </Pressable>
+                  </View>
+                ))}
               </View>
             ) : null}
           </View>
 
-          <CollapsibleSection
-            title="上級者向け: 動画IDで追加"
-            subtitle="基本は「検索して追加」を使ってください"
-            open={openRecoAdvanced}
-            onToggle={() => setOpenRecoAdvanced((v) => !v)}
-          >
-            <View style={styles.field}>
-              <Text style={styles.label}>動画ID</Text>
-              <View style={styles.row}>
-                <TextInput
-                  nativeID={`admin-video-${String(id || 'new')}-reco-manual-id`}
-                  value={manualRecoVideoId}
-                  onChangeText={setManualRecoVideoId}
-                  style={[styles.input, { flex: 1 }]}
-                  autoCapitalize="none"
-                  placeholder="動画ID"
-                  placeholderTextColor={COLORS.placeholder}
-                />
-                <Pressable
-                  onPress={() => {
-                    const vid = manualRecoVideoId.trim()
-                    if (!vid) return
-                    addReco({ id: vid, title: '', workTitle: '', thumbnailUrl: '' })
-                    setManualRecoVideoId('')
-                  }}
-                  style={styles.smallBtnPrimary}
-                >
-                  <Text style={styles.smallBtnPrimaryText}>追加</Text>
-                </Pressable>
-              </View>
-            </View>
-          </CollapsibleSection>
-
           <View style={styles.table}>
-            <View style={{ paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#f9fafb', borderTopWidth: 1, borderTopColor: '#e5e7eb' }}>
-              <Text style={styles.tableDetail}>チェックを外したおすすめは「OK」で削除扱いになります（削除ボタンはありません）</Text>
-              <View style={[styles.filterActions, { justifyContent: 'flex-start', marginTop: 8 }]}> 
-                <Pressable onPress={() => setRecoCheckedIds(recommendations.map((v) => v.id))} style={styles.btnSecondary}>
-                  <Text style={styles.btnSecondaryText}>全てチェック</Text>
-                </Pressable>
-                <Pressable onPress={() => setRecoCheckedIds([])} style={styles.btnSecondary}>
-                  <Text style={styles.btnSecondaryText}>全て外す</Text>
-                </Pressable>
-                <Pressable onPress={applyRecoChecked} style={styles.btnPrimary}>
-                  <Text style={styles.btnPrimaryText}>OK</Text>
-                </Pressable>
-              </View>
-            </View>
             {recommendations.map((v, idx) => (
               <View key={v.id} style={styles.tableRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                  <Pressable
-                    onPress={() => toggleRecoChecked(v.id)}
-                    style={{
-                      width: 26,
-                      height: 26,
-                      borderRadius: 6,
-                      borderWidth: 2,
-                      borderColor: '#94a3b8',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: recoCheckedIds.includes(v.id) ? '#ecfdf5' : '#ffffff',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 16,
-                        fontWeight: '900',
-                        color: recoCheckedIds.includes(v.id) ? '#047857' : '#ffffff',
-                      }}
-                    >
-                      ✓
-                    </Text>
+                {onOpenVideo ? (
+                  <Pressable onPress={() => onOpenVideo(v.id)} style={styles.tableLeft}>
+                    <Text style={styles.tableLabel}>{`${idx + 1}. ${v.title || v.id}`}</Text>
+                    <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
                   </Pressable>
-                  {v.thumbnailUrl ? (
-                    <Image
-                      source={{ uri: v.thumbnailUrl }}
-                      style={{ width: 56, height: 36, borderRadius: 8, backgroundColor: '#e5e7eb' }}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View
-                      style={{
-                        width: 56,
-                        height: 36,
-                        borderRadius: 8,
-                        backgroundColor: '#e5e7eb',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Text style={{ color: '#6b7280', fontSize: 10, fontWeight: '800' }}>No Img</Text>
-                    </View>
-                  )}
-
-                  {onOpenVideo ? (
-                    <Pressable onPress={() => onOpenVideo(v.id)} style={styles.tableLeft}>
-                      <Text style={styles.tableLabel}>{`${idx + 1}. ${v.title || v.id}`}</Text>
-                      <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
-                    </Pressable>
-                  ) : (
-                    <View style={styles.tableLeft}>
-                      <Text style={styles.tableLabel}>{`${idx + 1}. ${v.title || v.id}`}</Text>
-                      <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
-                    </View>
-                  )}
-                </View>
+                ) : (
+                  <View style={styles.tableLeft}>
+                    <Text style={styles.tableLabel}>{`${idx + 1}. ${v.title || v.id}`}</Text>
+                    <Text style={styles.tableDetail}>{`${v.id}${v.workTitle ? ` / ${v.workTitle}` : ''}`}</Text>
+                  </View>
+                )}
                 <View style={styles.row}>
                   <Pressable onPress={() => moveReco(v.id, -1)} style={styles.smallBtn}>
                     <Text style={styles.smallBtnText}>↑</Text>
@@ -2675,27 +2307,15 @@ export function VideoDetailScreen({
                   <Pressable onPress={() => moveReco(v.id, 1)} style={styles.smallBtn}>
                     <Text style={styles.smallBtnText}>↓</Text>
                   </Pressable>
+                  <Pressable onPress={() => removeReco(v.id)} style={styles.smallBtnDanger}>
+                    <Text style={styles.smallBtnDangerText}>削除</Text>
+                  </Pressable>
                 </View>
               </View>
             ))}
             {!recommendations.length ? (
               <View style={styles.placeholderBox}>
-                <Text style={[styles.placeholderText, { fontWeight: '900' }]}>おすすめがありません</Text>
-                <Text style={[styles.selectMenuDetailText, { marginTop: 6 }]}>視聴者に表示するおすすめ動画を、検索から追加できます（複数選択可）。</Text>
-                <View style={[styles.filterActions, { justifyContent: 'center', marginTop: 10 }]}> 
-                  <Pressable
-                    onPress={() => {
-                      try {
-                        recoSearchInputRef.current?.focus?.()
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                    style={styles.btnPrimary}
-                  >
-                    <Text style={styles.btnPrimaryText}>検索して追加</Text>
-                  </Pressable>
-                </View>
+                <Text style={styles.placeholderText}>おすすめがありません</Text>
               </View>
             ) : null}
           </View>
@@ -2705,7 +2325,7 @@ export function VideoDetailScreen({
               <Text style={styles.btnPrimaryText}>{busy ? '保存中…' : 'このセクションを保存'}</Text>
             </Pressable>
           </View>
-        </VideoDetailSection>
+        </Section>
       </ScrollView>
 
       {Platform.OS === 'web' ? (
@@ -3276,16 +2896,15 @@ export function VideoUploadScreen({
 
         <View style={styles.field}>
           <Text style={styles.label}>タイトル</Text>
-          <TextInput nativeID="admin-video-upload-title" value={title} onChangeText={setTitle} style={styles.input} />
+          <TextInput value={title} onChangeText={setTitle} style={styles.input} />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>説明</Text>
-          <TextInput nativeID="admin-video-upload-desc" value={desc} onChangeText={setDesc} style={[styles.input, { minHeight: 110 }]} multiline />
+          <TextInput value={desc} onChangeText={setDesc} style={[styles.input, { minHeight: 110 }]} multiline />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Stream Video ID</Text>
           <TextInput
-            nativeID="admin-video-upload-streamVideoId"
             value={streamVideoId}
             onChangeText={setStreamVideoId}
             placeholder="Cloudflare Stream の videoId"
@@ -3298,12 +2917,11 @@ export function VideoUploadScreen({
         <StreamCaptionsPanel cfg={cfg as unknown as CmsApiConfig} streamVideoId={streamVideoId} />
         <View style={styles.field}>
           <Text style={styles.label}>Stream Video ID（クリーン）</Text>
-          <TextInput nativeID="admin-video-upload-streamVideoIdClean" value={streamVideoIdClean} onChangeText={setStreamVideoIdClean} style={styles.input} autoCapitalize="none" />
+          <TextInput value={streamVideoIdClean} onChangeText={setStreamVideoIdClean} style={styles.input} autoCapitalize="none" />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Stream Video ID（字幕）</Text>
           <TextInput
-            nativeID="admin-video-upload-streamVideoIdSubtitled"
             value={streamVideoIdSubtitled}
             onChangeText={setStreamVideoIdSubtitled}
             style={styles.input}
@@ -3339,7 +2957,6 @@ export function VideoUploadScreen({
             </View>
           ) : null}
           <TextInput
-            nativeID="admin-video-upload-thumbnailUrl"
             value={thumbnailUrl}
             onChangeText={setThumbnailUrl}
             placeholder="https://..."

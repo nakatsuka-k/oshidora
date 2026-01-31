@@ -732,15 +732,6 @@ function safeLocalStorageGet(key: string): string {
   }
 }
 
-function safeSessionStorageGet(key: string): string {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return ''
-  try {
-    return String(window.sessionStorage.getItem(key) || '')
-  } catch {
-    return ''
-  }
-}
-
 function safeLocalStorageSet(key: string, value: string): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return
   try {
@@ -750,28 +741,10 @@ function safeLocalStorageSet(key: string, value: string): void {
   }
 }
 
-function safeSessionStorageSet(key: string, value: string): void {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return
-  try {
-    window.sessionStorage.setItem(key, value)
-  } catch {
-    // empty
-  }
-}
-
 function safeLocalStorageRemove(key: string): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return
   try {
     window.localStorage.removeItem(key)
-  } catch {
-    // empty
-  }
-}
-
-function safeSessionStorageRemove(key: string): void {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return
-  try {
-    window.sessionStorage.removeItem(key)
   } catch {
     // empty
   }
@@ -4222,7 +4195,6 @@ function AppShell({
           <ExtractedCommentsPendingListScreen
             cfg={cfg}
             cmsFetchJson={cmsFetchJson}
-            confirm={confirm}
             styles={styles}
             onOpenDetail={(id) => {
               setSelectedCommentId(id)
@@ -4352,19 +4324,7 @@ function AppShell({
         )
 
       case 'ranking-videos':
-        return (
-          <ExtractedRankingsScreen
-            cfg={cfg}
-            cmsFetchJson={cmsFetchJson}
-            type="videos"
-            title="動画ランキング"
-            onOpenVideo={(id) => {
-              setPathname(buildVideoDetailPath(id))
-              setSelectedVideoId(id)
-              onNavigate('video-detail')
-            }}
-          />
-        )
+        return <ExtractedRankingsScreen cfg={cfg} cmsFetchJson={cmsFetchJson} type="videos" title="動画ランキング" />
       case 'ranking-coins':
         return <ExtractedRankingsScreen cfg={cfg} cmsFetchJson={cmsFetchJson} type="coins" title="獲得コインランキング" />
       case 'ranking-actors':
@@ -4754,7 +4714,7 @@ export default function App() {
   const [debugOverlayHidden, setDebugOverlayHidden] = useState(false)
 
   useEffect(() => {
-    const saved = safeSessionStorageGet(STORAGE_KEY) || safeLocalStorageGet(STORAGE_KEY)
+    const saved = safeLocalStorageGet(STORAGE_KEY)
     const savedEmail = safeLocalStorageGet(STORAGE_EMAIL_KEY)
     const savedDevMode = safeLocalStorageGet(STORAGE_DEV_MODE_KEY)
     normalizeLegacyHashToPath()
@@ -4820,9 +4780,6 @@ export default function App() {
   const onLoggedIn = useCallback((nextToken: string, remember: boolean) => {
     resetUnauthorizedEventEmission()
     setToken(nextToken)
-    // Keep session across refreshes in the same tab/window.
-    safeSessionStorageSet(STORAGE_KEY, nextToken)
-    // Persist across browser restarts only when explicitly requested.
     if (remember) safeLocalStorageSet(STORAGE_KEY, nextToken)
     else safeLocalStorageRemove(STORAGE_KEY)
     setAdminEmail(safeLocalStorageGet(STORAGE_EMAIL_KEY))
@@ -4837,7 +4794,6 @@ export default function App() {
     setToken('')
     setAdminEmail('')
     safeLocalStorageRemove(STORAGE_KEY)
-    safeSessionStorageRemove(STORAGE_KEY)
     safeLocalStorageRemove(STORAGE_EMAIL_KEY)
     setRoute('login')
     setScreen('login')
@@ -4900,7 +4856,6 @@ export default function App() {
 
   const onSetToken = useCallback((nextToken: string, persist: boolean) => {
     setToken(nextToken)
-    safeSessionStorageSet(STORAGE_KEY, nextToken)
     if (persist) safeLocalStorageSet(STORAGE_KEY, nextToken)
     else safeLocalStorageRemove(STORAGE_KEY)
     setLoginBanner('')
@@ -4909,7 +4864,6 @@ export default function App() {
   const onClearToken = useCallback(() => {
     setToken('')
     safeLocalStorageRemove(STORAGE_KEY)
-    safeSessionStorageRemove(STORAGE_KEY)
   }, [])
 
   const debugOverlayInitialPos = useMemo(() => {
@@ -5075,15 +5029,15 @@ export default function App() {
 }
 
 const COLORS = {
-  bg: '#f6f7fb',
-  sidebarBg: '#f3f4f6',
-  text: '#0f172a',
-  muted: '#64748b',
-  placeholder: '#94a3b8',
-  border: '#e2e8f0',
+  bg: '#f3f4f6',
+  sidebarBg: '#e5e7eb',
+  text: '#111827',
+  muted: '#6b7280',
+  placeholder: '#9ca3af',
+  border: '#d1d5db',
   white: '#ffffff',
-  primary: '#1e1b4b',
-  primarySoft: '#eef2ff',
+  primary: '#2563eb',
+  primarySoft: '#eff6ff',
   danger: '#b91c1c',
   dangerSoft: '#fff1f2',
 }
@@ -5105,10 +5059,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerLogo: {
-    color: COLORS.primary,
+    color: COLORS.text,
     fontSize: 16,
     fontWeight: '900',
-    letterSpacing: 0.3,
   },
   headerRight: {
     flexDirection: 'row',
@@ -5184,11 +5137,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.sidebarBg,
   },
   sidebarItemActive: {
-    borderColor: COLORS.primary,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.primary,
-    paddingLeft: 8,
-    backgroundColor: COLORS.primarySoft,
+    borderColor: COLORS.text,
+    backgroundColor: COLORS.white,
   },
   sidebarItemText: {
     color: COLORS.text,
@@ -5873,15 +5823,12 @@ const styles = StyleSheet.create({
 
   contentScroll: {
     flex: 1,
-    backgroundColor: COLORS.bg,
+    backgroundColor: COLORS.white,
   },
   contentInner: {
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    gap: 16,
-    width: '100%',
-    maxWidth: 1200,
-    alignSelf: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 14,
   },
   pageHeaderRow: {
     flexDirection: 'row',
@@ -5891,16 +5838,14 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     color: COLORS.text,
-    fontSize: 26,
+    fontSize: 20,
     fontWeight: '900',
-    lineHeight: 32,
-    letterSpacing: 0.2,
   },
   pageSubtitle: {
     color: COLORS.muted,
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: -8,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: -6,
   },
   pageLead: {
     color: COLORS.muted,
@@ -5921,92 +5866,11 @@ const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: COLORS.white,
     gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
   },
   sectionTitle: {
     color: COLORS.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
-  },
-  sectionSubtitle: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-
-  sectionActive: {
-    borderColor: COLORS.primary,
-    shadowOpacity: 0.09,
-  },
-  sectionHeaderPressable: {
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  sectionTitleWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  sectionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  sectionHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    minHeight: 22,
-  },
-  sectionChevron: {
-    color: COLORS.muted,
-    fontSize: 16,
-    fontWeight: '900',
-    width: 18,
-    textAlign: 'center',
-    marginTop: -1,
-  },
-  sectionBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  sectionBadge: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: COLORS.white,
-  },
-  sectionBadgeDirty: {
-    borderColor: COLORS.danger,
-    backgroundColor: '#fef2f2',
-  },
-  sectionBadgeSaved: {
-    borderColor: '#16a34a',
-    backgroundColor: '#f0fdf4',
-  },
-  sectionBadgeText: {
-    color: COLORS.muted,
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  sectionBadgeTextDirty: {
-    color: COLORS.danger,
-  },
-  sectionBadgeTextSaved: {
-    color: '#16a34a',
   },
 
   // Divider-based (non-card) sections
@@ -6094,11 +5958,6 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: COLORS.white,
     gap: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
   },
   kpiLabel: {
     color: COLORS.muted,
@@ -6141,76 +6000,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  tableHeaderRow: {
-    backgroundColor: COLORS.bg,
-  },
-  tableHeaderText: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  tableCell: {
-    justifyContent: 'center',
-    paddingRight: 12,
-  },
-  tableCellText: {
-    color: COLORS.text,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  tableCellMuted: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  tableCellCheck: {
-    width: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingRight: 0,
-  },
-  tableCheckbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tableCheckboxOn: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primarySoft,
-  },
-  tableCheckboxText: {
-    color: COLORS.placeholder,
-    fontSize: 12,
-    fontWeight: '900',
-    marginTop: -1,
-  },
-  tableCheckboxTextOn: {
-    color: COLORS.primary,
-  },
-  tableRowActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  smallBtnDangerOutline: {
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: COLORS.danger,
-    backgroundColor: 'transparent',
-  },
-  smallBtnDangerOutlineText: {
-    color: COLORS.danger,
-    fontSize: 12,
-    fontWeight: '900',
-  },
   tableRight: {
     marginLeft: 12,
     alignItems: 'flex-end',
@@ -6240,11 +6029,6 @@ const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: COLORS.white,
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
   },
   shortcutText: {
     color: COLORS.text,
@@ -6261,11 +6045,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 160,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
   },
   placeholderText: {
     color: COLORS.muted,
@@ -6448,14 +6227,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     alignItems: 'flex-start',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
   },
   workCardUnpublished: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f9fafb',
   },
   workThumb: {
     width: 112,
@@ -6506,9 +6280,9 @@ const styles = StyleSheet.create({
   },
   workTitle: {
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '900',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   workMetaRow: {
     flexDirection: 'row',
@@ -6518,8 +6292,8 @@ const styles = StyleSheet.create({
   },
   workMetaText: {
     color: COLORS.muted,
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '800',
   },
   workActionsRow: {
     flexDirection: 'row',
@@ -6604,13 +6378,6 @@ const styles = StyleSheet.create({
   statusPillDanger: {
     backgroundColor: '#fef2f2',
     borderColor: '#fecaca',
-  },
-  statusPillWarning: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a',
-  },
-  statusPillTextWarning: {
-    color: '#b45309',
   },
 
   // Works preview

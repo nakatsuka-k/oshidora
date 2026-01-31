@@ -1,15 +1,15 @@
 import { Platform, StyleSheet } from 'react-native'
 
 export const COLORS = {
-  bg: '#f6f7fb',
-  sidebarBg: '#f3f4f6',
-  text: '#0f172a',
-  muted: '#64748b',
-  placeholder: '#94a3b8',
-  border: '#e2e8f0',
+  bg: '#f3f4f6',
+  sidebarBg: '#f9fafb',
+  text: '#111827',
+  muted: '#6b7280',
+  placeholder: '#9ca3af',
+  border: '#d1d5db',
   white: '#ffffff',
-  primary: '#1e1b4b',
-  primarySoft: '#eef2ff',
+  primary: '#2563eb',
+  primarySoft: '#eff6ff',
   danger: '#dc2626',
 }
 
@@ -740,20 +740,6 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
-  smallBtnDangerOutline: {
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: COLORS.danger,
-    backgroundColor: 'transparent',
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : null),
-  },
-  smallBtnDangerOutlineText: {
-    color: COLORS.danger,
-    fontSize: 12,
-    fontWeight: '900',
-  },
   pagination: {
     marginTop: 12,
     flexDirection: 'row',
@@ -837,9 +823,9 @@ export const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     gap: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
   sectionTitle: {
@@ -942,9 +928,9 @@ export const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     gap: 8,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.05,
     shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 8 },
     elevation: 1,
   },
   kpiLabel: {
@@ -965,63 +951,6 @@ export const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: COLORS.white,
   },
-  tableHeaderRow: {
-    backgroundColor: COLORS.bg,
-  },
-  tableHeaderText: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  tableCell: {
-    justifyContent: 'center',
-    paddingRight: 12,
-  },
-  tableCellText: {
-    color: COLORS.text,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  tableCellMuted: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  tableCellCheck: {
-    width: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingRight: 0,
-  },
-  tableCheckbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tableCheckboxOn: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primarySoft,
-  },
-  tableCheckboxText: {
-    color: COLORS.placeholder,
-    fontSize: 12,
-    fontWeight: '900',
-    marginTop: -1,
-  },
-  tableCheckboxTextOn: {
-    color: COLORS.primary,
-  },
-  tableRowActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
 
   // Works (management list)
   workListWrap: {
@@ -1037,10 +966,10 @@ export const styles = StyleSheet.create({
     gap: 12,
     alignItems: 'flex-start',
     shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    elevation: 1,
   },
   workCardUnpublished: {
     backgroundColor: '#f9fafb',
@@ -1094,9 +1023,9 @@ export const styles = StyleSheet.create({
   },
   workTitle: {
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '900',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   workMetaRow: {
     flexDirection: 'row',
@@ -1106,8 +1035,8 @@ export const styles = StyleSheet.create({
   },
   workMetaText: {
     color: COLORS.muted,
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '800',
   },
   workActionsRow: {
     flexDirection: 'row',
@@ -1163,13 +1092,6 @@ export const styles = StyleSheet.create({
   statusPillUnpublished: {
     backgroundColor: '#f3f4f6',
     borderColor: '#e5e7eb',
-  },
-  statusPillWarning: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a',
-  },
-  statusPillTextWarning: {
-    color: '#b45309',
   },
   helperText: {
     marginTop: 6,

@@ -59,7 +59,6 @@ export async function cmsFetchJsonWithBase<T>(
   if (res.status === 401) {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       safeLocalStorageRemove(STORAGE_KEY)
-      safeSessionStorageRemove(STORAGE_KEY)
 
       if (!unauthorizedEventEmitted) {
         let dispatched = false
@@ -305,15 +304,6 @@ export function safeLocalStorageGet(key: string): string {
   }
 }
 
-export function safeSessionStorageGet(key: string): string {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return ''
-  try {
-    return String(window.sessionStorage.getItem(key) || '')
-  } catch {
-    return ''
-  }
-}
-
 export function safeLocalStorageSet(key: string, value: string): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return
   try {
@@ -323,28 +313,10 @@ export function safeLocalStorageSet(key: string, value: string): void {
   }
 }
 
-export function safeSessionStorageSet(key: string, value: string): void {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return
-  try {
-    window.sessionStorage.setItem(key, value)
-  } catch {
-    // ignore
-  }
-}
-
 export function safeLocalStorageRemove(key: string): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return
   try {
     window.localStorage.removeItem(key)
-  } catch {
-    // ignore
-  }
-}
-
-export function safeSessionStorageRemove(key: string): void {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return
-  try {
-    window.sessionStorage.removeItem(key)
   } catch {
     // ignore
   }
