@@ -429,6 +429,9 @@ export default function App() {
   const [debugAuthAutofill, setDebugAuthAutofill] = useState<boolean>(false)
   const [debugUserType, setDebugUserType] = useState<'user' | 'cast'>('user')
   const [debugPaypayLinked, setDebugPaypayLinked] = useState<boolean>(false)
+
+  // Prevent premature redirects before AsyncStorage is loaded (important on web refresh).
+  const [authHydrated, setAuthHydrated] = useState<boolean>(false)
   const [debugPaypayMaskedLabel] = useState<string>('********')
   const [debugEmailCode, setDebugEmailCode] = useState<string>('')
   const [debugSmsCode, setDebugSmsCode] = useState<string>('')
@@ -542,6 +545,8 @@ export default function App() {
         setDebugPaypayLinked(paypayLinked)
       } catch {
         // ignore
+      } finally {
+        setAuthHydrated(true)
       }
     })()
   }, [])
@@ -591,6 +596,7 @@ export default function App() {
 
   useEffect(() => {
     // Guard for direct navigation (e.g. web URL) to login-required screens.
+    if (!authHydrated) return
     if (loggedIn) return
     if (!isLoginRequiredScreen(screen)) return
 
@@ -601,7 +607,7 @@ export default function App() {
     }
     setHistory([])
     setScreen('login')
-  }, [loggedIn, replaceWebUrl, screen])
+  }, [authHydrated, loggedIn, replaceWebUrl, screen])
 
   const requireLogin = useCallback((next: Screen): boolean => {
     if (loggedIn) return true

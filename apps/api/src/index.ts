@@ -1017,6 +1017,10 @@ app.get('/cms/rankings/:type', async (c) => {
   const allowed = new Set(['videos', 'coins', 'actors', 'directors', 'writers'])
   if (!allowed.has(type)) return c.json({ error: 'invalid_type' }, 400)
 
+  const qDate = String((c.req.query('date') ?? '') as any).trim()
+  if (qDate && !/^\d{4}-\d{2}-\d{2}$/.test(qDate)) return c.json({ error: 'invalid_date' }, 400)
+  const requestedAsOf = qDate ? toAsOfIsoFromDate(qDate) : ''
+
   if (isMockRequest(c) || !c.env.DB) {
     const baseItems = [
       { rank: 1, entityId: 'X1', label: `${type.toUpperCase()} 1`, value: 100 },
@@ -1050,15 +1054,16 @@ app.get('/cms/rankings/:type', async (c) => {
         }
         return r
       }),
-      asOf: '2026-01-12T00:00:00.000Z',
+      asOf: requestedAsOf || '2026-01-12T00:00:00.000Z',
     })
   }
 
   const db = c.env.DB as D1Database
   try {
-    const asOfRow = await d1First(db, 'SELECT MAX(as_of) AS as_of FROM cms_rankings WHERE type = ?', [type])
-    const asOf = String((asOfRow as any)?.as_of ?? '')
-    if (!asOf) return c.json({ items: [], asOf: '' })
+    const asOf = requestedAsOf
+      ? requestedAsOf
+      : String(((await d1First(db, 'SELECT MAX(as_of) AS as_of FROM cms_rankings WHERE type = ?', [type])) as any)?.as_of ?? '')
+    if (!asOf) return c.json({ items: [], asOf: requestedAsOf || '' })
     const rows = await d1All(db, 'SELECT type, as_of, rank, entity_id, label, value FROM cms_rankings WHERE type = ? AND as_of = ? ORDER BY rank ASC', [
       type,
       asOf,
